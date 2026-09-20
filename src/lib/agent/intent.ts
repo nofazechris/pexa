@@ -21,12 +21,31 @@ export const INTENT_TYPES = [
   'GET_PROFILE',
   'FIND_CONTACT',
   'GET_PAYMENT_STATUS',
+  // Fiat / NGN↔USDT (autonomous money). Money-moving fiat intents require confirmation.
+  'BUY_USDT_NGN',
+  'SELL_USDT_NGN',
+  'GET_FIAT_QUOTE',
+  'FUND_WALLET_NGN',
+  'WITHDRAW_NGN',
+  'GET_PAYOUT_ACCOUNT',
+  'CREATE_PAYOUT',
+  'GET_FIAT_ORDER_STATUS',
+  'CREATE_RECURRING_CONVERSION',
 ] as const;
 
 export type IntentType = (typeof INTENT_TYPES)[number];
 
-/** Intents that move or request money always require explicit human confirmation (§31). */
-export const CONFIRMATION_REQUIRED: readonly IntentType[] = ['SEND_PAYMENT', 'REQUEST_PAYMENT'];
+/** Intents that move or commit money always require explicit human confirmation (§11, §31). */
+export const CONFIRMATION_REQUIRED: readonly IntentType[] = [
+  'SEND_PAYMENT',
+  'REQUEST_PAYMENT',
+  'BUY_USDT_NGN',
+  'SELL_USDT_NGN',
+  'FUND_WALLET_NGN',
+  'WITHDRAW_NGN',
+  'CREATE_PAYOUT',
+  'CREATE_RECURRING_CONVERSION',
+];
 
 export const agentIntentSchema = z.object({
   type: z.enum(INTENT_TYPES),

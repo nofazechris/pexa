@@ -9,9 +9,9 @@ import { useWallet } from '@/components/auth/useWallet';
 import { useBalance } from '@/components/auth/useBalance';
 import { usePayment } from '@/components/auth/usePayment';
 import { useActivity } from '@/components/auth/useActivity';
-import { useContacts } from '@/components/auth/useContacts';
 import { useRequests } from '@/components/auth/useRequests';
 import { useRecurring } from '@/components/auth/useRecurring';
+import type { PendingActionView } from '@/components/auth/useAgentChat';
 import { Spinner, Text } from '@/components/ui';
 import { color } from '@/lib/design/tokens';
 
@@ -32,27 +32,26 @@ export default function AppGate() {
   const { balance, refresh: refreshBalance } = useBalance(walletAddress ?? wallet?.address ?? null);
   const { pay } = usePayment();
   const { items: activity, refresh: refreshActivity } = useActivity();
-  const { add: addContact } = useContacts();
-  const { items: requests, create: createRequest, markPaid: markRequestPaid } = useRequests();
-  const { items: recurring, create: createRecurring, setPaused: setRecurringPaused, cancel: cancelRecurring } = useRecurring();
+  const { items: requests, markPaid: markRequestPaid } = useRequests();
+  const { items: recurring, setPaused: setRecurringPaused, cancel: cancelRecurring } = useRecurring();
   const router = useRouter();
 
-  // Real payment executor + contact/request management the agent card and screens drive.
+  // The real hooks the agent + screens drive. The chat itself is now a server-side tool-calling
+  // agent (sendToAgent/executeAction); crypto sends still settle via the client-sign path.
   const hooks = useMemo(
     () => ({
-      executeSend: async (args: { recipient: string; amount: string; memo?: string }) => {
+      // Crypto send — client-sign path (real on-chain settlement), used when the agent's confirm
+      // card is a payment.
+      executeSend: async (args: { recipient: string; amount: string }) => {
         const res = await pay(args);
         if (res.status === 'confirmed' || res.status === 'pending') {
           refreshBalance();
           refreshActivity();
-          // Pass the real outcome through so the agent card shows a truthful receipt.
           return { ok: true as const, status: res.status, txHash: res.txHash, explorerUrl: res.explorerUrl };
         }
         return { ok: false as const, error: res.error ?? 'Payment failed.' };
       },
-      addContact: (username: string) => addContact(username),
-      createRequest: (args: { payer: string; amount: string; memo?: string }) => createRequest(args),
-      // Pay a received request: a real payment to the requester, then mark the request settled.
+      // Pay a received request from the Payments screen.
       payRequest: async (args: { requestId: string; recipient: string; amount: string }) => {
         const res = await pay({ recipient: args.recipient, amount: args.amount });
         if (res.status === 'confirmed' || res.status === 'pending') {
@@ -63,55 +62,45 @@ export default function AppGate() {
         }
         return { ok: false as const, error: res.error ?? 'Payment failed.' };
       },
-      createRecurring: (args: { payee: string; amount: string; cadence?: string; memo?: string }) => createRecurring(args),
       setRecurringPaused: (id: string, paused: boolean) => setRecurringPaused(id, paused),
       cancelRecurring: (id: string) => cancelRecurring(id),
-      // Real AI: the server LLM turns the message into a validated intent; we map it to the
-      // agent card's command shape. Returns null on failure so the card degrades gracefully.
-      parseCommand: async (message: string) => {
+      // The tool-calling agent: one message + recent history in, a reply (+ optional pending action) out.
+      sendToAgent: async (args: { message: string; history: { role: 'user' | 'assistant'; content: string }[] }) => {
         try {
           const token = await getAccessToken();
-          const res = await fetch('/api/agent/command', {
+          const res = await fetch('/api/agent/chat', {
             method: 'POST',
             headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
-            body: JSON.stringify({ message }),
+            body: JSON.stringify(args),
           });
           if (!res.ok) return null;
-          const data = (await res.json()) as {
-            intent?: { type?: string; parameters?: Record<string, unknown> };
-            recipient?: { handle?: string } | null;
-          };
-          const it = data.intent;
-          if (!it?.type) return null;
-          const p = it.parameters ?? {};
-          const amountStr = typeof p.amount === 'string' ? p.amount : undefined;
-          const amount = amountStr ? parseFloat(amountStr) : undefined;
-          const rawRecipient = typeof p.recipient === 'string' ? p.recipient : undefined;
-          const handle = rawRecipient
-            ? rawRecipient.startsWith('@')
-              ? rawRecipient
-              : '@' + rawRecipient
-            : (data.recipient?.handle ?? undefined);
-          const recurring = typeof p.recurring === 'string' ? p.recurring : undefined;
-          const memo = typeof p.memo === 'string' ? p.memo : undefined;
-          switch (it.type) {
-            case 'SEND_PAYMENT':
-              return recurring ? { kind: 'recurring' as const, amount, handle, cadence: recurring } : { kind: 'send' as const, amount, handle };
-            case 'REQUEST_PAYMENT':
-              return { kind: 'request' as const, amount, handle, note: memo };
-            case 'GET_BALANCE':
-              return { kind: 'balance' as const };
-            case 'GET_TRANSACTIONS':
-              return { kind: 'activity' as const };
-            default:
-              return { kind: 'unknown' as const };
-          }
+          return (await res.json()) as { reply: string; action?: PendingActionView };
         } catch {
           return null;
         }
       },
+      // Execute a user-confirmed fiat action (buy/sell/withdraw) server-side via the policy engine.
+      executeAction: async (args: { tool: string; args: Record<string, unknown> }) => {
+        try {
+          const token = await getAccessToken();
+          const res = await fetch('/api/agent/execute', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+            body: JSON.stringify(args),
+          });
+          const data = (await res.json().catch(() => ({}))) as { result?: { order?: { orderId: string; status: string } }; message?: string };
+          if (res.ok) {
+            refreshBalance();
+            refreshActivity();
+            return { ok: true as const, result: data.result };
+          }
+          return { ok: false as const, error: data.message ?? 'Action failed.' };
+        } catch {
+          return { ok: false as const, error: 'Network error.' };
+        }
+      },
     }),
-    [pay, refreshBalance, refreshActivity, addContact, createRequest, markRequestPaid, createRecurring, setRecurringPaused, cancelRecurring, getAccessToken],
+    [pay, refreshBalance, refreshActivity, markRequestPaid, setRecurringPaused, cancelRecurring, getAccessToken],
   );
 
   useEffect(() => {
@@ -151,10 +140,9 @@ export default function AppGate() {
       requests={requests}
       recurring={recurring}
       onSignOut={() => logout()}
-      parseCommand={hooks.parseCommand}
+      sendToAgent={hooks.sendToAgent}
+      executeAction={hooks.executeAction}
       executeSend={hooks.executeSend}
-      createRequest={hooks.createRequest}
-      createRecurring={hooks.createRecurring}
       payRequest={hooks.payRequest}
       setRecurringPaused={hooks.setRecurringPaused}
       cancelRecurring={hooks.cancelRecurring}

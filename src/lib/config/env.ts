@@ -57,6 +57,14 @@ const schema = z.object({
    */
   RELAYER_PRIVATE_KEY: z.string().min(1).optional(),
 
+  // Fiat / NGN↔USDT (autonomous money feature). The provider is pluggable behind FiatProvider.
+  // 'sandbox' is a clearly-labeled MOCK adapter for development — it never moves real money and
+  // never presents its rates as live. A real, compliant provider is a separate, later config.
+  // Absent → the fiat feature is disabled (endpoints/tools return "not enabled").
+  FIAT_PROVIDER: z.enum(['sandbox']).optional(),
+  /** Shared secret used to verify inbound fiat-provider webhook signatures. Absent → webhooks rejected. */
+  FIAT_WEBHOOK_SECRET: z.string().min(1).optional(),
+
   // Integrations (Stages 14–17)
   MCP_SECRET: z.string().min(1).optional(),
   WHATSAPP_WEBHOOK_SECRET: z.string().min(1).optional(),

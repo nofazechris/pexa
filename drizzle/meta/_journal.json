@@ -50,6 +50,20 @@
       "when": 1789455434135,
       "tag": "0006_tough_jubilee",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789818063811,
+      "tag": "0007_typical_slapstick",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789854660632,
+      "tag": "0008_bizarre_stingray",
+      "breakpoints": true
     }
   ]
 }

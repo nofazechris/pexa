@@ -12,7 +12,7 @@ import { TOOLS, TOOLS_BY_NAME, ToolError, type ToolContext } from './tools';
  */
 
 const PROTOCOL_VERSION = '2025-06-18';
-const SERVER_INFO = { name: 'privypay', version: '0.1.0' } as const;
+const SERVER_INFO = { name: 'pexa', version: '0.1.0' } as const;
 
 type Id = string | number | null;
 

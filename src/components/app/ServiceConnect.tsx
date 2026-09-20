@@ -9,7 +9,7 @@ import { color } from '@/lib/design/tokens';
  * Connect ChatGPT / Claude to PrivyPay in a few taps — built for non-technical users. Clicking a
  * service opens a guided modal that generates a connection key, opens the service so they can
  * paste it, and then *auto-detects* the connection the moment the agent first uses the key
- * (the token's lastUsedAt appears). WhatsApp is a placeholder until it's built.
+ * (the token's lastUsedAt appears).
  */
 
 interface Svc {
@@ -44,15 +44,6 @@ const SERVICES: Svc[] = [
     markBorder: '#F3DED1',
     url: 'https://claude.ai',
     hint: 'In Claude: Settings → Connectors → Add custom connector, then paste the endpoint and key.',
-  },
-  {
-    key: 'whatsapp',
-    name: 'WhatsApp',
-    desc: 'Pay and get paid in the chat app you already use every day.',
-    logo: '/assets/logo-whatsapp.png',
-    markBg: '#EAF3EE',
-    markBorder: '#D9EBE1',
-    comingSoon: true,
   },
 ];
 

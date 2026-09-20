@@ -9,3 +9,12 @@ export {
 } from './networks';
 export { TOKENS, getToken, enabledTokens, usdcFeeCurrency, type SupportedToken } from './tokens';
 export { features, type FeatureFlags } from './features';
+export {
+  NGN,
+  USDT,
+  QUOTE_TTL_SECONDS,
+  FIAT_LIMITS,
+  SANDBOX_NGN_PER_USDT,
+  isFiatEnabled,
+  fiatProviderId,
+} from './fiat';

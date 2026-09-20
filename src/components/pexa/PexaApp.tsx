@@ -10,7 +10,7 @@ import { AgentPayments } from '@/components/app/AgentPayments';
 import type { ActivityItem } from '@/components/auth/useActivity';
 import type { RequestItem } from '@/components/auth/useRequests';
 import type { RecurringItem } from '@/components/auth/useRecurring';
-import { useAgentChat, type AgentChatDeps, type AgentIntentShape, type ChatMessage } from '@/components/auth/useAgentChat';
+import { useAgentChat, type AgentChatDeps, type ChatMessage } from '@/components/auth/useAgentChat';
 
 /**
  * Pexa app shell — chat-first, agent-native. A slim sidebar (Chat / Wallet / Activity / Payments /
@@ -42,11 +42,10 @@ export interface PexaAppProps {
   requests: RequestItem[];
   recurring: RecurringItem[];
   onSignOut: () => void;
-  /** Real agent + payment hooks (from AppGate). */
-  parseCommand: AgentChatDeps['parseCommand'];
+  /** The tool-calling agent + confirmed-action executors (from AppGate). */
+  sendToAgent: AgentChatDeps['sendToAgent'];
+  executeAction: AgentChatDeps['executeAction'];
   executeSend: AgentChatDeps['executeSend'];
-  createRequest?: AgentChatDeps['createRequest'];
-  createRecurring?: AgentChatDeps['createRecurring'];
   /** Pay a received request through the engine, then mark it settled. */
   payRequest: (args: { requestId: string; recipient: string; amount: string }) => Promise<{ ok: boolean; error?: string }>;
   setRecurringPaused: (id: string, paused: boolean) => Promise<{ ok: boolean; error?: string }>;
@@ -57,7 +56,6 @@ export function PexaApp(props: PexaAppProps) {
   const { username, address, balance, activity } = props;
   const handleDisplay = username ? '@' + username : 'Account';
   const initial = (username?.[0] ?? '?').toUpperCase();
-  const balanceNum = Number(balance) || 0;
 
   const [page, setPage] = useState<Page>('chat');
   const [isMobile, setIsMobile] = useState(false);
@@ -70,13 +68,11 @@ export function PexaApp(props: PexaAppProps) {
 
   const deps = useMemo<AgentChatDeps>(
     () => ({
-      parseCommand: props.parseCommand,
+      sendToAgent: props.sendToAgent,
+      executeAction: props.executeAction,
       executeSend: props.executeSend,
-      createRequest: props.createRequest,
-      createRecurring: props.createRecurring,
-      balance: balanceNum,
     }),
-    [props.parseCommand, props.executeSend, props.createRequest, props.createRecurring, balanceNum],
+    [props.sendToAgent, props.executeAction, props.executeSend],
   );
   const chat = useAgentChat(deps);
 
@@ -84,7 +80,6 @@ export function PexaApp(props: PexaAppProps) {
   const pill = ((): { label: string; color: string; bg: string; border: string; dot: string; anim: string } => {
     switch (chat.agentState) {
       case 'thinking':
-      case 'resolving':
         return { label: 'Thinking…', color: '#153AB4', bg: '#F4F6FE', border: '#DDE3F6', dot: '#1B45D7', anim: 'pp-pulse 1.2s ease-in-out infinite' };
       case 'processing':
         return { label: 'Sending…', color: '#153AB4', bg: '#F4F6FE', border: '#DDE3F6', dot: '#1B45D7', anim: 'pp-pulse 1.2s ease-in-out infinite' };
@@ -155,7 +150,7 @@ export function PexaApp(props: PexaAppProps) {
 
         <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-            {page === 'chat' ? <ChatScreen chat={chat} activity={activity} /> : null}
+            {page === 'chat' ? <ChatScreen chat={chat} /> : null}
             {page === 'wallet' ? <WalletPage balance={balance} username={username} address={address} onSend={() => setPage('chat')} /> : null}
             {page === 'activity' ? <ActivityPage activity={activity} /> : null}
             {page === 'payments' ? (
@@ -193,14 +188,14 @@ export function PexaApp(props: PexaAppProps) {
 
 /* ----------------------------------------------------------------- Chat screen */
 
-function ChatScreen({ chat, activity }: { chat: ReturnType<typeof useAgentChat>; activity: ActivityItem[] }) {
+function ChatScreen({ chat }: { chat: ReturnType<typeof useAgentChat> }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [chat.messages.length, chat.agentState]);
 
-  const suggestions = ['Send $10 to @chris', "What's my balance?", 'Show recent payments', 'Request $20 from @chris'];
+  const suggestions = ['Send $10 to @chris', 'Buy ₦50,000 of USDT', "What's my balance?", 'Convert 20 USDT to naira'];
   const empty = chat.messages.length === 0;
 
   return (
@@ -226,10 +221,10 @@ function ChatScreen({ chat, activity }: { chat: ReturnType<typeof useAgentChat>;
           ) : null}
 
           {chat.messages.map((m) => (
-            <ChatRow key={m.id} m={m} activity={activity} onConfirm={() => chat.confirm(m.id)} onCancel={() => chat.cancel(m.id)} onFix={(t) => chat.send(t)} />
+            <ChatRow key={m.id} m={m} onConfirm={() => chat.confirm(m.id)} onCancel={() => chat.cancel(m.id)} />
           ))}
 
-          {chat.agentState === 'thinking' || chat.agentState === 'resolving' || chat.agentState === 'processing' ? (
+          {chat.agentState === 'thinking' || chat.agentState === 'processing' ? (
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', animation: 'pp-fade .2s ease both' }}>
               <AgentAvatar />
               <div style={{ display: 'flex', gap: '4px', border: `1px solid ${color.borderFaint}`, background: color.surface, borderRadius: '14px 14px 14px 4px', padding: '11px 13px' }}>
@@ -276,7 +271,7 @@ function Dot({ delay }: { delay: string }) {
   return <span style={{ width: 5, height: 5, borderRadius: '50%', background: color.primary, display: 'inline-block', animation: `pp-pulse 1.1s ease-in-out ${delay} infinite` }} />;
 }
 
-function ChatRow({ m, activity, onConfirm, onCancel, onFix }: { m: ChatMessage; activity: ActivityItem[]; onConfirm: () => void; onCancel: () => void; onFix: (t: string) => void }) {
+function ChatRow({ m, onConfirm, onCancel }: { m: ChatMessage; onConfirm: () => void; onCancel: () => void }) {
   if (m.role === 'user') {
     return (
       <div style={{ display: 'flex', justifyContent: 'flex-end', animation: 'pp-step .34s cubic-bezier(.2,.8,.3,1) both' }}>
@@ -288,42 +283,39 @@ function ChatRow({ m, activity, onConfirm, onCancel, onFix }: { m: ChatMessage; 
     <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', animation: 'pp-step .34s cubic-bezier(.2,.8,.3,1) both' }}>
       <AgentAvatar />
       <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: '9px' }}>
-        {m.text && (m.type === 'text' || m.type === 'preview') ? <div style={{ fontSize: '15px', lineHeight: 1.5, color: color.ink, paddingTop: '3px' }}>{m.text}</div> : null}
+        {m.text && m.type === 'text' ? <div style={{ fontSize: '15px', lineHeight: 1.5, color: color.ink, paddingTop: '3px', whiteSpace: 'pre-wrap' }}>{m.text}</div> : null}
         {m.type === 'preview' ? <PreviewCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
         {m.type === 'receipt' ? <ReceiptCard m={m} /> : null}
-        {m.type === 'answer' ? <AnswerCard m={m} activity={activity} /> : null}
-        {m.type === 'error' ? <ErrorCard m={m} onFix={onFix} /> : null}
+        {m.type === 'fiat_quote' ? <FiatQuoteCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
+        {m.type === 'fiat_receipt' ? <FiatReceiptCard m={m} /> : null}
+        {m.type === 'error' ? <ErrorCard m={m} /> : null}
       </div>
     </div>
   );
 }
 
-function metaFor(m: ChatMessage): Array<{ label: string; value: string }> {
-  const it: Partial<AgentIntentShape> = m.intent ?? {};
-  if (m.kind === 'send') return [{ label: 'To', value: it.handle ?? '' }, { label: 'Asset', value: 'USDC' }, { label: 'Network', value: 'Celo' }, { label: 'Estimated fee', value: '$0.001' }];
-  if (m.kind === 'request') return [{ label: 'From', value: it.handle ?? '' }, { label: 'Reason', value: it.note ?? '—' }, { label: 'Asset', value: 'USDC' }];
-  if (m.kind === 'recurring') return [{ label: 'To', value: it.handle ?? '' }, { label: 'Schedule', value: it.cadence ?? '' }, { label: 'Asset', value: 'USDC' }];
-  return [{ label: 'Asset', value: 'USDC' }, { label: 'Network', value: 'Celo' }];
-}
-
 function PreviewCard({ m, onConfirm, onCancel }: { m: ChatMessage; onConfirm: () => void; onCancel: () => void }) {
-  const it: Partial<AgentIntentShape> = m.intent ?? {};
-  const confirmLabel = m.kind === 'send' ? 'Confirm payment' : m.kind === 'request' ? 'Send request' : 'Create recurring payment';
-  const title = m.kind === 'send' ? 'PAYMENT PREVIEW' : m.kind === 'request' ? 'PAYMENT REQUEST' : 'RECURRING PAYMENT';
+  const p = m.preview;
+  if (!p) return null;
   const settled = m.status && m.status !== 'awaiting';
+  const rows = [
+    { label: 'To', value: p.recipient },
+    { label: 'Asset', value: p.token },
+    { label: 'Network', value: p.network },
+  ];
   return (
     <div style={{ border: `1px solid ${color.primarySoftBorder}`, background: color.surface, borderRadius: '16px', padding: '16px', maxWidth: '400px', boxShadow: '0 20px 44px -40px rgba(14,20,32,.5)' }}>
-      <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>{title}</div>
+      <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>PAYMENT PREVIEW</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '13px', flexWrap: 'wrap' }}>
-        <div style={{ width: 34, height: 34, borderRadius: '50%', background: color.primarySoft, color: color.primary, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>{(it.handle?.[1] ?? '?').toUpperCase()}</div>
+        <div style={{ width: 34, height: 34, borderRadius: '50%', background: color.primarySoft, color: color.primary, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>{(p.recipient.replace(/^@/, '')[0] ?? '?').toUpperCase()}</div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '-.016em' }}>{it.handle}</div>
-          <div style={{ fontSize: '12px', color: color.mutedStrong, marginTop: '1px' }}>Pexa user</div>
+          <div style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '-.016em' }}>{p.recipient}</div>
+          <div style={{ fontSize: '12px', color: color.mutedStrong, marginTop: '1px' }}>Recipient</div>
         </div>
-        <div style={{ marginLeft: 'auto', fontSize: '23px', fontWeight: 600, letterSpacing: '-.036em', fontVariantNumeric: 'tabular-nums' }}>${money(it.amount ?? 0)}</div>
+        <div style={{ marginLeft: 'auto', fontSize: '23px', fontWeight: 600, letterSpacing: '-.036em', fontVariantNumeric: 'tabular-nums' }}>${money(Number(p.amount))}</div>
       </div>
       <div style={{ display: 'grid', gap: '9px', marginTop: '14px', paddingTop: '13px', borderTop: `1px solid ${color.borderFaint}` }}>
-        {metaFor(m).map((r, i) => (
+        {rows.map((r, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', fontSize: '13.5px' }}>
             <span style={{ color: color.mutedStrong }}>{r.label}</span>
             <span style={{ fontWeight: 500, textAlign: 'right' }}>{r.value}</span>
@@ -332,7 +324,7 @@ function PreviewCard({ m, onConfirm, onCancel }: { m: ChatMessage; onConfirm: ()
       </div>
       {!settled ? (
         <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
-          <button onClick={onConfirm} style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: '12px 16px', borderRadius: '11px', cursor: 'pointer', flex: 1, minWidth: '150px' }}>{confirmLabel}</button>
+          <button onClick={onConfirm} style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: '12px 16px', borderRadius: '11px', cursor: 'pointer', flex: 1, minWidth: '150px' }}>Confirm payment</button>
           <button onClick={onCancel} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '14px', fontWeight: 500, padding: '12px 15px', borderRadius: '11px', cursor: 'pointer' }}>Cancel</button>
         </div>
       ) : (
@@ -346,26 +338,22 @@ function PreviewCard({ m, onConfirm, onCancel }: { m: ChatMessage; onConfirm: ()
 }
 
 function ReceiptCard({ m }: { m: ChatMessage }) {
-  const it: Partial<AgentIntentShape> = m.intent ?? {};
-  const rows: Array<{ label: string; value: string; color?: string }> =
-    m.kind === 'send'
-      ? [
-          { label: 'To', value: it.handle ?? '' },
-          { label: 'Status', value: m.result?.status === 'pending' ? 'Pending' : 'Completed', color: statusColor(m.result?.status === 'pending' ? 'Pending' : 'Completed') },
-          ...(m.result?.txHash ? [{ label: 'Transaction', value: m.result.txHash.slice(0, 6) + '…' + m.result.txHash.slice(-4) }] : []),
-        ]
-      : m.kind === 'request'
-        ? [{ label: 'From', value: it.handle ?? '' }, { label: 'Status', value: 'Pending', color: statusColor('Pending') }]
-        : [{ label: 'To', value: it.handle ?? '' }, { label: 'Schedule', value: it.cadence ?? '' }, { label: 'Status', value: 'Active', color: color.success }];
-  const title = m.kind === 'send' ? 'Payment sent' : m.kind === 'request' ? 'Request sent' : 'Recurring payment created';
+  const p = m.preview;
+  if (!p) return null;
+  const statusVal = m.result?.status === 'pending' ? 'Pending' : m.result?.status === 'failed' ? 'Failed' : 'Completed';
+  const rows: Array<{ label: string; value: string; color?: string }> = [
+    { label: 'To', value: p.recipient },
+    { label: 'Status', value: statusVal, color: statusColor(statusVal) },
+    ...(m.result?.txHash ? [{ label: 'Transaction', value: m.result.txHash.slice(0, 6) + '…' + m.result.txHash.slice(-4) }] : []),
+  ];
   return (
     <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '18px', maxWidth: '400px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '11px' }}>
         <div style={{ width: 32, height: 32, borderRadius: '50%', background: color.primary, color: '#fff', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', animation: 'pp-pop .34s cubic-bezier(.2,.8,.3,1) both' }}>✓</div>
-        <div style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '-.018em' }}>{title}</div>
+        <div style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '-.018em' }}>Payment sent</div>
       </div>
       <div style={{ fontSize: '28px', fontWeight: 600, letterSpacing: '-.04em', marginTop: '14px', fontVariantNumeric: 'tabular-nums' }}>
-        ${money(it.amount ?? 0)} <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '12px', fontWeight: 400, color: color.mutedStrong }}>USDC</span>
+        ${money(Number(p.amount))} <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '12px', fontWeight: 400, color: color.mutedStrong }}>{p.token}</span>
       </div>
       <div style={{ display: 'grid', gap: '9px', marginTop: '14px', paddingTop: '13px', borderTop: `1px solid ${color.borderFaint}` }}>
         {rows.map((r, i) => (
@@ -382,40 +370,103 @@ function ReceiptCard({ m }: { m: ChatMessage }) {
   );
 }
 
-function AnswerCard({ m, activity }: { m: ChatMessage; activity: ActivityItem[] }) {
-  if (m.answerKind === 'activity') {
-    const rows = activity.slice(0, 4);
-    return (
-      <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '17px', maxWidth: '400px' }}>
-        <div style={{ fontSize: '12.5px', color: color.mutedStrong }}>Recent payments</div>
-        <div style={{ display: 'grid', gap: '11px', marginTop: '13px' }}>
-          {rows.length === 0 ? <div style={{ fontSize: '13.5px', color: color.muted }}>No payments yet.</div> : null}
-          {rows.map((t) => {
-            const out = t.direction === 'out';
-            return (
-              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline' }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: '14px', fontWeight: 500 }}>{t.counterparty}</div>
-                  <div style={{ fontSize: '12px', color: color.mutedStrong, marginTop: '2px' }}>{new Date(t.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
-                </div>
-                <div style={{ fontSize: '13.5px', fontWeight: 500, color: out ? color.ink : color.success, fontVariantNumeric: 'tabular-nums' }}>{(out ? '-$' : '+$') + money(Number(t.amount))}</div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-  // balance
+function SandboxBadge() {
   return (
-    <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '17px', maxWidth: '400px' }}>
-      <div style={{ fontSize: '12.5px', color: color.mutedStrong }}>Available balance</div>
-      <div style={{ fontSize: '27px', fontWeight: 600, letterSpacing: '-.038em', marginTop: '5px', fontVariantNumeric: 'tabular-nums' }}>{m.text}</div>
+    <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '9.5px', letterSpacing: '.1em', color: color.warning, border: `1px solid ${color.warningDot}`, background: '#FEFBF0', borderRadius: '999px', padding: '3px 7px' }}>
+      SANDBOX · NOT LIVE
+    </span>
+  );
+}
+
+function FiatQuoteCard({ m, onConfirm, onCancel }: { m: ChatMessage; onConfirm: () => void; onCancel: () => void }) {
+  const q = m.quote;
+  if (!q) return null;
+  const isBuy = q.side === 'buy';
+  const title = isBuy ? 'BUY USDT' : 'CONVERT TO NAIRA';
+  const big = isBuy ? `₦${q.ngn}` : `${q.usdt} USDT`;
+  const receive = q.estimatedReceiveCurrency === 'USDT' ? `${q.estimatedReceive} USDT` : `₦${q.estimatedReceive}`;
+  const rows = [
+    { label: 'Rate', value: `₦${q.rate} / USDT` },
+    { label: 'Fee', value: `₦${q.feeNgn}` },
+    { label: 'You receive', value: receive },
+  ];
+  const awaiting = m.status === 'awaiting';
+  const settled = m.status && m.status !== 'awaiting';
+  const confirmLabel = isBuy ? 'Confirm purchase' : 'Confirm conversion';
+  return (
+    <div style={{ border: `1px solid ${color.primarySoftBorder}`, background: color.surface, borderRadius: '16px', padding: '16px', maxWidth: '400px', boxShadow: '0 20px 44px -40px rgba(14,20,32,.5)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+        <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>{title}</div>
+        {q.sandbox ? <SandboxBadge /> : null}
+      </div>
+      <div style={{ fontSize: '28px', fontWeight: 600, letterSpacing: '-.04em', marginTop: '12px', fontVariantNumeric: 'tabular-nums' }}>{big}</div>
+      <div style={{ fontSize: '13.5px', color: color.mutedStrong, marginTop: '4px' }}>≈ {receive}</div>
+      <div style={{ display: 'grid', gap: '9px', marginTop: '14px', paddingTop: '13px', borderTop: `1px solid ${color.borderFaint}` }}>
+        {rows.map((r, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', fontSize: '13.5px' }}>
+            <span style={{ color: color.mutedStrong }}>{r.label}</span>
+            <span style={{ fontWeight: 500, textAlign: 'right' }}>{r.value}</span>
+          </div>
+        ))}
+      </div>
+      {awaiting ? (
+        <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
+          <button onClick={onConfirm} style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: '12px 16px', borderRadius: '11px', cursor: 'pointer', flex: 1, minWidth: '150px' }}>{confirmLabel}</button>
+          <button onClick={onCancel} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '14px', fontWeight: 500, padding: '12px 15px', borderRadius: '11px', cursor: 'pointer' }}>Cancel</button>
+        </div>
+      ) : settled ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginTop: '14px', paddingTop: '13px', borderTop: `1px solid ${color.borderFaint}`, fontSize: '13px', color: m.status === 'cancelled' ? color.warning : m.status === 'failed' ? color.warning : color.success }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: m.status === 'failed' ? color.warning : color.success, display: 'inline-block' }} />
+          {m.status === 'cancelled' ? 'Cancelled' : m.status === 'failed' ? 'Failed' : 'Confirmed'}
+        </div>
+      ) : (
+        <div style={{ fontSize: '12px', color: color.mutedStrong, marginTop: '12px' }}>Quote valid for ~60s.</div>
+      )}
     </div>
   );
 }
 
-function ErrorCard({ m, onFix }: { m: ChatMessage; onFix: (t: string) => void }) {
+function FiatReceiptCard({ m }: { m: ChatMessage }) {
+  const q = m.quote;
+  if (!q) return null;
+  const isBuy = q.side === 'buy';
+  const big = isBuy ? `${q.estimatedReceive} USDT` : `₦${q.estimatedReceive}`;
+  const dest = isBuy ? '→ your Pexa wallet' : '→ your bank account';
+  const statusLabel = (m.order?.status ?? '').replace(/_/g, ' ').toLowerCase() || 'processing';
+  const title = isBuy ? 'Purchase started' : 'Conversion started';
+  return (
+    <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '18px', maxWidth: '400px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '11px' }}>
+          <div style={{ width: 32, height: 32, borderRadius: '50%', background: color.primary, color: '#fff', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', animation: 'pp-pop .34s cubic-bezier(.2,.8,.3,1) both' }}>✓</div>
+          <div style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '-.018em' }}>{title}</div>
+        </div>
+        {q.sandbox ? <SandboxBadge /> : null}
+      </div>
+      <div style={{ fontSize: '26px', fontWeight: 600, letterSpacing: '-.04em', marginTop: '14px', fontVariantNumeric: 'tabular-nums' }}>{big}</div>
+      <div style={{ fontSize: '13.5px', color: color.muted, marginTop: '4px' }}>{dest}</div>
+      <div style={{ display: 'grid', gap: '9px', marginTop: '14px', paddingTop: '13px', borderTop: `1px solid ${color.borderFaint}` }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', fontSize: '13.5px' }}>
+          <span style={{ color: color.mutedStrong }}>Status</span>
+          <span style={{ fontWeight: 500, textAlign: 'right', textTransform: 'capitalize' }}>{statusLabel}</span>
+        </div>
+        {m.order?.orderId ? (
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', fontSize: '13.5px' }}>
+            <span style={{ color: color.mutedStrong }}>Order</span>
+            <span style={{ fontWeight: 500, textAlign: 'right', fontFamily: 'var(--font-geist-mono),monospace', fontSize: '12px' }}>{m.order.orderId.slice(0, 8)}</span>
+          </div>
+        ) : null}
+      </div>
+      {q.sandbox ? (
+        <div style={{ fontSize: '12px', color: color.mutedStrong, marginTop: '12px', lineHeight: 1.5 }}>
+          Sandbox order — no real money moved. Live conversion arrives when a provider is connected.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ErrorCard({ m }: { m: ChatMessage }) {
   return (
     <div style={{ border: '1px solid #F0DCD8', background: '#FDF8F7', borderRadius: '16px', padding: '15px 16px', maxWidth: '400px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
@@ -423,9 +474,6 @@ function ErrorCard({ m, onFix }: { m: ChatMessage; onFix: (t: string) => void })
         <span style={{ fontSize: '14.5px', fontWeight: 500, color: '#A8352A' }}>{m.title}</span>
       </div>
       {m.hint ? <div style={{ fontSize: '13.5px', color: color.muted, lineHeight: 1.55, marginTop: '9px' }}>{m.hint}</div> : null}
-      {m.fixLabel && m.fixText ? (
-        <button onClick={() => onFix(m.fixText!)} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '13.5px', fontWeight: 500, padding: '10px 14px', borderRadius: '10px', cursor: 'pointer', marginTop: '13px' }}>{m.fixLabel}</button>
-      ) : null}
     </div>
   );
 }

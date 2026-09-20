@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, timestamp, uniqueIndex, boolean } from 'drizzle-orm/pg-core';
 
 /**
  * Database schema (§34–35).
@@ -198,6 +198,141 @@ export const authorizations = pgTable('authorizations', {
   consumedAt: timestamp('consumed_at', { withTimezone: true }),
 });
 
+export const waitlist = pgTable(
+  'waitlist',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    /** Stored normalized (lowercase, trimmed). Unique across the table (§26). */
+    email: text('email').notNull(),
+    firstName: text('first_name'),
+    /** active | invited | converted | unsubscribed (§25). */
+    status: text('status').notNull().default('active'),
+    /** Where the signup came from, e.g. "landing". Never PII. */
+    source: text('source').notNull().default('landing'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  // The database-level guard behind the application dedupe check (§26–27).
+  (t) => [uniqueIndex('waitlist_email_uq').on(t.email)],
+);
+
+/**
+ * Fiat domain (NGN↔USDT). New tables only — the working `payments` table is untouched. `fiat_orders`
+ * is the FinancialAction for fiat legs; crypto legs stay in `payments`. All monetary columns are
+ * integer smallest-unit decimal strings (NGN in kobo, USDT in 6dp) — never floats.
+ */
+
+/** Per-user KYC/compliance state, mirrored from the provider. The policy engine gates on this. */
+export const complianceProfiles = pgTable('compliance_profiles', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(),
+  /** The provider's customer id, when a customer has been created. Never a secret. */
+  providerCustomerId: text('provider_customer_id'),
+  /** none | pending | verified | rejected. */
+  kycStatus: text('kyc_status').notNull().default('none'),
+  /** Optional risk flags as a JSON string; absence means none. */
+  riskFlags: text('risk_flags'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Verified NGN payout accounts, stored as tokenized provider references — never raw bank details (§7). */
+export const payoutAccounts = pgTable(
+  'payout_accounts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    /** Tokenized reference from the provider; what we use for payouts. Not the account number. */
+    providerRef: text('provider_ref').notNull(),
+    bankName: text('bank_name').notNull(),
+    accountName: text('account_name').notNull(),
+    /** Last 4 digits only, for display. */
+    last4: text('last4').notNull(),
+    status: text('status').notNull().default('verified'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('payout_accounts_user_ref_uq').on(t.userId, t.providerRef)],
+);
+
+/** A live conversion quote from a provider. Expires (§14); an order references the quote it was made from. */
+export const fiatQuotes = pgTable('fiat_quotes', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  /** buy (NGN→USDT) | sell (USDT→NGN). */
+  side: text('side').notNull(),
+  provider: text('provider').notNull(),
+  providerQuoteRef: text('provider_quote_ref').notNull(),
+  ngnAmount: text('ngn_amount').notNull(),
+  usdtAmount: text('usdt_amount').notNull(),
+  /** Naira per USDT, human decimal string (display). */
+  rate: text('rate').notNull(),
+  providerFeeNgn: text('provider_fee_ngn').notNull(),
+  pexaFeeNgn: text('pexa_fee_ngn').notNull().default('0'),
+  estimatedReceive: text('estimated_receive').notNull(),
+  estimatedReceiveCurrency: text('estimated_receive_currency').notNull(),
+  /** True when produced by the sandbox mock — surfaced so nothing is shown as a live rate. */
+  sandbox: boolean('sandbox').notNull().default(false),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** The FinancialAction for a fiat conversion. Status is a fiat state-machine value (§19). */
+export const fiatOrders = pgTable(
+  'fiat_orders',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    quoteId: uuid('quote_id').references(() => fiatQuotes.id, { onDelete: 'set null' }),
+    side: text('side').notNull(),
+    /** Buy/sell state-machine value; the state module is the authority on transitions. */
+    status: text('status').notNull().default('QUOTE_CREATED'),
+    ngnAmount: text('ngn_amount').notNull(),
+    usdtAmount: text('usdt_amount').notNull(),
+    feeNgn: text('fee_ngn').notNull().default('0'),
+    asset: text('asset').notNull().default('USDT'),
+    provider: text('provider').notNull(),
+    providerOrderId: text('provider_order_id'),
+    /** For a sell, the payout destination. */
+    payoutAccountId: uuid('payout_account_id').references(() => payoutAccounts.id, { onDelete: 'set null' }),
+    /** pending | authorized — execution requires an authorized action (§11). */
+    authorizationStatus: text('authorization_status').notNull().default('pending'),
+    /** Makes order creation idempotent (§14): same key resolves to the same order. */
+    idempotencyKey: text('idempotency_key').notNull(),
+    failureReason: text('failure_reason'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [uniqueIndex('fiat_orders_user_idem_uq').on(t.userId, t.idempotencyKey)],
+);
+
+/** Provider webhook log — the idempotency + reconciliation record for inbound events (§21–22). */
+export const providerWebhookEvents = pgTable(
+  'provider_webhook_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    provider: text('provider').notNull(),
+    /** The provider's own event id; unique per provider so a re-delivery is a no-op (§21). */
+    eventId: text('event_id').notNull(),
+    type: text('type').notNull(),
+    providerOrderId: text('provider_order_id'),
+    status: text('status'),
+    /** Raw event payload as received (JSON string), for audit and reconciliation. */
+    payload: text('payload'),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('provider_webhook_events_provider_event_uq').on(t.provider, t.eventId)],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type ProfileRow = typeof profiles.$inferSelect;
 export type WalletRow = typeof wallets.$inferSelect;
@@ -207,3 +342,9 @@ export type ContactRow = typeof contacts.$inferSelect;
 export type RequestRecord = typeof requests.$inferSelect;
 export type RecurringRecord = typeof recurringPayments.$inferSelect;
 export type McpTokenRow = typeof mcpTokens.$inferSelect;
+export type WaitlistRow = typeof waitlist.$inferSelect;
+export type ComplianceProfileRow = typeof complianceProfiles.$inferSelect;
+export type PayoutAccountRow = typeof payoutAccounts.$inferSelect;
+export type FiatQuoteRow = typeof fiatQuotes.$inferSelect;
+export type FiatOrderRow = typeof fiatOrders.$inferSelect;
+export type ProviderWebhookEventRow = typeof providerWebhookEvents.$inferSelect;

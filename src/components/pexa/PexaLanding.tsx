@@ -517,6 +517,101 @@ function Eyebrow({ children }: { children: ReactNode }) {
   return <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '11px', letterSpacing: '.14em', color: color.mutedStrong }}>{children}</div>;
 }
 
+/* ------------------------------------------------------------------ waitlist */
+
+type WaitStatus = 'idle' | 'submitting' | 'success' | 'error';
+
+/**
+ * Landing waitlist signup. Posts to /api/waitlist (validation, dedupe, rate limiting and a
+ * honeypot all live server-side). Shows a single friendly success for both new and repeat
+ * signups; a failed request surfaces a plain-language message, never a raw error.
+ */
+function WaitlistForm() {
+  const [email, setEmail] = useState('');
+  const [company, setCompany] = useState(''); // honeypot — real people never see or fill this
+  const [status, setStatus] = useState<WaitStatus>('idle');
+  const [message, setMessage] = useState('');
+
+  const submit = useCallback(async () => {
+    if (status === 'submitting') return;
+    const value = email.trim();
+    if (!value) {
+      setStatus('error');
+      setMessage('Please enter your email.');
+      return;
+    }
+    setStatus('submitting');
+    setMessage('');
+    try {
+      const res = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: value, company }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { message?: string };
+      if (res.ok) {
+        setStatus('success');
+        setMessage(data.message ?? "You're on the list.");
+      } else {
+        setStatus('error');
+        setMessage(data.message ?? 'Something went wrong. Please try again.');
+      }
+    } catch {
+      setStatus('error');
+      setMessage('Network error. Please try again.');
+    }
+  }, [email, company, status]);
+
+  if (status === 'success') {
+    return (
+      <div style={{ maxWidth: '440px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', border: `1px solid ${color.primarySoftBorder}`, background: '#F4F6FE', borderRadius: '13px', padding: '16px 18px' }}>
+        <span style={{ width: 26, height: 26, borderRadius: '50%', background: color.primary, color: '#fff', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', animation: 'pp-pop .34s cubic-bezier(.2,.8,.3,1) both' }}>✓</span>
+        <span style={{ fontSize: '15px', fontWeight: 500, color: color.primaryHover }}>{message}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: '440px', margin: '0 auto' }}>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        {/* Honeypot: off-screen, not tab-reachable. Bots that fill it are silently dropped. */}
+        <input
+          type="text"
+          name="company"
+          tabIndex={-1}
+          autoComplete="off"
+          aria-hidden="true"
+          value={company}
+          onChange={(e) => setCompany(e.target.value)}
+          style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0 }}
+        />
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && submit()}
+          placeholder="your@email.com"
+          aria-label="Email address"
+          disabled={status === 'submitting'}
+          style={{ flex: 1, minWidth: '200px', border: `1px solid ${color.borderStrong}`, background: color.surface, borderRadius: '12px', padding: '14px 16px', fontSize: '15px', color: color.ink, outline: 'none' }}
+        />
+        <button
+          onClick={submit}
+          disabled={status === 'submitting'}
+          style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '15px', fontWeight: 500, padding: '14px 22px', borderRadius: '12px', cursor: status === 'submitting' ? 'default' : 'pointer', opacity: status === 'submitting' ? 0.7 : 1, whiteSpace: 'nowrap' }}
+        >
+          {status === 'submitting' ? 'Joining…' : 'Join the waitlist'}
+        </button>
+      </div>
+      {status === 'error' ? (
+        <div style={{ fontSize: '13.5px', color: '#B4232A', marginTop: '10px' }}>{message}</div>
+      ) : (
+        <div style={{ fontSize: '13px', color: color.mutedStrong, marginTop: '10px' }}>No spam. Just an invite when your agent is ready.</div>
+      )}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ component */
 
 export function PexaLanding({ onEnter }: { onEnter: () => void }) {
@@ -564,7 +659,7 @@ export function PexaLanding({ onEnter }: { onEnter: () => void }) {
             </h1>
             <p style={{ animation: 'pp-up .62s cubic-bezier(.2,.8,.3,1) 150ms both', fontSize: 'clamp(16.5px,1.5vw,18.5px)', lineHeight: 1.62, color: color.muted, maxWidth: '452px', margin: '24px 0 0' }}>Send, request, schedule and manage payments simply by talking to Pexa.</p>
             <div style={{ animation: 'pp-up .62s cubic-bezier(.2,.8,.3,1) 220ms both', display: 'flex', gap: '10px', marginTop: '30px', flexWrap: 'wrap' }}>
-              <button onClick={onEnter} style={{ border: 'none', background: color.ink, color: '#fff', fontSize: '15px', fontWeight: 500, padding: '14px 22px', borderRadius: '11px', cursor: 'pointer' }}>Start using Pexa</button>
+              <a href="#waitlist" style={{ border: 'none', background: color.ink, color: '#fff', fontSize: '15px', fontWeight: 500, padding: '14px 22px', borderRadius: '11px', cursor: 'pointer', textDecoration: 'none' }}>Join the waitlist</a>
               <a href="#how" style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '15px', fontWeight: 500, padding: '14px 22px', borderRadius: '11px', textDecoration: 'none' }}>See how it works</a>
             </div>
             <div style={{ animation: 'pp-up .62s cubic-bezier(.2,.8,.3,1) 300ms both', display: 'flex', gap: '20px', marginTop: '32px', fontSize: '13px', color: color.mutedStrong, flexWrap: 'wrap' }}>
@@ -948,13 +1043,18 @@ export function PexaLanding({ onEnter }: { onEnter: () => void }) {
         </div>
       </section>
 
-      {/* Closing CTA */}
-      <section style={{ maxWidth: '1160px', margin: '0 auto', padding: '0 clamp(16px,3vw,24px) clamp(48px,6vw,92px)' }}>
+      {/* Closing CTA — waitlist */}
+      <section id="waitlist" style={{ maxWidth: '1160px', margin: '0 auto', padding: '0 clamp(16px,3vw,24px) clamp(48px,6vw,92px)', scrollMarginTop: '80px' }}>
         <div style={{ textAlign: 'center', padding: 'clamp(24px,4vw,40px) 0' }}>
-          <h2 style={{ fontSize: 'clamp(30px,5vw,54px)', letterSpacing: '-.045em', fontWeight: 600, margin: 0, lineHeight: 1.02 }}>Your wallet doesn’t need<br />another dashboard.</h2>
-          <p style={{ fontSize: 'clamp(17px,2vw,22px)', color: color.primary, fontWeight: 500, letterSpacing: '-.025em', margin: '18px 0 0' }}>Just talk to Pexa.</p>
-          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '28px', flexWrap: 'wrap' }}>
-            <button onClick={onEnter} style={{ border: 'none', background: color.ink, color: '#fff', fontSize: '15.5px', fontWeight: 500, padding: '15px 26px', borderRadius: '12px', cursor: 'pointer' }}>Start using Pexa</button>
+          <Eyebrow>PEXA IS COMING SOON</Eyebrow>
+          <h2 style={{ fontSize: 'clamp(30px,5vw,54px)', letterSpacing: '-.045em', fontWeight: 600, margin: '14px 0 0', lineHeight: 1.02 }}>Be first to use your<br />AI financial agent.</h2>
+          <p style={{ fontSize: 'clamp(16px,2vw,19px)', color: color.muted, lineHeight: 1.6, margin: '18px auto 0', maxWidth: '440px' }}>Join the waitlist and we’ll send you an invite the moment Pexa is ready.</p>
+          <div style={{ marginTop: '28px' }}>
+            <WaitlistForm />
+          </div>
+          <div style={{ marginTop: '22px', fontSize: '13.5px', color: color.mutedStrong }}>
+            Already have access?{' '}
+            <button onClick={onEnter} style={{ border: 'none', background: 'transparent', color: color.primary, fontSize: '13.5px', fontWeight: 500, padding: 0, cursor: 'pointer', textDecoration: 'underline' }}>Start using Pexa</button>
           </div>
         </div>
       </section>

@@ -8,7 +8,7 @@ describe('MCP server dispatch', () => {
     const res = await handleMcpMessage({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }, ctx);
     expect(res).toMatchObject({
       id: 1,
-      result: { protocolVersion: expect.any(String), serverInfo: { name: 'privypay' }, capabilities: { tools: {} } },
+      result: { protocolVersion: expect.any(String), serverInfo: { name: 'pexa' }, capabilities: { tools: {} } },
     });
   });
 

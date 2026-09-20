@@ -2,7 +2,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { formatUnits } from 'viem';
-import { activeNetwork, env, getToken, txExplorerUrl } from '@/lib/config';
+import { activeNetwork, env, features, getToken, txExplorerUrl, FIAT_LIMITS } from '@/lib/config';
 import { getProfileByUserId, resolveUsername } from '@/lib/users/service';
 import { normalizeUsername } from '@/lib/users/username';
 import { getWalletByUserId } from '@/lib/wallets/service';
@@ -10,6 +10,11 @@ import { getUsdcBalance } from '@/lib/celo/balance';
 import { previewPayment, authorizePayment, confirmPayment, executeAuthorizedPayment, listPayments } from '@/lib/payments/engine';
 import { listContacts } from '@/lib/contacts/service';
 import { createRequest } from '@/lib/requests/service';
+import { getFiatQuote, createFiatOrder, getFiatOrder, orderKeyForQuote } from '@/lib/fiat/service';
+import { verifyPayoutAccount, listPayoutAccounts, createPayout } from '@/lib/fiat/payouts';
+import { presentQuote, presentOrder, presentPayoutAccount } from '@/lib/fiat/present';
+import { syncComplianceProfile } from '@/lib/fiat/compliance';
+import { formatKoboToNgn } from '@/lib/fiat/units';
 
 /**
  * MCP tool surface (§ integrations).
@@ -231,6 +236,149 @@ export const TOOLS: ToolDef[] = [
       const res = await createRequest(ctx.userId, { payerUsername: args.payer, amount: args.amount, memo: args.memo });
       if (!res.ok) throw new ToolError('request_failed', res.error);
       return { request: res.request };
+    },
+  }),
+
+  // --- Fiat / NGN↔USDT (autonomous money). Same policy + authorization model as payments: the
+  //     LLM proposes a quote and creates an order, but the AgentPolicyEngine decides, and money
+  //     moves only on an explicit confirmation. Disabled unless a fiat provider is configured.
+  tool({
+    name: 'get_ngn_usdt_quote',
+    description:
+      'Get a live NGN↔USDT conversion quote. side "buy" spends NGN to receive USDT; side "sell" converts USDT to NGN. By default amount is in NGN for a buy and USDT for a sell — pass amountCurrency:"NGN" with side:"sell" for a naira-target withdrawal (how much USDT to sell to pay out that naira). Returns a paymentless, expiring quote; nothing moves.',
+    schema: z.object({
+      side: z.enum(['buy', 'sell']),
+      amount: z.string().min(1).describe('NGN amount for a buy, USDT amount for a sell (or NGN when amountCurrency is NGN).'),
+      amountCurrency: z.enum(['NGN', 'USDT']).optional(),
+    }),
+    handler: async (ctx, args) => {
+      if (!features.fiat) throw new ToolError('fiat_not_enabled', 'Fiat conversion is not enabled.');
+      const res = await getFiatQuote({ userId: ctx.userId, side: args.side, amount: args.amount, amountCurrency: args.amountCurrency });
+      if (!res.ok) throw new ToolError('quote_unavailable', res.error);
+      return { quote: presentQuote(res.result.quote), sandbox: features.fiatSandbox, next: 'Show this quote and, on confirmation, call create_buy_usdt_order / create_sell_usdt_order with the quoteId.' };
+    },
+  }),
+
+  tool({
+    name: 'create_buy_usdt_order',
+    description:
+      'Confirm a BUY quote (NGN→USDT) into an order. Runs policy + authorization and returns funding instructions. The order settles later via provider webhooks — never claims success here.',
+    mutating: true,
+    schema: z.object({ quoteId: z.string().min(1), idempotencyKey: z.string().min(8).optional() }),
+    handler: async (ctx, args) => {
+      if (!features.fiat) throw new ToolError('fiat_not_enabled', 'Fiat conversion is not enabled.');
+      const res = await createFiatOrder({ userId: ctx.userId, quoteId: args.quoteId, idempotencyKey: args.idempotencyKey ?? orderKeyForQuote(args.quoteId) });
+      if (!res.ok) throw new ToolError('order_failed', res.error);
+      return { order: presentOrder(res.order), funding: res.funding ?? null, poll: 'Use get_fiat_order_status to watch for settlement.' };
+    },
+  }),
+
+  tool({
+    name: 'create_sell_usdt_order',
+    description:
+      "Confirm a SELL quote (USDT→NGN) into an order that pays out to the user's bank. Uses the user's first linked payout account when payoutAccountId is omitted. Runs policy + authorization; settles via webhooks.",
+    mutating: true,
+    schema: z.object({ quoteId: z.string().min(1), payoutAccountId: z.string().optional(), idempotencyKey: z.string().min(8).optional() }),
+    handler: async (ctx, args) => {
+      if (!features.fiat) throw new ToolError('fiat_not_enabled', 'Fiat conversion is not enabled.');
+      const res = await createFiatOrder({ userId: ctx.userId, quoteId: args.quoteId, payoutAccountId: args.payoutAccountId, idempotencyKey: args.idempotencyKey ?? orderKeyForQuote(args.quoteId) });
+      if (!res.ok) throw new ToolError('order_failed', res.error);
+      return { order: presentOrder(res.order), poll: 'Use get_fiat_order_status to watch for the payout.' };
+    },
+  }),
+
+  tool({
+    name: 'get_fiat_order_status',
+    description: 'Get the status of a fiat (NGN↔USDT) order by id. Reflects the provider/settlement state; never claims success prematurely.',
+    schema: z.object({ orderId: z.string().min(1) }),
+    handler: async (ctx, args) => {
+      if (!features.fiat) throw new ToolError('fiat_not_enabled', 'Fiat conversion is not enabled.');
+      const order = await getFiatOrder(ctx.userId, args.orderId);
+      if (!order) throw new ToolError('not_found', 'Order not found.');
+      return { order: presentOrder(order) };
+    },
+  }),
+
+  tool({
+    name: 'get_user_limits',
+    description: "Get the current user's fiat conversion limits (per-order, daily, monthly), in NGN.",
+    schema: z.object({}),
+    handler: async () => {
+      return {
+        currency: 'NGN',
+        minOrder: '₦' + formatKoboToNgn(FIAT_LIMITS.minOrderNgn),
+        perOrder: '₦' + formatKoboToNgn(FIAT_LIMITS.perOrderNgn),
+        daily: '₦' + formatKoboToNgn(FIAT_LIMITS.dailyNgn),
+        monthly: '₦' + formatKoboToNgn(FIAT_LIMITS.monthlyNgn),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_compliance_status',
+    description: "Get the current user's KYC/compliance status for fiat conversion.",
+    schema: z.object({}),
+    handler: async (ctx) => {
+      if (!features.fiat) throw new ToolError('fiat_not_enabled', 'Fiat conversion is not enabled.');
+      const status = await syncComplianceProfile(ctx.userId);
+      return { kycStatus: status.kycStatus, provider: status.provider, sandbox: features.fiatSandbox };
+    },
+  }),
+
+  tool({
+    name: 'get_payout_accounts',
+    description: "List the current user's verified bank payout accounts (for receiving naira).",
+    schema: z.object({}),
+    handler: async (ctx) => {
+      if (!features.fiat) throw new ToolError('fiat_not_enabled', 'Fiat conversion is not enabled.');
+      const accounts = await listPayoutAccounts(ctx.userId);
+      return { accounts: accounts.map(presentPayoutAccount) };
+    },
+  }),
+
+  tool({
+    name: 'verify_payout_account',
+    description: 'Verify a Nigerian bank account with the provider and link it for naira payouts. Stores only a tokenized reference — never raw bank details.',
+    mutating: true,
+    schema: z.object({
+      accountNumber: z.string().min(6).describe('The bank account number (NUBAN).'),
+      bankCode: z.string().min(3).describe('The bank code / sort code.'),
+    }),
+    handler: async (ctx, args) => {
+      if (!features.fiat) throw new ToolError('fiat_not_enabled', 'Fiat conversion is not enabled.');
+      const res = await verifyPayoutAccount(ctx.userId, { accountNumber: args.accountNumber, bankCode: args.bankCode });
+      if (!res.ok) throw new ToolError('verification_failed', res.error);
+      return { account: presentPayoutAccount(res.account) };
+    },
+  }),
+
+  tool({
+    name: 'create_payout',
+    description:
+      'Withdraw naira to a linked bank account (off-ramp): sells enough USDT to net the requested NGN and pays it out. Runs policy + authorization; settles via webhooks. If payoutAccountId is omitted, the first linked account is used.',
+    mutating: true,
+    schema: z.object({
+      amountNgn: z.string().min(1).describe('Naira amount to receive, e.g. "100000".'),
+      payoutAccountId: z.string().optional(),
+      idempotencyKey: z.string().min(8).optional(),
+    }),
+    handler: async (ctx, args) => {
+      if (!features.fiat) throw new ToolError('fiat_not_enabled', 'Fiat conversion is not enabled.');
+      const res = await createPayout(ctx.userId, { amountNgn: args.amountNgn, payoutAccountId: args.payoutAccountId, idempotencyKey: args.idempotencyKey });
+      if (!res.ok) throw new ToolError('payout_failed', res.error);
+      return { orderId: res.orderId, status: res.status, poll: 'Use get_payout_status with this orderId.' };
+    },
+  }),
+
+  tool({
+    name: 'get_payout_status',
+    description: 'Get the status of a naira payout/withdrawal by its order id.',
+    schema: z.object({ orderId: z.string().min(1) }),
+    handler: async (ctx, args) => {
+      if (!features.fiat) throw new ToolError('fiat_not_enabled', 'Fiat conversion is not enabled.');
+      const order = await getFiatOrder(ctx.userId, args.orderId);
+      if (!order) throw new ToolError('not_found', 'Payout not found.');
+      return { order: presentOrder(order) };
     },
   }),
 ];

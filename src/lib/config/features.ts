@@ -15,6 +15,10 @@ export interface FeatureFlags {
   readonly recurring: boolean;
   /** Gasless payments via the EIP-3009 relayer (user never pays gas). */
   readonly gaslessRelayer: boolean;
+  /** NGN↔USDT fiat conversion + payouts, behind the FiatProvider abstraction. */
+  readonly fiat: boolean;
+  /** True only while the fiat provider is the sandbox mock — surfaced to the UI so nothing looks live. */
+  readonly fiatSandbox: boolean;
   readonly x402: boolean;
   readonly advancedPrivacy: boolean;
 }
@@ -26,6 +30,8 @@ export const features: FeatureFlags = {
   whatsapp: Boolean(env.WHATSAPP_WEBHOOK_SECRET),
   recurring: false,
   gaslessRelayer: Boolean(env.RELAYER_PRIVATE_KEY),
+  fiat: Boolean(env.FIAT_PROVIDER),
+  fiatSandbox: env.FIAT_PROVIDER === 'sandbox',
   x402: false,
   advancedPrivacy: false,
 };

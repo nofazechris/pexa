@@ -76,6 +76,39 @@ export async function applyWebhookEvent(providerId: string, rawBody: string, sig
 }
 
 /**
+ * SANDBOX ONLY — simulate the provider settling an order to its terminal happy state (buy→SETTLED,
+ * sell→PAID), so the full NGN↔USDT loop completes end-to-end in dev/demo without an external
+ * provider. It goes through the SAME state-machine guard and logs a webhook-event row, so it
+ * exercises the real settlement path. Never runs against a real provider (guarded on provider.sandbox).
+ */
+export async function simulateSandboxSettlement(orderId: string): Promise<void> {
+  const provider = getFiatProvider();
+  if (!provider.sandbox) return;
+  const db = getDb();
+  const rows = await db.select().from(schema.fiatOrders).where(eq(schema.fiatOrders.id, orderId)).limit(1);
+  const order = rows[0];
+  if (!order) return;
+  const side = order.side as OrderSide;
+  const target: FiatOrderStatus = side === 'buy' ? 'SETTLED' : 'PAID';
+  if (isTerminal(side, order.status as FiatOrderStatus) || !canReach(side, order.status as FiatOrderStatus, target)) return;
+
+  // Audit/idempotency parity with a real webhook (deterministic id → a re-run is a no-op).
+  try {
+    await db.insert(schema.providerWebhookEvents).values({
+      provider: provider.id,
+      eventId: `sbx_auto_${orderId}`,
+      type: 'sandbox.autosettle',
+      providerOrderId: order.providerOrderId,
+      status: target,
+      payload: null,
+    });
+  } catch {
+    /* duplicate — already settled */
+  }
+  await db.update(schema.fiatOrders).set({ status: target, completedAt: new Date(), updatedAt: new Date() }).where(eq(schema.fiatOrders.id, order.id));
+}
+
+/**
  * Reconciliation sweep (§22): expire orders that were never funded/asset-received before their
  * quote lapsed, so a stale order can't sit open forever. Bounded per run. Deterministic — the
  * amounts are never touched, only the status.

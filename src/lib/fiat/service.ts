@@ -2,8 +2,10 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db';
+import { features } from '@/lib/config';
 import { evaluateFiatAction, type AgentPolicyResult } from '@/lib/policy/agent';
 import { getFiatProvider } from './index';
+import { simulateSandboxSettlement } from './settlement';
 import { assertTransition } from './state';
 import { syncComplianceProfile } from './compliance';
 import { parseNgnToKobo, parseUsdtToUnits } from './units';
@@ -204,6 +206,14 @@ export async function createFiatOrder(
       expiresAt: quote.expiresAt,
     })
     .returning();
+
+  // Sandbox: simulate the provider settling the order so the whole loop completes end-to-end in
+  // dev/demo. A real provider settles via its webhook instead (this block never runs for one).
+  if (features.fiatSandbox) {
+    await simulateSandboxSettlement(order.id);
+    const refreshed = await db.select().from(schema.fiatOrders).where(eq(schema.fiatOrders.id, order.id)).limit(1);
+    return { ok: true, order: refreshed[0] ?? order, funding: providerOrder.funding };
+  }
 
   return { ok: true, order, funding: providerOrder.funding };
 }

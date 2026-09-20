@@ -48,6 +48,6 @@ export function isFiatEnabled(): boolean {
 }
 
 /** The configured provider id, or null when fiat is disabled. */
-export function fiatProviderId(): 'sandbox' | null {
+export function fiatProviderId(): 'sandbox' | 'quidax' | null {
   return env.FIAT_PROVIDER ?? null;
 }

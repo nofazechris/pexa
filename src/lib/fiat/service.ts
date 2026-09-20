@@ -2,15 +2,40 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db';
-import { features } from '@/lib/config';
+import { env, features } from '@/lib/config';
 import { evaluateFiatAction, type AgentPolicyResult } from '@/lib/policy/agent';
+import { getUserById, getProfileByUserId } from '@/lib/users/service';
+import { getWalletByUserId } from '@/lib/wallets/service';
 import { getFiatProvider } from './index';
 import { simulateSandboxSettlement } from './settlement';
 import { assertTransition } from './state';
-import { syncComplianceProfile } from './compliance';
+import { syncComplianceProfile, getComplianceStatus } from './compliance';
 import { parseNgnToKobo, parseUsdtToUnits } from './units';
 import type { FiatOrderRow, FiatQuoteRow } from '@/lib/db/schema';
-import type { FiatQuote, OrderSide } from './provider';
+import type { FiatQuote, FiatContext, OrderSide } from './provider';
+
+/**
+ * Build the provider context (customer identity + on-chain destination) from the authenticated
+ * user. Only needed for real providers — the sandbox ignores it, so we skip the reads there.
+ */
+async function buildContext(userId: string): Promise<FiatContext | undefined> {
+  if (features.fiatSandbox) return undefined;
+  const [user, wallet, profile, compliance] = await Promise.all([
+    getUserById(userId),
+    getWalletByUserId(userId),
+    getProfileByUserId(userId),
+    getComplianceStatus(userId),
+  ]);
+  const name = profile?.displayName?.trim().split(/\s+/) ?? [];
+  return {
+    customerEmail: user?.email ?? null,
+    customerFirstName: name[0] ?? null,
+    customerLastName: name.slice(1).join(' ') || null,
+    providerCustomerId: compliance?.providerCustomerId ?? null,
+    walletAddress: wallet?.address ?? null,
+    walletNetwork: env.QUIDAX_USDT_NETWORK ?? 'celo',
+  };
+}
 
 /**
  * Fiat conversion service (§3–5) — the orchestration layer between the agent/API and the provider.
@@ -68,7 +93,8 @@ export async function getFiatQuote(
   await syncComplianceProfile(input.userId);
 
   const provider = getFiatProvider();
-  const quote = await provider.getQuote({ side: input.side, amount: parsed.amount, amountCurrency: parsed.amountCurrency });
+  const context = await buildContext(input.userId);
+  const quote = await provider.getQuote({ side: input.side, amount: parsed.amount, amountCurrency: parsed.amountCurrency, context });
 
   // Policy always evaluates the NGN leg (the quote's naira value), confirmed=false at quote time.
   const policy = await evaluateFiatAction({
@@ -178,10 +204,11 @@ export async function createFiatOrder(
   }
 
   const provider = getFiatProvider();
+  const context = await buildContext(input.userId);
   const providerOrder =
     side === 'buy'
-      ? await provider.createBuyOrder({ quoteId: quote.providerQuoteRef, idempotencyKey })
-      : await provider.createSellOrder({ quoteId: quote.providerQuoteRef, idempotencyKey, payoutAccountRef: payoutRef });
+      ? await provider.createBuyOrder({ quoteId: quote.providerQuoteRef, idempotencyKey, context })
+      : await provider.createSellOrder({ quoteId: quote.providerQuoteRef, idempotencyKey, payoutAccountRef: payoutRef, context });
 
   // Opening state per side; assertTransition guards the QUOTE_CREATED → opening move.
   const opening = side === 'buy' ? 'AWAITING_FUNDING' : 'AWAITING_ASSET';

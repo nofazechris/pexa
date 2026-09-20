@@ -15,6 +15,34 @@ import type { OrderSide } from './provider';
 
 const FAILURE_STATUSES = new Set(['FAILED', 'REFUNDED', 'REVERSED', 'CANCELLED', 'EXPIRED']);
 
+/** Map a provider's status token to our side-appropriate state, or null if unrecognized. */
+function mapProviderStatus(side: OrderSide, raw: string): FiatOrderStatus | null {
+  const done: FiatOrderStatus = side === 'buy' ? 'SETTLED' : 'PAID';
+  const table: Record<string, FiatOrderStatus | null> = {
+    completed: done,
+    complete: done,
+    success: done,
+    successful: done,
+    settled: done,
+    paid: done,
+    done: done,
+    processing: 'PROCESSING',
+    pending: null,
+    failed: 'FAILED',
+    error: 'FAILED',
+    refunded: 'REFUNDED',
+    reversed: 'REVERSED',
+    expired: 'EXPIRED',
+    cancelled: 'CANCELLED',
+    canceled: 'CANCELLED',
+    funding_received: side === 'buy' ? 'FUNDING_RECEIVED' : null,
+    asset_received: side === 'sell' ? 'ASSET_RECEIVED' : null,
+    payout_processing: side === 'sell' ? 'PAYOUT_PROCESSING' : null,
+  };
+  const t = table[raw.toLowerCase()] ?? null;
+  return t && isValidStatus(side, t) ? t : null;
+}
+
 export interface WebhookOutcome {
   status: number;
   body: Record<string, unknown>;
@@ -60,8 +88,10 @@ export async function applyWebhookEvent(providerId: string, rawBody: string, sig
   if (!order) return { status: 200, body: { ok: true, note: 'order_not_found' } };
 
   const side = order.side as OrderSide;
-  const target = ev.status;
-  if (!target || !isValidStatus(side, target)) return { status: 200, body: { ok: true, note: 'unmapped_status' } };
+  // A provider may send our exact state (sandbox) or its own token (Quidax "completed"/"failed"…);
+  // map the latter to the side-appropriate state.
+  const target = ev.status && isValidStatus(side, ev.status) ? ev.status : mapProviderStatus(side, ev.status ?? '');
+  if (!target) return { status: 200, body: { ok: true, note: 'unmapped_status' } };
   if (isTerminal(side, order.status as FiatOrderStatus)) return { status: 200, body: { ok: true, note: 'already_terminal' } };
   if (!canReach(side, order.status as FiatOrderStatus, target)) {
     return { status: 200, body: { ok: true, note: 'illegal_transition_ignored', from: order.status, to: target } };

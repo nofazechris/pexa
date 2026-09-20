@@ -61,9 +61,16 @@ const schema = z.object({
   // 'sandbox' is a clearly-labeled MOCK adapter for development — it never moves real money and
   // never presents its rates as live. A real, compliant provider is a separate, later config.
   // Absent → the fiat feature is disabled (endpoints/tools return "not enabled").
-  FIAT_PROVIDER: z.enum(['sandbox']).optional(),
+  FIAT_PROVIDER: z.enum(['sandbox', 'quidax']).optional(),
   /** Shared secret used to verify inbound fiat-provider webhook signatures. Absent → webhooks rejected. */
   FIAT_WEBHOOK_SECRET: z.string().min(1).optional(),
+  // Quidax on/off-ramp (used when FIAT_PROVIDER=quidax). Server-only secrets — never exposed to
+  // the client or the LLM. The webhook key verifies the `quidax-signature` HMAC.
+  QUIDAX_SECRET_KEY: z.string().min(1).optional(),
+  QUIDAX_WEBHOOK_KEY: z.string().min(1).optional(),
+  QUIDAX_BASE_URL: z.string().url().optional(),
+  /** Chain Pexa settles USDT on with Quidax (Celo is supported). */
+  QUIDAX_USDT_NETWORK: z.string().min(1).optional(),
 
   // Integrations (Stages 14–17)
   MCP_SECRET: z.string().min(1).optional(),

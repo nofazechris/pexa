@@ -13,12 +13,30 @@
 
 export type OrderSide = 'buy' | 'sell';
 
+/**
+ * Who the acting user is and where crypto is delivered/collected. The sandbox ignores this; a real
+ * provider (e.g. Quidax) needs the customer identity + on-chain address to create ramp transactions.
+ * Populated by the service from the authenticated user — never from the LLM or tool arguments.
+ */
+export interface FiatContext {
+  customerEmail?: string | null;
+  customerFirstName?: string | null;
+  customerLastName?: string | null;
+  /** The provider's customer/sub-account id, when one exists. */
+  providerCustomerId?: string | null;
+  /** The user's on-chain wallet address (buy destination / sell source). */
+  walletAddress?: string | null;
+  /** Chain for the USDT leg, e.g. "celo". */
+  walletNetwork?: string | null;
+}
+
 export interface QuoteRequest {
   side: OrderSide;
   /** The amount the user specified, in smallest units of `amountCurrency`. */
   amount: string;
   /** Which side of the pair the `amount` is denominated in. */
   amountCurrency: 'NGN' | 'USDT';
+  context?: FiatContext;
 }
 
 export interface FiatQuote {
@@ -53,6 +71,7 @@ export interface CreateOrderRequest {
   idempotencyKey: string;
   /** For a sell: the verified payout account to receive NGN. */
   payoutAccountRef?: string;
+  context?: FiatContext;
 }
 
 export interface ProviderOrder {

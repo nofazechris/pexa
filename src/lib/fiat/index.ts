@@ -2,6 +2,7 @@ import 'server-only';
 import { fiatProviderId } from '@/lib/config/fiat';
 import type { FiatProvider } from './provider';
 import { SandboxFiatProvider } from './sandbox';
+import { QuidaxFiatProvider } from './quidax';
 
 /**
  * Fiat provider selection (§16). Resolves the configured adapter from `FIAT_PROVIDER`. Only the
@@ -17,6 +18,9 @@ export function getFiatProvider(): FiatProvider {
   switch (id) {
     case 'sandbox':
       cached = new SandboxFiatProvider();
+      return cached;
+    case 'quidax':
+      cached = new QuidaxFiatProvider();
       return cached;
     default:
       throw new Error('Fiat is not enabled (set FIAT_PROVIDER).');

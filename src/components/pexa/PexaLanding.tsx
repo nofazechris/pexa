@@ -370,12 +370,18 @@ type CmdState = 'idle' | 'working' | 'preview' | 'processing' | 'done' | 'answer
 interface MetaRow { label: string; value: string }
 interface AnswerRow { handle: string; sub: string; amount: string; color: string }
 interface CmdScript {
-  kind: 'send' | 'request' | 'recurring' | 'balance' | 'activity';
+  kind: 'send' | 'request' | 'recurring' | 'balance' | 'activity' | 'buy' | 'convert';
   steps: string[];
   initial?: string;
   handle?: string;
   name?: string;
   amountStr?: string;
+  /** For fiat cards (buy/convert): the big amount line, e.g. "₦100,000" or "100 USDT". */
+  amountDisplay?: string;
+  /** A subline under the amount, e.g. "≈ 61.72 USDT". */
+  receiveLine?: string;
+  /** Hide the recipient avatar/handle block (fiat has no @recipient). */
+  hideRecipient?: boolean;
   previewTitle?: string;
   confirmLabel?: string;
   metaRows?: MetaRow[];
@@ -404,6 +410,45 @@ function parseDemo(raw: string): CmdScript {
   }
   if (t.includes('recent') || t.includes('activity') || t.includes('transaction')) {
     return { kind: 'activity', steps: ['Reading your request', 'Fetching activity'], answerLabel: 'Recent payments', answerValue: 'Last 3', answerRows: RECENT };
+  }
+  // Fiat NGN↔USDT (fixed demo rate ₦1,612 / USDT, 0.5% fee) — checked before send/recurring.
+  const RATE = 1612;
+  const fiatNum = Number((raw.replace(/,/g, '').match(/(\d+(?:\.\d+)?)/) ?? [])[1] ?? '0');
+  const ngnFmt = (n: number) => '₦' + Math.round(n).toLocaleString('en-US');
+  const usdtFmt = (n: number) => n.toFixed(2) + ' USDT';
+  if (t.includes('buy') && (t.includes('usdt') || t.includes('naira') || raw.includes('₦'))) {
+    const ngn = fiatNum || 100000;
+    const fee = ngn * 0.005;
+    const usdt = (ngn - fee) / RATE;
+    return {
+      kind: 'buy',
+      steps: ['Understanding your request', 'Fetching a live quote', 'Locking the rate'],
+      hideRecipient: true,
+      amountDisplay: ngnFmt(ngn),
+      receiveLine: `≈ ${usdtFmt(usdt)}`,
+      previewTitle: 'Buy USDT',
+      confirmLabel: 'Confirm purchase',
+      metaRows: [{ label: 'Rate', value: `${ngnFmt(RATE)} / USDT` }, { label: 'Fee', value: ngnFmt(fee) }, { label: 'You receive', value: usdtFmt(usdt) }],
+      doneTitle: 'Purchase complete',
+      receiptRows: [{ label: 'To', value: 'Your Pexa wallet' }, { label: 'Asset', value: 'USDT' }, { label: 'Status', value: 'Completed' }],
+    };
+  }
+  if (t.includes('convert') || t.includes('sell') || (t.includes('usdt') && t.includes('naira'))) {
+    const usdt = fiatNum || 100;
+    const gross = usdt * RATE;
+    const fee = gross * 0.005;
+    return {
+      kind: 'convert',
+      steps: ['Understanding your request', 'Fetching a live quote', 'Locking the rate'],
+      hideRecipient: true,
+      amountDisplay: usdtFmt(usdt),
+      receiveLine: `≈ ${ngnFmt(gross - fee)}`,
+      previewTitle: 'Convert to naira',
+      confirmLabel: 'Confirm conversion',
+      metaRows: [{ label: 'Rate', value: `${ngnFmt(RATE)} / USDT` }, { label: 'Fee', value: ngnFmt(fee) }, { label: 'You receive', value: ngnFmt(gross - fee) }, { label: 'To', value: 'GTBank ••••4821' }],
+      doneTitle: 'Conversion complete',
+      receiptRows: [{ label: 'To', value: 'GTBank ••••4821' }, { label: 'Status', value: 'Paid' }],
+    };
   }
   if (t.includes('every') || t.includes('recurring') || t.includes('weekly') || t.includes('monthly')) {
     return {
@@ -481,7 +526,7 @@ function useCmdDemo() {
 const CMD_LABEL: Record<CmdState, string> = {
   idle: 'READY', working: 'WORKING', preview: 'PREVIEW', processing: 'PROCESSING', done: 'DONE', answer: 'ANSWER',
 };
-const SUGGESTIONS = ['Send $20 to @sarah', 'Request $50 from @mike for the design', 'Pay @sarah $20 every Friday', 'What’s my balance?', 'Show recent payments'];
+const SUGGESTIONS = ['Buy ₦100,000 of USDT', 'Convert 100 USDT to naira', 'Send $20 to @sarah', 'Request $50 from @mike', 'Pay @sarah $20 every Friday'];
 const MCP_TOOLS = ['get_profile', 'get_balance', 'find_contact', 'get_recent_transactions', 'get_payment_status', 'create_payment_preview', 'confirm_payment', 'create_request'];
 
 /* ------------------------------------------------------------------ shared bits */
@@ -819,15 +864,24 @@ export function PexaLanding({ onEnter }: { onEnter: () => void }) {
 
               {cmd.state === 'preview' && cmd.script ? (
                 <div style={{ animation: 'pp-step .3s cubic-bezier(.2,.8,.3,1) both' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '11px' }}>
-                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: color.primarySoft, color: color.primary, fontSize: 12.5, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>{cmd.script.initial}</div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: '14.5px', fontWeight: 600 }}>{cmd.script.handle}</div>
-                      <div style={{ fontSize: '12px', color: color.mutedStrong }}>{cmd.script.name}</div>
+                  {!cmd.script.hideRecipient ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '11px' }}>
+                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: color.primarySoft, color: color.primary, fontSize: 12.5, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>{cmd.script.initial}</div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: '14.5px', fontWeight: 600 }}>{cmd.script.handle}</div>
+                        <div style={{ fontSize: '12px', color: color.mutedStrong }}>{cmd.script.name}</div>
+                      </div>
                     </div>
-                  </div>
-                  <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '15px' }}>{cmd.script.previewTitle}</div>
-                  <div style={{ fontSize: '30px', fontWeight: 600, letterSpacing: '-.04em', marginTop: '6px', fontVariantNumeric: 'tabular-nums' }}>${cmd.script.amountStr} <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '12.5px', fontWeight: 400, color: color.mutedStrong }}>USDC</span></div>
+                  ) : null}
+                  <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: cmd.script.hideRecipient ? '2px' : '15px' }}>{cmd.script.previewTitle}</div>
+                  {cmd.script.amountDisplay ? (
+                    <div style={{ marginTop: '6px' }}>
+                      <div style={{ fontSize: '30px', fontWeight: 600, letterSpacing: '-.04em', fontVariantNumeric: 'tabular-nums' }}>{cmd.script.amountDisplay}</div>
+                      {cmd.script.receiveLine ? <div style={{ fontSize: '13.5px', color: color.mutedStrong, marginTop: '4px' }}>{cmd.script.receiveLine}</div> : null}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '30px', fontWeight: 600, letterSpacing: '-.04em', marginTop: '6px', fontVariantNumeric: 'tabular-nums' }}>${cmd.script.amountStr} <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '12.5px', fontWeight: 400, color: color.mutedStrong }}>USDC</span></div>
+                  )}
                   <div style={{ display: 'grid', gap: '9px', marginTop: '14px', paddingTop: '13px', borderTop: `1px solid ${color.borderFaint}` }}>
                     {cmd.script.metaRows?.map((m) => <Meta key={m.label} {...m} />)}
                   </div>
@@ -849,7 +903,8 @@ export function PexaLanding({ onEnter }: { onEnter: () => void }) {
                 <div style={{ animation: 'pp-step .3s cubic-bezier(.2,.8,.3,1) both', textAlign: 'center' }}>
                   <div style={{ width: 40, height: 40, borderRadius: '50%', background: color.primary, color: '#fff', fontSize: 17, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', animation: 'pp-pop .34s cubic-bezier(.2,.8,.3,1) both' }}>✓</div>
                   <div style={{ fontSize: '15.5px', fontWeight: 600, marginTop: '14px', letterSpacing: '-.02em' }}>{cmd.script.doneTitle}</div>
-                  <div style={{ fontSize: '29px', fontWeight: 600, letterSpacing: '-.04em', marginTop: '8px', fontVariantNumeric: 'tabular-nums' }}>${cmd.script.amountStr}</div>
+                  <div style={{ fontSize: '29px', fontWeight: 600, letterSpacing: '-.04em', marginTop: '8px', fontVariantNumeric: 'tabular-nums' }}>{cmd.script.amountDisplay ?? `$${cmd.script.amountStr}`}</div>
+                  {cmd.script.amountDisplay && cmd.script.receiveLine ? <div style={{ fontSize: '13px', color: color.mutedStrong, marginTop: '4px' }}>{cmd.script.receiveLine}</div> : null}
                   <div style={{ display: 'grid', gap: '9px', marginTop: '16px', paddingTop: '14px', borderTop: `1px solid ${color.borderFaint}`, textAlign: 'left' }}>
                     {cmd.script.receiptRows?.map((r) => <Meta key={r.label} {...r} />)}
                   </div>

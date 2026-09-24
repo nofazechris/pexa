@@ -530,6 +530,7 @@ function WalletPage({
   const [copied, setCopied] = useState(false);
   const [usdt, setUsdt] = useState<string | null>(null);
   const [fiatOn, setFiatOn] = useState(false);
+  const [fiatPublic, setFiatPublic] = useState(false);
   const [fundingLive, setFundingLive] = useState(false);
   const [banks, setBanks] = useState<PayoutBank[]>([]);
   const short = address ? address.slice(0, 6) + '…' + address.slice(-4) : '—';
@@ -547,9 +548,10 @@ function WalletPage({
         ]);
         if (!alive) return;
         if (bRes.ok) {
-          const d = (await bRes.json()) as { usdt?: string; fundingLive?: boolean };
+          const d = (await bRes.json()) as { usdt?: string; fundingLive?: boolean; public?: boolean };
           setUsdt(d.usdt ?? '0');
           setFundingLive(Boolean(d.fundingLive));
+          setFiatPublic(Boolean(d.public));
           setFiatOn(true);
         }
         if (aRes.ok) {
@@ -569,12 +571,18 @@ function WalletPage({
     if (address) navigator.clipboard?.writeText(address).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => {});
   };
 
-  const actions: Array<{ label: string; prompt: string; primary?: boolean }> = [
-    { label: 'Buy USDT', prompt: 'I want to buy USDT with naira', primary: true },
-    { label: 'Convert', prompt: 'I want to convert USDT to naira' },
-    { label: 'Send', prompt: 'I want to send a payment' },
-    { label: 'Withdraw', prompt: 'I want to withdraw naira to my bank' },
-  ];
+  // Naira actions only appear when the fiat feature is public; core Celo actions are always shown.
+  const actions: Array<{ label: string; prompt: string; primary?: boolean }> = fiatPublic
+    ? [
+        { label: 'Buy USDT', prompt: 'I want to buy USDT with naira', primary: true },
+        { label: 'Convert', prompt: 'I want to convert USDT to naira' },
+        { label: 'Send', prompt: 'I want to send a payment', primary: true },
+        { label: 'Withdraw', prompt: 'I want to withdraw naira to my bank' },
+      ]
+    : [
+        { label: 'Send', prompt: 'I want to send a payment', primary: true },
+        { label: 'Request', prompt: 'I want to request a payment' },
+      ];
 
   return (
     <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 'clamp(16px,2.6vw,28px) clamp(14px,2.6vw,26px) 40px' }}>
@@ -586,7 +594,7 @@ function WalletPage({
             <div style={{ fontSize: 'clamp(34px,5vw,44px)', fontWeight: 600, letterSpacing: '-.045em', fontVariantNumeric: 'tabular-nums' }}>${money(Number(balance) || 0)}</div>
             <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '13px', color: '#A3ACBC' }}>USDC</div>
           </div>
-          {fiatOn ? (
+          {fiatOn && fiatPublic ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
               <span style={{ fontSize: '14px', color: '#C9D0DC', fontVariantNumeric: 'tabular-nums' }}>{usdt ?? '0'} <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '12px', color: '#8A93A5' }}>USDT</span></span>
               <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '9.5px', letterSpacing: '.1em', color: '#8A6A1E', border: '1px solid #6B5A2E', background: '#2A2410', borderRadius: '999px', padding: '2px 7px' }}>SANDBOX</span>
@@ -600,8 +608,16 @@ function WalletPage({
           </div>
         </div>
 
-        {/* Funding status — honest about beta */}
-        {fiatOn && !fundingLive ? (
+        {/* Naira feature is not public yet — present it as coming soon. */}
+        {!fiatPublic ? (
+          <div style={{ marginTop: '14px', border: `1px dashed ${color.primarySoftBorder}`, background: '#FAFBFE', borderRadius: '14px', padding: '16px 16px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+            <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '9.5px', letterSpacing: '.1em', color: color.primaryHover, border: `1px solid ${color.primarySoftBorder}`, background: color.primarySoft, borderRadius: '999px', padding: '3px 8px', flex: 'none' }}>SOON</span>
+            <div>
+              <div style={{ fontSize: '14.5px', fontWeight: 600, letterSpacing: '-.015em' }}>Naira ↔ USDT is coming soon</div>
+              <div style={{ fontSize: '13px', color: color.mutedStrong, lineHeight: 1.55, marginTop: '4px' }}>Buy, convert and withdraw between naira and USDT — landing shortly. For now you can send, request and receive on Celo.</div>
+            </div>
+          </div>
+        ) : fiatOn && !fundingLive ? (
           <div style={{ marginTop: '14px', border: `1px solid ${color.warningDot}`, background: '#FEFBF0', borderRadius: '12px', padding: '12px 14px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
             <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#FBF0D2', color: color.warning, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>i</span>
             <div style={{ fontSize: '13px', color: color.warning, lineHeight: 1.5 }}>Funding is coming soon — you can’t add real money yet while Pexa is in beta.</div>
@@ -620,7 +636,9 @@ function WalletPage({
                   ? 'USDT → naira'
                   : a.label === 'Send'
                     ? 'to a @username'
-                    : 'to your bank';
+                    : a.label === 'Request'
+                      ? 'from a @username'
+                      : 'to your bank';
             return (
               <button
                 key={a.label}
@@ -660,7 +678,7 @@ function WalletPage({
         </div>
 
         {/* Linked bank accounts (fiat) */}
-        {fiatOn ? (
+        {fiatOn && fiatPublic ? (
           <div style={{ background: color.surface, border: `1px solid ${color.border}`, borderRadius: '16px', padding: '18px', marginTop: '14px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>BANK ACCOUNTS</div>

@@ -73,6 +73,13 @@ const schema = z.object({
   QUIDAX_USDT_NETWORK: z.string().min(1).optional(),
   /** Real naira funding/on-ramp is live. Default off — beta shows "funding coming soon". Set "true" to enable. */
   FUNDING_LIVE: z.string().optional(),
+  /**
+   * Show the NGN↔USDT (naira) features in the consumer app + in-app agent. Default OFF while the
+   * business/Quidax merchant account isn't live — the app then presents naira conversion as
+   * "coming soon" and shows only the core Celo payment experience. The sandbox + MCP tools stay
+   * available for internal testing regardless. Set "true" to surface it publicly.
+   */
+  FIAT_PUBLIC: z.string().optional(),
 
   // Integrations (Stages 14–17)
   MCP_SECRET: z.string().min(1).optional(),

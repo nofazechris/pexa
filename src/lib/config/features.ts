@@ -21,6 +21,8 @@ export interface FeatureFlags {
   readonly fiatSandbox: boolean;
   /** Real naira funding/on-ramp is available. Off in beta — the UI/agent say "funding coming soon". */
   readonly fundingLive: boolean;
+  /** Surface NGN↔USDT features in the consumer app + agent. Off in beta → naira shows "coming soon". */
+  readonly fiatPublic: boolean;
   readonly x402: boolean;
   readonly advancedPrivacy: boolean;
 }
@@ -35,6 +37,7 @@ export const features: FeatureFlags = {
   fiat: Boolean(env.FIAT_PROVIDER),
   fiatSandbox: env.FIAT_PROVIDER === 'sandbox',
   fundingLive: env.FUNDING_LIVE === 'true',
+  fiatPublic: env.FIAT_PUBLIC === 'true',
   x402: false,
   advancedPrivacy: false,
 };

@@ -14,7 +14,12 @@ export async function GET(req: Request) {
   try {
     const user = await getOrCreateUser(auth.user.userId);
     const raw = await getConvertedUsdtBalanceRaw(user.id);
-    return NextResponse.json({ usdt: formatUnitsToUsdt(raw), sandbox: features.fiatSandbox, fundingLive: features.fundingLive });
+    return NextResponse.json({
+      usdt: formatUnitsToUsdt(raw),
+      sandbox: features.fiatSandbox,
+      fundingLive: features.fundingLive,
+      public: features.fiatPublic,
+    });
   } catch (e) {
     return errorResponse(e);
   }

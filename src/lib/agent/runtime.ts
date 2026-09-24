@@ -116,10 +116,14 @@ function toolParams(schema: z.ZodTypeAny): Record<string, unknown> {
 }
 
 function toolDefs(): OpenAI.Chat.Completions.ChatCompletionTool[] {
+  // In the consumer app, only offer fiat tools when the naira feature is public. The backend + MCP
+  // still work in sandbox for internal testing; this just keeps "coming soon" features off the
+  // in-app agent so users aren't shown something that isn't live yet.
+  const fiatOn = features.fiat && features.fiatPublic;
   const defs: OpenAI.Chat.Completions.ChatCompletionTool[] = [];
   for (const t of TOOLS) {
     if (!AGENT_TOOLS.has(t.name)) continue;
-    if (!features.fiat && FIAT_TOOLS.has(t.name)) continue;
+    if (!fiatOn && FIAT_TOOLS.has(t.name)) continue;
     defs.push({ type: 'function', function: { name: t.name, description: t.description, parameters: toolParams(t.schema) } });
   }
   return defs;
@@ -166,11 +170,15 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
   if (!openai) return null;
   const ctx: ToolContext = { userId: input.userId };
 
-  // Dynamic per-turn context: funding/beta status + what we remember about this user.
+  // Dynamic per-turn context: naira/funding status + what we remember about this user.
   const dynamic: string[] = [];
-  if (features.fiat && !features.fundingLive) {
+  if (!(features.fiat && features.fiatPublic)) {
     dynamic.push(
-      'STATUS: Real naira funding/on-ramp is NOT live yet (beta). If the user wants to fund/buy with naira, tell them funding is coming soon — you can still show a sandbox quote, but do not imply real money moved.',
+      'STATUS: Naira ↔ USDT conversion (buy/sell/convert/fund/withdraw with naira) is COMING SOON and not available yet. If the user asks for it, say it is on the roadmap and (optionally) offer to remember their interest. You CAN still do everything on Celo: send/request payments by @username, check balances and activity.',
+    );
+  } else if (!features.fundingLive) {
+    dynamic.push(
+      'STATUS: Real naira funding/on-ramp is NOT live yet (beta). If the user wants to fund/buy with naira, tell them funding is coming soon — you can still show a quote, but do not imply real money moved.',
     );
   }
   try {

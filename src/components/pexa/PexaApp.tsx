@@ -223,7 +223,7 @@ function ChatScreen({ chat }: { chat: ReturnType<typeof useAgentChat> }) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [chat.messages.length, chat.agentState]);
 
-  const suggestions = ['Send $10 to @chris', 'Buy ₦50,000 of USDT', "What's my balance?", 'Convert 20 USDT to naira'];
+  const suggestions = ['Send $10 to @chris', 'Request $20 from @chris', "What's my balance?", 'Show recent payments'];
   const empty = chat.messages.length === 0;
 
   return (
@@ -608,16 +608,8 @@ function WalletPage({
           </div>
         </div>
 
-        {/* Naira feature is not public yet — present it as coming soon. */}
-        {!fiatPublic ? (
-          <div style={{ marginTop: '14px', border: `1px dashed ${color.primarySoftBorder}`, background: '#FAFBFE', borderRadius: '14px', padding: '16px 16px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-            <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '9.5px', letterSpacing: '.1em', color: color.primaryHover, border: `1px solid ${color.primarySoftBorder}`, background: color.primarySoft, borderRadius: '999px', padding: '3px 8px', flex: 'none' }}>SOON</span>
-            <div>
-              <div style={{ fontSize: '14.5px', fontWeight: 600, letterSpacing: '-.015em' }}>Naira ↔ USDT is coming soon</div>
-              <div style={{ fontSize: '13px', color: color.mutedStrong, lineHeight: 1.55, marginTop: '4px' }}>Buy, convert and withdraw between naira and USDT — landing shortly. For now you can send, request and receive on Celo.</div>
-            </div>
-          </div>
-        ) : fiatOn && !fundingLive ? (
+        {/* Funding status (only once naira is public). */}
+        {fiatPublic && fiatOn && !fundingLive ? (
           <div style={{ marginTop: '14px', border: `1px solid ${color.warningDot}`, background: '#FEFBF0', borderRadius: '12px', padding: '12px 14px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
             <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#FBF0D2', color: color.warning, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>i</span>
             <div style={{ fontSize: '13px', color: color.warning, lineHeight: 1.5 }}>Funding is coming soon — you can’t add real money yet while Pexa is in beta.</div>

@@ -411,45 +411,6 @@ function parseDemo(raw: string): CmdScript {
   if (t.includes('recent') || t.includes('activity') || t.includes('transaction')) {
     return { kind: 'activity', steps: ['Reading your request', 'Fetching activity'], answerLabel: 'Recent payments', answerValue: 'Last 3', answerRows: RECENT };
   }
-  // Fiat NGN↔USDT (fixed demo rate ₦1,612 / USDT, 0.5% fee) — checked before send/recurring.
-  const RATE = 1612;
-  const fiatNum = Number((raw.replace(/,/g, '').match(/(\d+(?:\.\d+)?)/) ?? [])[1] ?? '0');
-  const ngnFmt = (n: number) => '₦' + Math.round(n).toLocaleString('en-US');
-  const usdtFmt = (n: number) => n.toFixed(2) + ' USDT';
-  if (t.includes('buy') && (t.includes('usdt') || t.includes('naira') || raw.includes('₦'))) {
-    const ngn = fiatNum || 100000;
-    const fee = ngn * 0.005;
-    const usdt = (ngn - fee) / RATE;
-    return {
-      kind: 'buy',
-      steps: ['Understanding your request', 'Fetching a live quote', 'Locking the rate'],
-      hideRecipient: true,
-      amountDisplay: ngnFmt(ngn),
-      receiveLine: `≈ ${usdtFmt(usdt)}`,
-      previewTitle: 'Buy USDT',
-      confirmLabel: 'Confirm purchase',
-      metaRows: [{ label: 'Rate', value: `${ngnFmt(RATE)} / USDT` }, { label: 'Fee', value: ngnFmt(fee) }, { label: 'You receive', value: usdtFmt(usdt) }],
-      doneTitle: 'Purchase complete',
-      receiptRows: [{ label: 'To', value: 'Your Pexa wallet' }, { label: 'Asset', value: 'USDT' }, { label: 'Status', value: 'Completed' }],
-    };
-  }
-  if (t.includes('convert') || t.includes('sell') || (t.includes('usdt') && t.includes('naira'))) {
-    const usdt = fiatNum || 100;
-    const gross = usdt * RATE;
-    const fee = gross * 0.005;
-    return {
-      kind: 'convert',
-      steps: ['Understanding your request', 'Fetching a live quote', 'Locking the rate'],
-      hideRecipient: true,
-      amountDisplay: usdtFmt(usdt),
-      receiveLine: `≈ ${ngnFmt(gross - fee)}`,
-      previewTitle: 'Convert to naira',
-      confirmLabel: 'Confirm conversion',
-      metaRows: [{ label: 'Rate', value: `${ngnFmt(RATE)} / USDT` }, { label: 'Fee', value: ngnFmt(fee) }, { label: 'You receive', value: ngnFmt(gross - fee) }, { label: 'To', value: 'GTBank ••••4821' }],
-      doneTitle: 'Conversion complete',
-      receiptRows: [{ label: 'To', value: 'GTBank ••••4821' }, { label: 'Status', value: 'Paid' }],
-    };
-  }
   if (t.includes('every') || t.includes('recurring') || t.includes('weekly') || t.includes('monthly')) {
     return {
       kind: 'recurring',
@@ -526,7 +487,7 @@ function useCmdDemo() {
 const CMD_LABEL: Record<CmdState, string> = {
   idle: 'READY', working: 'WORKING', preview: 'PREVIEW', processing: 'PROCESSING', done: 'DONE', answer: 'ANSWER',
 };
-const SUGGESTIONS = ['Send $20 to @sarah', 'Request $50 from @mike', 'Pay @sarah $20 every Friday', 'What’s my balance?', 'Buy ₦100,000 of USDT'];
+const SUGGESTIONS = ['Send $20 to @sarah', 'Request $50 from @mike', 'Pay @sarah $20 every Friday', 'What’s my balance?', 'Show recent payments'];
 const MCP_TOOLS = ['get_profile', 'get_balance', 'find_contact', 'get_recent_transactions', 'get_payment_status', 'create_payment_preview', 'confirm_payment', 'create_request'];
 
 /* ------------------------------------------------------------------ shared bits */
@@ -702,7 +663,7 @@ export function PexaLanding({ onEnter }: { onEnter: () => void }) {
             <h1 style={{ animation: 'pp-up .62s cubic-bezier(.2,.8,.3,1) 70ms both', fontSize: 'clamp(38px,6.4vw,66px)', lineHeight: 1, letterSpacing: '-.045em', fontWeight: 600, margin: '20px 0 0' }}>
               Your money,<br />handled by an<br /><span style={{ color: color.primary }}>AI agent.</span>
             </h1>
-            <p style={{ animation: 'pp-up .62s cubic-bezier(.2,.8,.3,1) 150ms both', fontSize: 'clamp(16.5px,1.5vw,18.5px)', lineHeight: 1.62, color: color.muted, maxWidth: '452px', margin: '24px 0 0' }}>A new way to interact with your money on-chain — send, request and manage payments just by talking to Pexa. Naira and more, coming soon.</p>
+            <p style={{ animation: 'pp-up .62s cubic-bezier(.2,.8,.3,1) 150ms both', fontSize: 'clamp(16.5px,1.5vw,18.5px)', lineHeight: 1.62, color: color.muted, maxWidth: '452px', margin: '24px 0 0' }}>A new way to interact with your money on-chain — send, request and manage payments just by talking to Pexa.</p>
             <div style={{ animation: 'pp-up .62s cubic-bezier(.2,.8,.3,1) 220ms both', display: 'flex', gap: '10px', marginTop: '30px', flexWrap: 'wrap' }}>
               <a href="#waitlist" style={{ border: 'none', background: color.ink, color: '#fff', fontSize: '15px', fontWeight: 500, padding: '14px 22px', borderRadius: '11px', cursor: 'pointer', textDecoration: 'none' }}>Join the waitlist</a>
               <a href="#how" style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '15px', fontWeight: 500, padding: '14px 22px', borderRadius: '11px', textDecoration: 'none' }}>See how it works</a>
@@ -950,7 +911,7 @@ export function PexaLanding({ onEnter }: { onEnter: () => void }) {
             ['03', 'Receive', 'Get paid through your username and wallet.', '“Share my Pexa username.”'],
             ['04', 'Recurring', 'Schedule repeating payments in conversation.', '“Pay @sarah $20 every Friday.”'],
             ['05', 'Automate', 'Set money rules — like auto-saving as you get paid.', '“Save 10% of what I receive.”'],
-            ['06', 'Naira ↔ USDT', 'Move between naira and USDT — coming soon.', '“Buy ₦100,000 of USDT.”'],
+            ['06', 'Manage', 'Ask about balance, transactions and activity.', '“What’s my balance?”'],
           ].map(([n, title, desc, ex]) => (
             <div key={n} style={{ display: 'grid', gridTemplateColumns: '44px minmax(0,150px) minmax(0,1fr)', gap: 'clamp(12px,2.4vw,28px)', alignItems: 'baseline', padding: '22px 4px', borderTop: `1px solid ${color.border}` }}>
               <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '11.5px', letterSpacing: '.12em', color: color.primary }}>{n}</div>

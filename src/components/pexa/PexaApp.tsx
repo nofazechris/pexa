@@ -50,6 +50,8 @@ export interface PexaAppProps {
   payRequest: (args: { requestId: string; recipient: string; amount: string }) => Promise<{ ok: boolean; error?: string }>;
   setRecurringPaused: (id: string, paused: boolean) => Promise<{ ok: boolean; error?: string }>;
   cancelRecurring: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Authorized token getter, for the Wallet screen's own reads (USDT balance, linked banks). */
+  getAccessToken?: () => Promise<string | null>;
 }
 
 export function PexaApp(props: PexaAppProps) {
@@ -151,7 +153,18 @@ export function PexaApp(props: PexaAppProps) {
         <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
             {page === 'chat' ? <ChatScreen chat={chat} /> : null}
-            {page === 'wallet' ? <WalletPage balance={balance} username={username} address={address} onSend={() => setPage('chat')} /> : null}
+            {page === 'wallet' ? (
+              <WalletPage
+                balance={balance}
+                username={username}
+                address={address}
+                getAccessToken={props.getAccessToken}
+                onAsk={(text) => {
+                  setPage('chat');
+                  chat.send(text);
+                }}
+              />
+            ) : null}
             {page === 'activity' ? <ActivityPage activity={activity} /> : null}
             {page === 'payments' ? (
               <PaymentsPage
@@ -480,39 +493,157 @@ function ErrorCard({ m }: { m: ChatMessage }) {
 
 /* ----------------------------------------------------------------- other pages */
 
-function WalletPage({ balance, username, address, onSend }: { balance: string; username?: string; address?: string; onSend: () => void }) {
+interface PayoutBank { id: string; bankName: string; accountName: string; last4: string }
+
+function WalletPage({
+  balance,
+  username,
+  address,
+  getAccessToken,
+  onAsk,
+}: {
+  balance: string;
+  username?: string;
+  address?: string;
+  getAccessToken?: () => Promise<string | null>;
+  onAsk: (text: string) => void;
+}) {
   const [copied, setCopied] = useState(false);
+  const [usdt, setUsdt] = useState<string | null>(null);
+  const [fiatOn, setFiatOn] = useState(false);
+  const [banks, setBanks] = useState<PayoutBank[]>([]);
   const short = address ? address.slice(0, 6) + '…' + address.slice(-4) : '—';
+
+  // Wallet-screen reads: derived USDT balance + linked bank accounts (only if fiat is enabled).
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const token = getAccessToken ? await getAccessToken() : null;
+        const headers = token ? { authorization: `Bearer ${token}` } : undefined;
+        const [bRes, aRes] = await Promise.all([
+          fetch('/api/fiat/balance', { headers }),
+          fetch('/api/fiat/payout-accounts', { headers }),
+        ]);
+        if (!alive) return;
+        if (bRes.ok) {
+          const d = (await bRes.json()) as { usdt?: string };
+          setUsdt(d.usdt ?? '0');
+          setFiatOn(true);
+        }
+        if (aRes.ok) {
+          const d = (await aRes.json()) as { accounts?: PayoutBank[] };
+          setBanks(d.accounts ?? []);
+        }
+      } catch {
+        /* leave fiat sections hidden */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [getAccessToken]);
+
+  const copyAddress = () => {
+    if (address) navigator.clipboard?.writeText(address).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => {});
+  };
+
+  const actions: Array<{ label: string; prompt: string; primary?: boolean }> = [
+    { label: 'Buy USDT', prompt: 'I want to buy USDT with naira', primary: true },
+    { label: 'Convert', prompt: 'I want to convert USDT to naira' },
+    { label: 'Send', prompt: 'I want to send a payment' },
+    { label: 'Withdraw', prompt: 'I want to withdraw naira to my bank' },
+  ];
+
   return (
     <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 'clamp(16px,2.6vw,28px) clamp(14px,2.6vw,26px) 40px' }}>
       <div style={{ maxWidth: '720px', margin: '0 auto', animation: 'pp-fade .22s ease both' }}>
+        {/* Balance */}
         <div style={{ background: color.ink, borderRadius: '18px', padding: 'clamp(20px,3vw,28px)', color: '#fff' }}>
           <div style={{ fontSize: '12.5px', color: '#A3ACBC' }}>Available balance</div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '9px', marginTop: '8px' }}>
             <div style={{ fontSize: 'clamp(34px,5vw,44px)', fontWeight: 600, letterSpacing: '-.045em', fontVariantNumeric: 'tabular-nums' }}>${money(Number(balance) || 0)}</div>
             <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '13px', color: '#A3ACBC' }}>USDC</div>
           </div>
+          {fiatOn ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+              <span style={{ fontSize: '14px', color: '#C9D0DC', fontVariantNumeric: 'tabular-nums' }}>{usdt ?? '0'} <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '12px', color: '#8A93A5' }}>USDT</span></span>
+              <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '9.5px', letterSpacing: '.1em', color: '#8A6A1E', border: '1px solid #6B5A2E', background: '#2A2410', borderRadius: '999px', padding: '2px 7px' }}>SANDBOX</span>
+            </div>
+          ) : null}
           <div style={{ display: 'flex', gap: '8px', marginTop: '20px', flexWrap: 'wrap' }}>
-            <button onClick={onSend} style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: '12px 18px', borderRadius: '11px', cursor: 'pointer' }}>Send</button>
-            <button
-              onClick={() => {
-                if (address) navigator.clipboard?.writeText(address).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => {});
-              }}
-              style={{ border: '1px solid #2C3547', background: 'transparent', color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: '12px 18px', borderRadius: '11px', cursor: 'pointer' }}
-            >
+            <button onClick={() => onAsk('I want to send a payment')} style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: '12px 18px', borderRadius: '11px', cursor: 'pointer' }}>Send</button>
+            <button onClick={copyAddress} style={{ border: '1px solid #2C3547', background: 'transparent', color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: '12px 18px', borderRadius: '11px', cursor: 'pointer' }}>
               {copied ? 'Address copied' : 'Receive'}
             </button>
           </div>
         </div>
+
+        {/* Quick actions — everything runs through the chat agent */}
+        <div style={{ marginTop: '14px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '10px' }}>
+          {actions.map((a) => (
+            <button
+              key={a.label}
+              onClick={() => onAsk(a.prompt)}
+              style={{
+                border: `1px solid ${a.primary ? color.primary : color.border}`,
+                background: a.primary ? color.primarySoft : color.surface,
+                color: a.primary ? color.primaryHover : color.ink,
+                fontSize: '14.5px',
+                fontWeight: 600,
+                letterSpacing: '-.01em',
+                padding: '16px 14px',
+                borderRadius: '14px',
+                cursor: 'pointer',
+                textAlign: 'left',
+              }}
+            >
+              {a.label}
+              <div style={{ fontSize: '12px', fontWeight: 400, color: color.mutedStrong, marginTop: '4px' }}>
+                {a.label === 'Buy USDT' ? 'with naira' : a.label === 'Convert' ? 'USDT → naira' : a.label === 'Send' ? 'to a @username' : 'to your bank'}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {/* Identity */}
         <div style={{ background: color.surface, border: `1px solid ${color.border}`, borderRadius: '16px', padding: '18px', marginTop: '14px' }}>
           <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>YOUR IDENTITY</div>
           <div style={{ fontSize: '21px', fontWeight: 600, letterSpacing: '-.03em', marginTop: '13px' }}>{username ? '@' + username : '—'}</div>
           <div style={{ fontSize: '13px', color: color.mutedStrong, marginTop: '4px' }}>People pay you by username.</div>
-          <div style={{ marginTop: '15px', paddingTop: '14px', borderTop: `1px solid ${color.borderFaint}` }}>
-            <div style={{ fontSize: '12.5px', color: color.mutedStrong }}>Celo wallet</div>
-            <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '13px', marginTop: '5px', wordBreak: 'break-all' }}>{short}</div>
+          <div style={{ marginTop: '15px', paddingTop: '14px', borderTop: `1px solid ${color.borderFaint}`, display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '12.5px', color: color.mutedStrong }}>Celo wallet</div>
+              <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '13px', marginTop: '5px', wordBreak: 'break-all' }}>{short}</div>
+            </div>
+            <button onClick={copyAddress} style={{ marginLeft: 'auto', border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '12.5px', fontWeight: 500, padding: '8px 12px', borderRadius: '9px', cursor: 'pointer' }}>{copied ? 'Copied' : 'Copy'}</button>
           </div>
         </div>
+
+        {/* Linked bank accounts (fiat) */}
+        {fiatOn ? (
+          <div style={{ background: color.surface, border: `1px solid ${color.border}`, borderRadius: '16px', padding: '18px', marginTop: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>BANK ACCOUNTS</div>
+              <button onClick={() => onAsk('I want to add a bank account for withdrawals')} style={{ marginLeft: 'auto', border: `1px solid ${color.primary}`, background: color.primarySoft, color: color.primaryHover, fontSize: '13px', fontWeight: 500, padding: '8px 12px', borderRadius: '9px', cursor: 'pointer' }}>+ Add bank</button>
+            </div>
+            <div style={{ marginTop: '14px', display: 'grid', gap: '10px' }}>
+              {banks.length === 0 ? (
+                <div style={{ fontSize: '13.5px', color: color.mutedStrong }}>No bank linked yet. Add one to withdraw naira.</div>
+              ) : (
+                banks.map((b) => (
+                  <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', border: `1px solid ${color.borderFaint}`, borderRadius: '12px', padding: '12px 13px' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: '14px', fontWeight: 500 }}>{b.accountName}</div>
+                      <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '2px' }}>{b.bankName} · •••• {b.last4}</div>
+                    </div>
+                    <span style={{ marginLeft: 'auto', fontSize: '11.5px', fontWeight: 500, color: color.success }}>Verified</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

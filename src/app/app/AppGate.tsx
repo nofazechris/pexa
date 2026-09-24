@@ -146,6 +146,7 @@ export default function AppGate() {
       payRequest={hooks.payRequest}
       setRecurringPaused={hooks.setRecurringPaused}
       cancelRecurring={hooks.cancelRecurring}
+      getAccessToken={getAccessToken}
     />
   );
 }

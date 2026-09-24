@@ -71,6 +71,8 @@ const schema = z.object({
   QUIDAX_BASE_URL: z.string().url().optional(),
   /** Chain Pexa settles USDT on with Quidax (Celo is supported). */
   QUIDAX_USDT_NETWORK: z.string().min(1).optional(),
+  /** Real naira funding/on-ramp is live. Default off — beta shows "funding coming soon". Set "true" to enable. */
+  FUNDING_LIVE: z.string().optional(),
 
   // Integrations (Stages 14–17)
   MCP_SECRET: z.string().min(1).optional(),

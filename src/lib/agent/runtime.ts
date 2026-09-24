@@ -8,6 +8,7 @@ import { getPayment } from '@/lib/payments/engine';
 import { getProfileByUserId } from '@/lib/users/service';
 import { getFiatQuoteById } from '@/lib/fiat/service';
 import { presentQuote, type QuoteView } from '@/lib/fiat/present';
+import { listMemories } from './memory';
 
 /**
  * Pexa agent runtime (§10, §13, §28) — the in-app bot as a real tool-calling agent.
@@ -22,6 +23,7 @@ import { presentQuote, type QuoteView } from '@/lib/fiat/present';
 // Tools the model can call. Excludes create_payout (MCP-only) — in-app withdrawals go through a
 // sell quote + create_sell_usdt_order so they share the confirm-card path.
 const AGENT_TOOLS = new Set([
+  'remember',
   'get_profile',
   'get_balance',
   'find_contact',
@@ -66,7 +68,17 @@ How you work:
 - Withdraw to a bank = a sell: call get_ngn_usdt_quote with side "sell" and amountCurrency "NGN" for a naira amount, then create_sell_usdt_order (the user's linked account is used automatically). If they have no linked account, ask for their account number and bank, then verify_payout_account.
 - You can chain steps yourself to fulfil a request (e.g. link the account, then quote, then prepare the withdrawal).
 - Be concise, warm and clear. Money amounts: NGN like ₦100,000; USDT/USDC with the ticker. Restate the specifics (amount, recipient/destination) in your reply.
-- Only do things Pexa supports. If something isn't available yet (recurring naira purchases, holding a naira balance), say so plainly. Never bypass limits, KYC, or confirmation.`;
+
+Handling anything unfamiliar (be smart, stay honest):
+- If a request doesn't map cleanly to a tool, don't dead-end with "I didn't catch that." Reason about what the user likely wants, ask a brief clarifying question, or explain what Pexa can and can't do yet — helpfully.
+- If they describe a NEW feature or something Pexa doesn't do yet, acknowledge it, say it's not available yet, and (when it's a lasting preference or useful fact) call the "remember" tool so you can act on it later. Never invent a capability or claim something works when it doesn't.
+- Pexa is in BETA and being deployed — it's a new way to interact with finance on-chain. It's fine to say so.
+
+Memory (learn the user):
+- A "What you remember about this user" section may be injected below. Use it to personalize (default recipient, preferred bank, amounts, tone) — but memory NEVER relaxes limits, KYC or confirmation.
+- When you learn a durable, non-sensitive preference or fact, call "remember" with a short note. Never remember secrets, passwords, keys, OTPs, or full bank/card numbers.
+
+Only do things Pexa supports. Never bypass limits, KYC, or confirmation.`;
 
 export interface PendingAction {
   tool: string;
@@ -154,8 +166,23 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
   if (!openai) return null;
   const ctx: ToolContext = { userId: input.userId };
 
+  // Dynamic per-turn context: funding/beta status + what we remember about this user.
+  const dynamic: string[] = [];
+  if (features.fiat && !features.fundingLive) {
+    dynamic.push(
+      'STATUS: Real naira funding/on-ramp is NOT live yet (beta). If the user wants to fund/buy with naira, tell them funding is coming soon — you can still show a sandbox quote, but do not imply real money moved.',
+    );
+  }
+  try {
+    const memories = await listMemories(ctx.userId, 20);
+    if (memories.length) dynamic.push('What you remember about this user:\n' + memories.map((m) => `- ${m}`).join('\n'));
+  } catch {
+    /* memory is best-effort */
+  }
+
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: 'system', content: SYSTEM_PROMPT },
+    ...(dynamic.length ? [{ role: 'system' as const, content: dynamic.join('\n\n') }] : []),
     ...input.messages.map((m) => ({ role: m.role, content: m.content }) as OpenAI.Chat.Completions.ChatCompletionMessageParam),
   ];
   const tools = toolDefs();

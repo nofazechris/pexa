@@ -64,6 +64,13 @@
       "when": 1789854660632,
       "tag": "0008_bizarre_stingray",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790280754103,
+      "tag": "0009_handy_junta",
+      "breakpoints": true
     }
   ]
 }

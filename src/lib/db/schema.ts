@@ -333,6 +333,25 @@ export const providerWebhookEvents = pgTable(
   (t) => [uniqueIndex('provider_webhook_events_provider_event_uq').on(t.provider, t.eventId)],
 );
 
+/**
+ * Agent memory (learns the user). Short, non-sensitive facts/preferences the agent recalls to
+ * personalize conversations (frequent recipients, default bank label, preferred cadence, tone).
+ * Never secrets, keys, or full bank/card numbers. Memory informs orchestration only — it can never
+ * relax limits, KYC or confirmation. Unique per (user, content) so re-remembering is idempotent.
+ */
+export const agentMemories = pgTable(
+  'agent_memories',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('agent_memories_user_content_uq').on(t.userId, t.content)],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type ProfileRow = typeof profiles.$inferSelect;
 export type WalletRow = typeof wallets.$inferSelect;
@@ -348,3 +367,4 @@ export type PayoutAccountRow = typeof payoutAccounts.$inferSelect;
 export type FiatQuoteRow = typeof fiatQuotes.$inferSelect;
 export type FiatOrderRow = typeof fiatOrders.$inferSelect;
 export type ProviderWebhookEventRow = typeof providerWebhookEvents.$inferSelect;
+export type AgentMemoryRow = typeof agentMemories.$inferSelect;

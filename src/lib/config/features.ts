@@ -19,6 +19,8 @@ export interface FeatureFlags {
   readonly fiat: boolean;
   /** True only while the fiat provider is the sandbox mock — surfaced to the UI so nothing looks live. */
   readonly fiatSandbox: boolean;
+  /** Real naira funding/on-ramp is available. Off in beta — the UI/agent say "funding coming soon". */
+  readonly fundingLive: boolean;
   readonly x402: boolean;
   readonly advancedPrivacy: boolean;
 }
@@ -32,6 +34,7 @@ export const features: FeatureFlags = {
   gaslessRelayer: Boolean(env.RELAYER_PRIVATE_KEY),
   fiat: Boolean(env.FIAT_PROVIDER),
   fiatSandbox: env.FIAT_PROVIDER === 'sandbox',
+  fundingLive: env.FUNDING_LIVE === 'true',
   x402: false,
   advancedPrivacy: false,
 };

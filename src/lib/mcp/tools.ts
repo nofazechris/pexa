@@ -10,6 +10,7 @@ import { getUsdcBalance } from '@/lib/celo/balance';
 import { previewPayment, authorizePayment, confirmPayment, executeAuthorizedPayment, listPayments } from '@/lib/payments/engine';
 import { listContacts } from '@/lib/contacts/service';
 import { createRequest } from '@/lib/requests/service';
+import { addMemory } from '@/lib/agent/memory';
 import { getFiatQuote, createFiatOrder, getFiatOrder, orderKeyForQuote, getConvertedUsdtBalanceRaw } from '@/lib/fiat/service';
 import { verifyPayoutAccount, listPayoutAccounts, createPayout } from '@/lib/fiat/payouts';
 import { presentQuote, presentOrder, presentPayoutAccount } from '@/lib/fiat/present';
@@ -86,6 +87,18 @@ export const TOOLS: ToolDef[] = [
       const profile = await getProfileByUserId(ctx.userId);
       if (!profile) throw new ToolError('no_profile', 'This account has no profile yet.');
       return { username: '@' + profile.username, displayName: profile.displayName };
+    },
+  }),
+
+  tool({
+    name: 'remember',
+    description:
+      "Save a short, durable fact or preference about the user to personalize future chats (e.g. 'usually pays @sarah', 'prefers GTBank for withdrawals', 'likes brief replies'). Do NOT store secrets, passwords, keys, OTPs, or full bank/card numbers.",
+    schema: z.object({ content: z.string().min(1).max(240).describe('A concise fact/preference to remember.') }),
+    handler: async (ctx, args) => {
+      const res = await addMemory(ctx.userId, args.content);
+      if (!res.ok) return { saved: false, reason: res.error };
+      return { saved: true };
     },
   }),
 

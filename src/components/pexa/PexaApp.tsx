@@ -33,6 +33,17 @@ function money(n: number): string {
   return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function BetaChip() {
+  return (
+    <span
+      title="Pexa is in beta and being deployed"
+      style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '9px', letterSpacing: '.12em', color: color.primaryHover, border: `1px solid ${color.primarySoftBorder}`, background: color.primarySoft, borderRadius: '999px', padding: '2px 6px', lineHeight: 1.4 }}
+    >
+      BETA
+    </span>
+  );
+}
+
 export interface PexaAppProps {
   username?: string;
   address?: string;
@@ -101,6 +112,7 @@ export function PexaApp(props: PexaAppProps) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '4px 8px 18px' }}>
             <PrivyPayLogo size={22} />
             <span style={{ fontSize: '15.5px', fontWeight: 600, letterSpacing: '-.025em' }}>Pexa</span>
+            <BetaChip />
           </div>
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
             {NAV.map((n) => {
@@ -137,9 +149,12 @@ export function PexaApp(props: PexaAppProps) {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <PrivyPayLogo size={21} />
               <span style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '-.025em' }}>Pexa</span>
+              <BetaChip />
             </div>
           ) : (
-            <div style={{ fontSize: '15.5px', fontWeight: 600, letterSpacing: '-.022em' }}>{PAGE_TITLE[page]}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '15.5px', fontWeight: 600, letterSpacing: '-.022em' }}>{PAGE_TITLE[page]}</span>
+            </div>
           )}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '7px', border: `1px solid ${pill.border}`, background: pill.bg, borderRadius: '999px', padding: '5px 11px' }}>
@@ -222,7 +237,11 @@ function ChatScreen({ chat }: { chat: ReturnType<typeof useAgentChat> }) {
                 <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.14em', color: color.faint }}>PEXA AGENT</span>
               </div>
               <h1 style={{ fontSize: 'clamp(28px,4.4vw,38px)', letterSpacing: '-.04em', fontWeight: 600, margin: '18px 0 0' }}>How can I help?</h1>
-              <p style={{ fontSize: '16px', color: color.muted, lineHeight: 1.6, margin: '12px 0 0', maxWidth: '430px' }}>Send money, request payments, schedule recurring payments, or ask about your wallet.</p>
+              <p style={{ fontSize: '16px', color: color.muted, lineHeight: 1.6, margin: '12px 0 0', maxWidth: '440px' }}>A new way to interact with finance on-chain — buy and sell USDT with naira, send and request payments, or ask about your wallet. Just talk to Pexa.</p>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', marginTop: '14px', border: `1px solid ${color.primarySoftBorder}`, background: color.primarySoft, borderRadius: '999px', padding: '5px 11px' }}>
+                <span style={{ width: 5, height: 5, borderRadius: '50%', background: color.primary, display: 'inline-block', animation: 'pp-pulse 1.8s ease-in-out infinite' }} />
+                <span style={{ fontSize: '11.5px', fontWeight: 500, color: color.primaryHover }}>Beta · being deployed</span>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '26px', maxWidth: '430px' }}>
                 {suggestions.map((sg) => (
                   <button key={sg} onClick={() => chat.send(sg)} style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '11px', padding: '12px 14px', fontSize: '14.5px', color: color.ink, cursor: 'pointer', textAlign: 'left' }}>
@@ -511,6 +530,7 @@ function WalletPage({
   const [copied, setCopied] = useState(false);
   const [usdt, setUsdt] = useState<string | null>(null);
   const [fiatOn, setFiatOn] = useState(false);
+  const [fundingLive, setFundingLive] = useState(false);
   const [banks, setBanks] = useState<PayoutBank[]>([]);
   const short = address ? address.slice(0, 6) + '…' + address.slice(-4) : '—';
 
@@ -527,8 +547,9 @@ function WalletPage({
         ]);
         if (!alive) return;
         if (bRes.ok) {
-          const d = (await bRes.json()) as { usdt?: string };
+          const d = (await bRes.json()) as { usdt?: string; fundingLive?: boolean };
           setUsdt(d.usdt ?? '0');
+          setFundingLive(Boolean(d.fundingLive));
           setFiatOn(true);
         }
         if (aRes.ok) {
@@ -579,31 +600,49 @@ function WalletPage({
           </div>
         </div>
 
+        {/* Funding status — honest about beta */}
+        {fiatOn && !fundingLive ? (
+          <div style={{ marginTop: '14px', border: `1px solid ${color.warningDot}`, background: '#FEFBF0', borderRadius: '12px', padding: '12px 14px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+            <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#FBF0D2', color: color.warning, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>i</span>
+            <div style={{ fontSize: '13px', color: color.warning, lineHeight: 1.5 }}>Funding is coming soon — you can’t add real money yet while Pexa is in beta.</div>
+          </div>
+        ) : null}
+
         {/* Quick actions — everything runs through the chat agent */}
         <div style={{ marginTop: '14px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '10px' }}>
-          {actions.map((a) => (
-            <button
-              key={a.label}
-              onClick={() => onAsk(a.prompt)}
-              style={{
-                border: `1px solid ${a.primary ? color.primary : color.border}`,
-                background: a.primary ? color.primarySoft : color.surface,
-                color: a.primary ? color.primaryHover : color.ink,
-                fontSize: '14.5px',
-                fontWeight: 600,
-                letterSpacing: '-.01em',
-                padding: '16px 14px',
-                borderRadius: '14px',
-                cursor: 'pointer',
-                textAlign: 'left',
-              }}
-            >
-              {a.label}
-              <div style={{ fontSize: '12px', fontWeight: 400, color: color.mutedStrong, marginTop: '4px' }}>
-                {a.label === 'Buy USDT' ? 'with naira' : a.label === 'Convert' ? 'USDT → naira' : a.label === 'Send' ? 'to a @username' : 'to your bank'}
-              </div>
-            </button>
-          ))}
+          {actions.map((a) => {
+            const buyNotLive = a.label === 'Buy USDT' && fiatOn && !fundingLive;
+            const sub = buyNotLive
+              ? 'coming soon'
+              : a.label === 'Buy USDT'
+                ? 'with naira'
+                : a.label === 'Convert'
+                  ? 'USDT → naira'
+                  : a.label === 'Send'
+                    ? 'to a @username'
+                    : 'to your bank';
+            return (
+              <button
+                key={a.label}
+                onClick={() => onAsk(buyNotLive ? 'Can I fund my wallet with naira?' : a.prompt)}
+                style={{
+                  border: `1px solid ${a.primary ? color.primary : color.border}`,
+                  background: a.primary ? color.primarySoft : color.surface,
+                  color: a.primary ? color.primaryHover : color.ink,
+                  fontSize: '14.5px',
+                  fontWeight: 600,
+                  letterSpacing: '-.01em',
+                  padding: '16px 14px',
+                  borderRadius: '14px',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                {a.label}
+                <div style={{ fontSize: '12px', fontWeight: 400, color: color.mutedStrong, marginTop: '4px' }}>{sub}</div>
+              </button>
+            );
+          })}
         </div>
 
         {/* Identity */}

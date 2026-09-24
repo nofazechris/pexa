@@ -278,3 +278,24 @@ export async function listFiatOrders(userId: string, limit = 20): Promise<FiatOr
 export function orderKeyForQuote(quoteId: string): string {
   return `fiat_${quoteId}_${randomUUID().slice(0, 8)}`;
 }
+
+/**
+ * The user's USDT balance from settled Pexa conversions (buys in, sells out), in 6dp smallest
+ * units. In sandbox this is the demoable "fund balance" (the wallet's real on-chain balance never
+ * moves in sandbox). For a live provider USDT settles on-chain — read it there — but this still
+ * reflects net fiat conversion activity.
+ */
+export async function getConvertedUsdtBalanceRaw(userId: string): Promise<string> {
+  const db = getDb();
+  const rows = await db
+    .select({ side: schema.fiatOrders.side, status: schema.fiatOrders.status, usdt: schema.fiatOrders.usdtAmount })
+    .from(schema.fiatOrders)
+    .where(eq(schema.fiatOrders.userId, userId));
+  let bal = 0n;
+  for (const r of rows) {
+    if (r.side === 'buy' && r.status === 'SETTLED') bal += BigInt(r.usdt);
+    else if (r.side === 'sell' && r.status === 'PAID') bal -= BigInt(r.usdt);
+  }
+  if (bal < 0n) bal = 0n;
+  return bal.toString();
+}

@@ -10,11 +10,11 @@ import { getUsdcBalance } from '@/lib/celo/balance';
 import { previewPayment, authorizePayment, confirmPayment, executeAuthorizedPayment, listPayments } from '@/lib/payments/engine';
 import { listContacts } from '@/lib/contacts/service';
 import { createRequest } from '@/lib/requests/service';
-import { getFiatQuote, createFiatOrder, getFiatOrder, orderKeyForQuote } from '@/lib/fiat/service';
+import { getFiatQuote, createFiatOrder, getFiatOrder, orderKeyForQuote, getConvertedUsdtBalanceRaw } from '@/lib/fiat/service';
 import { verifyPayoutAccount, listPayoutAccounts, createPayout } from '@/lib/fiat/payouts';
 import { presentQuote, presentOrder, presentPayoutAccount } from '@/lib/fiat/present';
 import { syncComplianceProfile } from '@/lib/fiat/compliance';
-import { formatKoboToNgn } from '@/lib/fiat/units';
+import { formatKoboToNgn, formatUnitsToUsdt } from '@/lib/fiat/units';
 
 /**
  * MCP tool surface (§ integrations).
@@ -322,6 +322,17 @@ export const TOOLS: ToolDef[] = [
       if (!features.fiat) throw new ToolError('fiat_not_enabled', 'Fiat conversion is not enabled.');
       const status = await syncComplianceProfile(ctx.userId);
       return { kycStatus: status.kycStatus, provider: status.provider, sandbox: features.fiatSandbox };
+    },
+  }),
+
+  tool({
+    name: 'get_usdt_balance',
+    description: "Get the current user's USDT balance from their Pexa conversions (naira buys in, sells out).",
+    schema: z.object({}),
+    handler: async (ctx) => {
+      if (!features.fiat) throw new ToolError('fiat_not_enabled', 'Fiat conversion is not enabled.');
+      const raw = await getConvertedUsdtBalanceRaw(ctx.userId);
+      return { balance: formatUnitsToUsdt(raw), token: 'USDT', sandbox: features.fiatSandbox };
     },
   }),
 

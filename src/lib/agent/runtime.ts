@@ -30,6 +30,7 @@ const AGENT_TOOLS = new Set([
   'create_payment_preview',
   'create_request',
   'get_ngn_usdt_quote',
+  'get_usdt_balance',
   'get_payout_accounts',
   'verify_payout_account',
   'get_user_limits',
@@ -45,6 +46,7 @@ const CONFIRM_TOOLS = new Set(['confirm_payment', 'create_buy_usdt_order', 'crea
 // Fiat tools are only offered when the feature is on.
 const FIAT_TOOLS = new Set([
   'get_ngn_usdt_quote',
+  'get_usdt_balance',
   'get_payout_accounts',
   'verify_payout_account',
   'get_user_limits',

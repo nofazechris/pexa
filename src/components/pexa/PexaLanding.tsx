@@ -652,12 +652,12 @@ export function PexaLanding({ onEnter }: { onEnter: () => void }) {
         <div style={{ position: 'relative', zIndex: 1, maxWidth: '1160px', margin: '0 auto', padding: 'clamp(40px,6vw,88px) clamp(16px,3vw,24px) clamp(32px,4.6vw,56px)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 'clamp(28px,4.6vw,60px)', alignItems: 'center' }}>
           <div>
             <div style={{ animation: 'pp-up .62s cubic-bezier(.2,.8,.3,1) both', display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--font-geist-mono),monospace', fontSize: '11px', letterSpacing: '.14em', color: color.muted }}>
-              <span style={{ width: 5, height: 5, borderRadius: '50%', background: color.primary, display: 'inline-block', animation: 'pp-pulse 2.4s ease-in-out infinite' }} />AI PAYMENT AGENT · STABLECOINS ON CELO
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: color.primary, display: 'inline-block', animation: 'pp-pulse 2.4s ease-in-out infinite' }} />AI FINANCIAL AGENT · NAIRA ↔ USDT · CELO
             </div>
             <h1 style={{ animation: 'pp-up .62s cubic-bezier(.2,.8,.3,1) 70ms both', fontSize: 'clamp(38px,6.4vw,66px)', lineHeight: 1, letterSpacing: '-.045em', fontWeight: 600, margin: '20px 0 0' }}>
               Your money,<br />handled by an<br /><span style={{ color: color.primary }}>AI agent.</span>
             </h1>
-            <p style={{ animation: 'pp-up .62s cubic-bezier(.2,.8,.3,1) 150ms both', fontSize: 'clamp(16.5px,1.5vw,18.5px)', lineHeight: 1.62, color: color.muted, maxWidth: '452px', margin: '24px 0 0' }}>Send, request, schedule and manage payments simply by talking to Pexa.</p>
+            <p style={{ animation: 'pp-up .62s cubic-bezier(.2,.8,.3,1) 150ms both', fontSize: 'clamp(16.5px,1.5vw,18.5px)', lineHeight: 1.62, color: color.muted, maxWidth: '452px', margin: '24px 0 0' }}>From naira to USDT, payments to payouts — buy, send, convert and withdraw just by talking to Pexa.</p>
             <div style={{ animation: 'pp-up .62s cubic-bezier(.2,.8,.3,1) 220ms both', display: 'flex', gap: '10px', marginTop: '30px', flexWrap: 'wrap' }}>
               <a href="#waitlist" style={{ border: 'none', background: color.ink, color: '#fff', fontSize: '15px', fontWeight: 500, padding: '14px 22px', borderRadius: '11px', cursor: 'pointer', textDecoration: 'none' }}>Join the waitlist</a>
               <a href="#how" style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '15px', fontWeight: 500, padding: '14px 22px', borderRadius: '11px', textDecoration: 'none' }}>See how it works</a>
@@ -890,12 +890,12 @@ export function PexaLanding({ onEnter }: { onEnter: () => void }) {
         </div>
         <div style={{ marginTop: 'clamp(22px,2.8vw,36px)', borderBottom: `1px solid ${color.border}` }}>
           {[
-            ['01', 'Send', 'Send money with a single instruction.', '“Send $20 to @sarah.”'],
-            ['02', 'Request', 'Create payment requests without a form.', '“Request $50 from @mike for the design.”'],
-            ['03', 'Recurring', 'Schedule repeating payments in conversation.', '“Pay @sarah $20 every Friday.”'],
-            ['04', 'Manage', 'Ask about balance, transactions and activity.', '“What’s my balance?”'],
-            ['05', 'Transfer', 'Move supported assets to an external wallet.', '“Send 100 USDC to my external wallet.”'],
-            ['06', 'Receive', 'Get paid through your username and wallet.', '“Share my Pexa username.”'],
+            ['01', 'Buy', 'Buy USDT with naira in one message.', '“Buy ₦100,000 of USDT.”'],
+            ['02', 'Convert', 'Turn USDT back into naira.', '“Convert 100 USDT to naira.”'],
+            ['03', 'Send', 'Send money with a single instruction.', '“Send $20 to @sarah.”'],
+            ['04', 'Request', 'Create payment requests without a form.', '“Request $50 from @mike.”'],
+            ['05', 'Recurring', 'Schedule repeating payments in conversation.', '“Pay @sarah $20 every Friday.”'],
+            ['06', 'Withdraw', 'Cash out to your Nigerian bank account.', '“Withdraw ₦100,000 to my bank.”'],
           ].map(([n, title, desc, ex]) => (
             <div key={n} style={{ display: 'grid', gridTemplateColumns: '44px minmax(0,150px) minmax(0,1fr)', gap: 'clamp(12px,2.4vw,28px)', alignItems: 'baseline', padding: '22px 4px', borderTop: `1px solid ${color.border}` }}>
               <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '11.5px', letterSpacing: '.12em', color: color.primary }}>{n}</div>

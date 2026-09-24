@@ -488,7 +488,7 @@ const CMD_LABEL: Record<CmdState, string> = {
   idle: 'READY', working: 'WORKING', preview: 'PREVIEW', processing: 'PROCESSING', done: 'DONE', answer: 'ANSWER',
 };
 const SUGGESTIONS = ['Send $20 to @sarah', 'Request $50 from @mike', 'Pay @sarah $20 every Friday', 'What’s my balance?', 'Show recent payments'];
-const MCP_TOOLS = ['get_profile', 'get_balance', 'find_contact', 'get_recent_transactions', 'get_payment_status', 'create_payment_preview', 'confirm_payment', 'create_request'];
+const MCP_TOOLS = ['Check balance', 'Send a payment', 'Request a payment', 'Find a contact', 'Recent activity', 'Payment status', 'Your profile', 'Confirm to pay'];
 
 /* ------------------------------------------------------------------ shared bits */
 

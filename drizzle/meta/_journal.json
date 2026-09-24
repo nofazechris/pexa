@@ -71,6 +71,13 @@
       "when": 1790280754103,
       "tag": "0009_handy_junta",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790282899945,
+      "tag": "0010_striped_black_cat",
+      "breakpoints": true
     }
   ]
 }

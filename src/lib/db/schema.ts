@@ -334,6 +334,40 @@ export const providerWebhookEvents = pgTable(
 );
 
 /**
+ * Programmable money rules (§ automations). Plain-language automations the user sets up in chat and
+ * Pexa runs for them — e.g. "save 10% of every payment I receive to @vault" or "tell me when my
+ * balance drops below $20". Execution goes through the SAME payment engine + policy + single-use
+ * authorization + delegated signing as everything else; a rule NEVER bypasses limits or confirmation
+ * of its setup. Amounts are integer smallest-unit strings.
+ */
+export const moneyRules = pgTable('money_rules', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  /** autosave_on_income | balance_alert. */
+  type: text('type').notNull(),
+  /** active | paused | cancelled. */
+  status: text('status').notNull().default('active'),
+  /** Human summary shown back to the user. */
+  description: text('description').notNull(),
+  token: text('token').notNull().default('USDC'),
+  /** autosave: fraction of incoming to move, in basis points (1000 = 10%). */
+  percentBps: integer('percent_bps'),
+  /** autosave: where the saved funds go. */
+  destinationUserId: uuid('destination_user_id').references(() => users.id, { onDelete: 'set null' }),
+  destinationUsername: text('destination_username'),
+  /** balance_alert: threshold in the token's smallest unit. */
+  thresholdRaw: text('threshold_raw'),
+  /** autosave cursor: only incoming payments confirmed after this are processed. */
+  lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+  /** balance_alert: when it last fired (so we don't repeat until it recovers). */
+  lastTriggeredAt: timestamp('last_triggered_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
  * Agent memory (learns the user). Short, non-sensitive facts/preferences the agent recalls to
  * personalize conversations (frequent recipients, default bank label, preferred cadence, tone).
  * Never secrets, keys, or full bank/card numbers. Memory informs orchestration only — it can never
@@ -368,3 +402,4 @@ export type FiatQuoteRow = typeof fiatQuotes.$inferSelect;
 export type FiatOrderRow = typeof fiatOrders.$inferSelect;
 export type ProviderWebhookEventRow = typeof providerWebhookEvents.$inferSelect;
 export type AgentMemoryRow = typeof agentMemories.$inferSelect;
+export type MoneyRuleRow = typeof moneyRules.$inferSelect;

@@ -9,6 +9,7 @@ import { getProfileByUserId } from '@/lib/users/service';
 import { getFiatQuoteById } from '@/lib/fiat/service';
 import { presentQuote, type QuoteView } from '@/lib/fiat/present';
 import { listMemories } from './memory';
+import { activeAlerts } from '@/lib/rules/worker';
 
 /**
  * Pexa agent runtime (§10, §13, §28) — the in-app bot as a real tool-calling agent.
@@ -24,6 +25,9 @@ import { listMemories } from './memory';
 // sell quote + create_sell_usdt_order so they share the confirm-card path.
 const AGENT_TOOLS = new Set([
   'remember',
+  'create_money_rule',
+  'list_money_rules',
+  'set_money_rule_status',
   'get_profile',
   'get_balance',
   'find_contact',
@@ -73,6 +77,9 @@ Handling anything unfamiliar (be smart, stay honest):
 - If a request doesn't map cleanly to a tool, don't dead-end with "I didn't catch that." Reason about what the user likely wants, ask a brief clarifying question, or explain what Pexa can and can't do yet — helpfully.
 - If they describe a NEW feature or something Pexa doesn't do yet, acknowledge it, say it's not available yet, and (when it's a lasting preference or useful fact) call the "remember" tool so you can act on it later. Never invent a capability or claim something works when it doesn't.
 - Pexa is in BETA and being deployed — it's a new way to interact with finance on-chain. It's fine to say so.
+
+Automations (programmable money rules):
+- You can set up rules with create_money_rule: "autosave_on_income" (save a % of every incoming payment to a @username) and "balance_alert" (notify when balance drops below a threshold). Confirm the specifics in your reply. Manage them with list_money_rules and set_money_rule_status (pause/resume/cancel). Setting up a rule moves no money; auto-saves execute later under policy + the user's confirmation to enable agent payments.
 
 Memory (learn the user):
 - A "What you remember about this user" section may be injected below. Use it to personalize (default recipient, preferred bank, amounts, tone) — but memory NEVER relaxes limits, KYC or confirmation.
@@ -186,6 +193,12 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
     if (memories.length) dynamic.push('What you remember about this user:\n' + memories.map((m) => `- ${m}`).join('\n'));
   } catch {
     /* memory is best-effort */
+  }
+  try {
+    const alerts = await activeAlerts(ctx.userId);
+    if (alerts.length) dynamic.push('PROACTIVELY tell the user (a money-rule alert is active):\n' + alerts.map((a) => `- ${a} — and it currently is.`).join('\n'));
+  } catch {
+    /* alerts are best-effort */
   }
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [

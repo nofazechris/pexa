@@ -11,6 +11,7 @@ import { previewPayment, authorizePayment, confirmPayment, executeAuthorizedPaym
 import { listContacts } from '@/lib/contacts/service';
 import { createRequest } from '@/lib/requests/service';
 import { addMemory } from '@/lib/agent/memory';
+import { createAutosaveRule, createBalanceAlertRule, listRules, setRuleStatus } from '@/lib/rules/service';
 import { getFiatQuote, createFiatOrder, getFiatOrder, orderKeyForQuote, getConvertedUsdtBalanceRaw } from '@/lib/fiat/service';
 import { verifyPayoutAccount, listPayoutAccounts, createPayout } from '@/lib/fiat/payouts';
 import { presentQuote, presentOrder, presentPayoutAccount } from '@/lib/fiat/present';
@@ -99,6 +100,49 @@ export const TOOLS: ToolDef[] = [
       const res = await addMemory(ctx.userId, args.content);
       if (!res.ok) return { saved: false, reason: res.error };
       return { saved: true };
+    },
+  }),
+
+  tool({
+    name: 'create_money_rule',
+    description:
+      'Set up a programmable money automation. type "autosave_on_income": save `percent` (1-100) of every incoming payment to `destination` (@username). type "balance_alert": notify when USDC balance drops below `threshold` (decimal string). No money moves at setup; auto-saves execute later under policy + the user\'s delegated wallet. Reversible via set_money_rule_status.',
+    schema: z.object({
+      type: z.enum(['autosave_on_income', 'balance_alert']),
+      percent: z.number().min(1).max(100).optional().describe('autosave: percent of incoming to save.'),
+      destination: z.string().optional().describe('autosave: @username to save into.'),
+      threshold: z.string().optional().describe('balance_alert: decimal USDC threshold, e.g. "20".'),
+    }),
+    handler: async (ctx, args) => {
+      if (args.type === 'autosave_on_income') {
+        if (args.percent == null || !args.destination) throw new ToolError('invalid_arguments', 'percent and destination are required for autosave.');
+        const res = await createAutosaveRule(ctx.userId, { percent: args.percent, destinationUsername: args.destination });
+        if (!res.ok) throw new ToolError('rule_failed', res.error);
+        return { rule: res.rule };
+      }
+      if (!args.threshold) throw new ToolError('invalid_arguments', 'threshold is required for a balance alert.');
+      const res = await createBalanceAlertRule(ctx.userId, { threshold: args.threshold });
+      if (!res.ok) throw new ToolError('rule_failed', res.error);
+      return { rule: res.rule };
+    },
+  }),
+
+  tool({
+    name: 'list_money_rules',
+    description: "List the user's active money automations (auto-save, balance alerts).",
+    schema: z.object({}),
+    handler: async (ctx) => ({ rules: await listRules(ctx.userId) }),
+  }),
+
+  tool({
+    name: 'set_money_rule_status',
+    description: 'Pause, resume (active) or cancel a money automation by its id.',
+    mutating: true,
+    schema: z.object({ ruleId: z.string().min(1), status: z.enum(['active', 'paused', 'cancelled']) }),
+    handler: async (ctx, args) => {
+      const res = await setRuleStatus(ctx.userId, args.ruleId, args.status);
+      if (!res.ok) throw new ToolError('not_found', res.error);
+      return { ok: true, status: args.status };
     },
   }),
 

@@ -237,7 +237,7 @@ function ChatScreen({ chat }: { chat: ReturnType<typeof useAgentChat> }) {
                 <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.14em', color: color.faint }}>PEXA AGENT</span>
               </div>
               <h1 style={{ fontSize: 'clamp(28px,4.4vw,38px)', letterSpacing: '-.04em', fontWeight: 600, margin: '18px 0 0' }}>How can I help?</h1>
-              <p style={{ fontSize: '16px', color: color.muted, lineHeight: 1.6, margin: '12px 0 0', maxWidth: '440px' }}>A new way to interact with finance on-chain — buy and sell USDT with naira, send and request payments, or ask about your wallet. Just talk to Pexa.</p>
+              <p style={{ fontSize: '16px', color: color.muted, lineHeight: 1.6, margin: '12px 0 0', maxWidth: '440px' }}>A new way to interact with your money on-chain — send, request and manage payments, set money rules, and ask about your wallet. Just talk to Pexa.</p>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', marginTop: '14px', border: `1px solid ${color.primarySoftBorder}`, background: color.primarySoft, borderRadius: '999px', padding: '5px 11px' }}>
                 <span style={{ width: 5, height: 5, borderRadius: '50%', background: color.primary, display: 'inline-block', animation: 'pp-pulse 1.8s ease-in-out infinite' }} />
                 <span style={{ fontSize: '11.5px', fontWeight: 500, color: color.primaryHover }}>Beta · being deployed</span>

@@ -10,7 +10,6 @@ import type {
   FiatQuote,
   FundingInstructions,
   KycState,
-  PayoutRequest,
   ProviderLimits,
   ProviderOrder,
   ProviderPayout,
@@ -260,7 +259,7 @@ export class QuidaxFiatProvider implements FiatProvider {
   }
 
   // In-app withdrawals go through the sell flow; a standalone payout isn't used. Kept explicit.
-  async createPayout(_req: PayoutRequest): Promise<ProviderPayout> {
+  async createPayout(): Promise<ProviderPayout> {
     throw new Error('Direct payouts are not supported on Quidax; use the sell/off-ramp flow.');
   }
   async getPayoutStatus(providerPayoutId: string): Promise<{ status: string }> {

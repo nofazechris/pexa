@@ -91,6 +91,11 @@ export function PexaApp(props: PexaAppProps) {
 
   // Agent status pill in the header.
   const pill = ((): { label: string; color: string; bg: string; border: string; dot: string; anim: string } => {
+    // Persistent "having trouble" state after a failed turn, until the next success — so downtime
+    // stays visible rather than flashing away.
+    if (chat.health === 'degraded' && (chat.agentState === 'idle' || chat.agentState === 'error')) {
+      return { label: 'Pexa is having trouble', color: '#A8352A', bg: '#FDF1EF', border: '#F0DCD8', dot: '#C0362A', anim: 'pp-pulse 1.6s ease-in-out infinite' };
+    }
     switch (chat.agentState) {
       case 'thinking':
         return { label: 'Thinking…', color: '#153AB4', bg: '#F4F6FE', border: '#DDE3F6', dot: '#1B45D7', anim: 'pp-pulse 1.2s ease-in-out infinite' };
@@ -101,7 +106,7 @@ export function PexaApp(props: PexaAppProps) {
       case 'error':
         return { label: 'Needs attention', color: '#8A6A1E', bg: '#FBF6EA', border: '#F0E4C8', dot: '#D8A93A', anim: 'none' };
       default:
-        return { label: 'Agent active', color: '#167A54', bg: '#E8F3ED', border: '#CDE7DA', dot: '#167A54', anim: 'none' };
+        return { label: 'Pexa is active', color: '#167A54', bg: '#E8F3ED', border: '#CDE7DA', dot: '#167A54', anim: 'none' };
     }
   })();
 

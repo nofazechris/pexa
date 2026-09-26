@@ -57,12 +57,15 @@ export interface ChatMessage {
   hint?: string;
 }
 
+/** Why an agent turn failed — drives the plain-language message and the health indicator. */
+export type AgentFailReason = 'network' | 'unavailable' | 'account' | 'server';
+
 export interface AgentChatDeps {
-  /** Send a message to the agent; returns its reply and any pending action. */
+  /** Send a message to the agent; returns its reply, or a typed failure. */
   sendToAgent: (args: {
     message: string;
     history: { role: 'user' | 'assistant'; content: string }[];
-  }) => Promise<{ reply: string; action?: PendingActionView } | null>;
+  }) => Promise<{ ok: true; reply: string; action?: PendingActionView } | { ok: false; reason: AgentFailReason } | null>;
   /** Execute a confirmed fiat action server-side. */
   executeAction: (args: { tool: string; args: Record<string, unknown> }) => Promise<{
     ok: boolean;
@@ -79,9 +82,26 @@ export interface AgentChatDeps {
   }>;
 }
 
+/** Plain-language error copy — no codes, no jargon. The whole point is that people understand it. */
+function plainError(reason: AgentFailReason): { title: string; hint: string } {
+  switch (reason) {
+    case 'network':
+      return { title: 'I can’t reach Pexa right now.', hint: 'Looks like a connection problem. Check your internet and try again in a moment.' };
+    case 'unavailable':
+      return { title: 'Pexa’s assistant is taking a break.', hint: 'The AI is temporarily unavailable — nothing’s wrong with your account. Please try again shortly.' };
+    case 'account':
+      return { title: 'I’m having trouble reaching your account.', hint: 'This is usually brief. Give it a moment and try again.' };
+    case 'server':
+    default:
+      return { title: 'Something went wrong on my end.', hint: 'That’s on us, not you. Please try again in a moment.' };
+  }
+}
+
 export function useAgentChat(deps: AgentChatDeps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [agentState, setAgentState] = useState<AgentState>('idle');
+  /** Persistent agent health: 'ok' until a turn fails, back to 'ok' on the next success. */
+  const [health, setHealth] = useState<'ok' | 'degraded'>('ok');
   const [draft, setDraft] = useState('');
   const idRef = useRef(1);
   const depsRef = useRef(deps);
@@ -114,18 +134,24 @@ export function useAgentChat(deps: AgentChatDeps) {
         .slice(-10)
         .map((m) => ({ role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.text ?? '' }));
 
-      let turn: { reply: string; action?: PendingActionView } | null = null;
+      let turn: Awaited<ReturnType<AgentChatDeps['sendToAgent']>> = null;
       try {
         turn = await d.sendToAgent({ message: raw, history });
       } catch {
         turn = null;
       }
-      if (!turn) {
-        push({ role: 'agent', type: 'error', title: 'I couldn’t reach the agent.', hint: 'Please try again in a moment.' });
+      // Any failure (no response, or a typed failure) → plain-language error + mark the agent degraded.
+      if (!turn || turn.ok === false) {
+        const reason: AgentFailReason = turn && turn.ok === false ? turn.reason : 'network';
+        const { title, hint } = plainError(reason);
+        push({ role: 'agent', type: 'error', title, hint });
+        setHealth('degraded');
         setAgentState('error');
         return setTimeout(() => setAgentState('idle'), 400) as unknown as void;
       }
 
+      // A successful turn means the agent is reachable again.
+      setHealth('ok');
       if (turn.reply && turn.reply.trim()) push({ role: 'agent', type: 'text', text: turn.reply.trim() });
 
       const action = turn.action;
@@ -208,5 +234,5 @@ export function useAgentChat(deps: AgentChatDeps) {
     [push, setStatus],
   );
 
-  return { messages, agentState, draft, setDraft, send, confirm, cancel };
+  return { messages, agentState, health, draft, setDraft, send, confirm, cancel };
 }

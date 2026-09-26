@@ -11,7 +11,7 @@ import { usePayment } from '@/components/auth/usePayment';
 import { useActivity } from '@/components/auth/useActivity';
 import { useRequests } from '@/components/auth/useRequests';
 import { useRecurring } from '@/components/auth/useRecurring';
-import type { PendingActionView } from '@/components/auth/useAgentChat';
+import type { PendingActionView, AgentFailReason } from '@/components/auth/useAgentChat';
 import { Spinner, Text } from '@/components/ui';
 import { color } from '@/lib/design/tokens';
 
@@ -73,10 +73,23 @@ export default function AppGate() {
             headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
             body: JSON.stringify(args),
           });
-          if (!res.ok) return null;
-          return (await res.json()) as { reply: string; action?: PendingActionView };
+          if (!res.ok) {
+            // Map the HTTP failure to a plain reason the chat can explain in human terms.
+            let code = '';
+            try {
+              code = ((await res.json()) as { error?: string })?.error ?? '';
+            } catch {
+              /* no JSON body */
+            }
+            const reason: AgentFailReason =
+              res.status === 503 ? (code === 'database_not_configured' ? 'account' : 'unavailable') : 'server';
+            return { ok: false as const, reason };
+          }
+          const data = (await res.json()) as { reply: string; action?: PendingActionView };
+          return { ok: true as const, reply: data.reply, action: data.action };
         } catch {
-          return null;
+          // Network error / offline / request never reached the server.
+          return { ok: false as const, reason: 'network' as const };
         }
       },
       // Execute a user-confirmed fiat action (buy/sell/withdraw) server-side via the policy engine.

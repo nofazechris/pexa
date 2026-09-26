@@ -29,12 +29,19 @@ export function getDb(): Db {
   if (!url) {
     throw new DbNotConfiguredError();
   }
-  // One connection for the process; postgres.js pools internally. `prepare: false` is friendly
-  // to Supabase's transaction pooler. Remote hosts (Supabase) require TLS; local dev Postgres
-  // does not, so only enable it off-localhost unless the URL already asks for it.
+  // `prepare: false` is friendly to Supabase's pooler. Remote hosts (Supabase) require TLS; local
+  // dev Postgres does not, so only enable it off-localhost unless the URL already asks for it.
   const isLocal = /@(localhost|127\.0\.0\.1|\[::1\])/.test(url);
   const urlAsksSsl = /[?&]sslmode=/.test(url);
-  client = postgres(url, { prepare: false, ssl: isLocal || urlAsksSsl ? undefined : 'require' });
+  // Cap connections per client. Supabase's pooler has a small ceiling (session mode ~15), and each
+  // serverless instance (and each dev hot-reload) makes its own client — an unbounded pool quickly
+  // hits "max clients reached". A small max + short idle timeout keeps us well under the ceiling.
+  client = postgres(url, {
+    prepare: false,
+    ssl: isLocal || urlAsksSsl ? undefined : 'require',
+    max: isLocal ? 10 : 3,
+    idle_timeout: 20,
+  });
   db = drizzle(client, { schema });
   return db;
 }

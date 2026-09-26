@@ -9,7 +9,7 @@ import { joinWaitlist } from '@/lib/waitlist/service';
  * who is already on the list and never surfaces a raw database error.
  */
 
-const SUCCESS = { success: true, message: "You're on the list." };
+const SUCCESS = { success: true, message: "You're on the list — we'll email your early-access invite when the app opens." };
 
 // Best-effort in-memory limiter. Per-instance only (serverless may run several), so it slows
 // abuse without being a hard guarantee — the DB unique index is the real correctness guard.

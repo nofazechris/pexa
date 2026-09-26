@@ -1,5 +1,5 @@
 import 'server-only';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db';
 
 /**
@@ -61,4 +61,42 @@ export async function joinWaitlist(input: {
     }
     throw e;
   }
+}
+
+/** Escape one CSV field: wrap in quotes and double any inner quotes when it needs it. */
+function csvField(value: string): string {
+  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+/**
+ * Export the whole waitlist as CSV (newest first), for a spreadsheet. Admin-only — the route that
+ * calls this gates on a shared secret. Columns: email, first_name, status, source, created_at.
+ */
+export async function exportWaitlistCsv(): Promise<string> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      email: schema.waitlist.email,
+      firstName: schema.waitlist.firstName,
+      status: schema.waitlist.status,
+      source: schema.waitlist.source,
+      createdAt: schema.waitlist.createdAt,
+    })
+    .from(schema.waitlist)
+    .orderBy(desc(schema.waitlist.createdAt));
+
+  const header = ['email', 'first_name', 'status', 'source', 'created_at'];
+  const lines = [header.join(',')];
+  for (const r of rows) {
+    lines.push(
+      [
+        csvField(r.email),
+        csvField(r.firstName ?? ''),
+        csvField(r.status),
+        csvField(r.source),
+        csvField(r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt)),
+      ].join(','),
+    );
+  }
+  return lines.join('\r\n') + '\r\n';
 }

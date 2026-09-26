@@ -612,7 +612,7 @@ function WaitlistForm() {
       {status === 'error' ? (
         <div style={{ fontSize: '13.5px', color: '#B4232A', marginTop: '10px' }}>{message}</div>
       ) : (
-        <div style={{ fontSize: '13px', color: color.mutedStrong, marginTop: '10px' }}>No spam. Just an invite when your agent is ready.</div>
+        <div style={{ fontSize: '13px', color: color.mutedStrong, marginTop: '10px' }}>For early access to the app (coming soon). No spam — just your invite when it opens.</div>
       )}
     </div>
   );
@@ -1064,7 +1064,7 @@ export function PexaLanding({ onEnter }: { onEnter: () => void }) {
         <div style={{ textAlign: 'center', padding: 'clamp(24px,4vw,40px) 0' }}>
           <Eyebrow>PEXA IS COMING SOON</Eyebrow>
           <h2 style={{ fontSize: 'clamp(30px,5vw,54px)', letterSpacing: '-.045em', fontWeight: 600, margin: '14px 0 0', lineHeight: 1.02 }}>Be first to use your<br />AI financial agent.</h2>
-          <p style={{ fontSize: 'clamp(16px,2vw,19px)', color: color.muted, lineHeight: 1.6, margin: '18px auto 0', maxWidth: '440px' }}>Join the waitlist and we’ll send you an invite the moment Pexa is ready.</p>
+          <p style={{ fontSize: 'clamp(16px,2vw,19px)', color: color.muted, lineHeight: 1.6, margin: '18px auto 0', maxWidth: '440px' }}>The app is launching soon. Join the waitlist for early access — we’ll email your invite the moment Pexa opens.</p>
           <div style={{ marginTop: '28px' }}>
             <WaitlistForm />
           </div>

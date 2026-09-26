@@ -94,7 +94,10 @@ waitlist (`0007`), fiat (`0008`), agent memories (`0009`), and money rules (`001
   - **External scheduler** (free) — e.g. cron-job.org or a GitHub Actions cron hitting
     `/api/cron/recurring`, `/api/cron/rules`, `/api/cron/fiat-reconcile` (or `/api/cron/tick`)
     with header `Authorization: Bearer $CRON_SECRET`. The individual endpoints are still live.
-- **Waitlist** submissions land in the `waitlist` table via `/api/waitlist`.
+- **Waitlist** submissions land in the `waitlist` table via `/api/waitlist`. Export them as a CSV
+  spreadsheet from `GET /api/waitlist/export` (admin-only — gated on `CRON_SECRET`):
+  `curl -H "Authorization: Bearer $CRON_SECRET" https://<domain>/api/waitlist/export -o waitlist.csv`
+  (or open `https://<domain>/api/waitlist/export?key=<CRON_SECRET>` in a browser to download).
 
 ## Feature readiness — live now vs. needs config
 What actually works depends on which secrets are set. Nothing below is faked; features that can't

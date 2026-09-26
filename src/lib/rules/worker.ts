@@ -6,6 +6,7 @@ import { activeNetwork, getToken } from '@/lib/config';
 import { getWalletByUserId } from '@/lib/wallets/service';
 import { getUsdcBalance } from '@/lib/celo/balance';
 import { previewPayment, authorizePayment, executeAuthorizedPayment } from '@/lib/payments/engine';
+import { exceedsAutonomousCap } from '@/lib/payments/policy';
 import { depositToVault } from '@/lib/vaults/service';
 import type { MoneyRuleRow } from '@/lib/db/schema';
 
@@ -93,6 +94,13 @@ async function runAutosave(rule: MoneyRuleRow, out: RulesRunResult): Promise<voi
     if (saveRaw <= 0n) {
       cursor = p.confirmedAt ?? cursor;
       continue;
+    }
+    // An on-chain auto-save above the autonomous ceiling waits for the user (unlike a vault
+    // earmark, this moves real funds out). Leave it for approval; don't advance past it.
+    if (exceedsAutonomousCap(saveRaw.toString())) {
+      out.skipped++;
+      out.details.push({ id: rule.id, result: 'skipped', reason: 'needs_confirmation' });
+      break;
     }
     const amount = formatUnits(saveRaw, decimals());
     const idempotencyKey = `rule_${rule.id}_${p.id}`;

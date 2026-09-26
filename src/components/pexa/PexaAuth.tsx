@@ -73,6 +73,13 @@ export function PexaAuth() {
 
   const doPasskey = useCallback(async () => {
     if (passkeyBusy) return;
+    // Passkeys need WebAuthn + a platform authenticator. Some in-app/embedded browsers don't
+    // provide it — detect that up front and point the user to email instead of failing silently.
+    if (typeof window === 'undefined' || !('PublicKeyCredential' in window)) {
+      toast.show('Passkeys aren’t supported in this browser. Use “Continue with email” instead.', { tone: 'neutral', duration: 5000 });
+      setStep('email');
+      return;
+    }
     setPasskeyBusy(true);
     try {
       if (createMode) {
@@ -88,7 +95,7 @@ export function PexaAuth() {
         goApp();
       } catch {
         setCreateMode(true);
-        toast.show('No passkey found on this device — tap “Create a passkey” to set one up.', { tone: 'neutral', duration: 4500 });
+        toast.show('Couldn’t set up a passkey here — your browser or device may not allow it. You can use “Continue with email” instead.', { tone: 'neutral', duration: 5500 });
       }
     } finally {
       setPasskeyBusy(false);
@@ -99,7 +106,7 @@ export function PexaAuth() {
   const sub = step === 'welcome' ? 'Email or a passkey. No seed phrase to write down.' : step === 'email' ? 'We’ll email you a 6-digit code.' : `Enter the code we sent to ${email}.`;
 
   return (
-    <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px 20px', background: color.background, color: color.ink }}>
+    <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'clamp(16px,4vh,32px) 20px', background: color.background, color: color.ink, overflowY: 'auto' }}>
       <div style={{ width: '100%', maxWidth: '400px', animation: 'pp-up .4s cubic-bezier(.2,.8,.3,1) both' }}>
         <button onClick={() => router.push('/')} style={{ display: 'flex', alignItems: 'center', gap: '9px', border: 'none', background: 'transparent', padding: 0, cursor: 'pointer' }}>
           <PrivyPayLogo size={21} animated />

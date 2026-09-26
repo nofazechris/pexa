@@ -56,6 +56,12 @@ const schema = z.object({
    * back to the user paying native CELO gas via their embedded wallet.
    */
   RELAYER_PRIVATE_KEY: z.string().min(1).optional(),
+  /**
+   * The most the agent may settle on its own, per payment, without a human tapping approve — the
+   * autonomous ceiling for the delegated worker path (recurring + on-chain auto-save). Above this
+   * (but within the per-payment/daily caps) the payment waits for the user. Decimal USDC; default $100.
+   */
+  AGENT_AUTONOMOUS_CAP_USDC: z.string().optional(),
 
   // Fiat / NGN↔USDT (autonomous money feature). The provider is pluggable behind FiatProvider.
   // 'sandbox' is a clearly-labeled MOCK adapter for development — it never moves real money and

@@ -1,7 +1,7 @@
 import 'server-only';
 import { and, eq, gte, inArray } from 'drizzle-orm';
 import { parseUnits } from 'viem';
-import { activeNetwork, getToken } from '@/lib/config';
+import { activeNetwork, env, getToken } from '@/lib/config';
 import { getUsdcBalance } from '@/lib/celo/balance';
 import { getDb, schema } from '@/lib/db';
 import type { PolicyCheck, PolicyResult } from '@/lib/policy';
@@ -17,6 +17,31 @@ import type { PolicyCheck, PolicyResult } from '@/lib/policy';
 // the user tapping each one.
 const PER_PAYMENT_CAP_USDC = '500';
 const DAILY_CAP_USDC = '1000';
+
+// The most the agent settles on its own — per payment — without a human approving it (the delegated
+// worker path: recurring + on-chain auto-save). Above this, the payment must wait for the user, even
+// though it's within the per-payment/daily caps. Configurable via AGENT_AUTONOMOUS_CAP_USDC.
+const DEFAULT_AUTONOMOUS_CAP_USDC = '100';
+
+/** The autonomous per-payment ceiling as a decimal USDC string (for display + parsing). */
+export function autonomousCapUsdc(): string {
+  return env.AGENT_AUTONOMOUS_CAP_USDC || DEFAULT_AUTONOMOUS_CAP_USDC;
+}
+
+/**
+ * True when `amountRaw` (smallest unit) is above the amount the agent may settle unattended. The
+ * autonomous workers use this to hold larger payments for explicit human approval. A malformed
+ * amount is treated as over the cap (fail safe — require a human).
+ */
+export function exceedsAutonomousCap(amountRaw: string, tokenSymbol = 'USDC'): boolean {
+  const token = getToken(tokenSymbol, activeNetwork.network);
+  const decimals = token?.decimals ?? 6;
+  try {
+    return BigInt(amountRaw) > parseUnits(autonomousCapUsdc() as `${number}`, decimals);
+  } catch {
+    return true;
+  }
+}
 
 // Statuses that represent a committed same-day outflow counting toward the daily cap.
 const COMMITTED_STATUSES = ['AUTHORIZED', 'PREPARING', 'SIGNING', 'BROADCASTING', 'PENDING', 'CONFIRMED'];

@@ -3,6 +3,7 @@ import { formatUnits } from 'viem';
 import { activeNetwork, getToken } from '@/lib/config';
 import { getWalletByUserId } from '@/lib/wallets/service';
 import { previewPayment, authorizePayment, executeAuthorizedPayment } from '@/lib/payments/engine';
+import { exceedsAutonomousCap, autonomousCapUsdc } from '@/lib/payments/policy';
 import { advanceRecurring, listDueRecurring } from './service';
 
 /**
@@ -52,6 +53,13 @@ export async function runDueRecurring(limit = 50): Promise<RecurringRunResult> {
     const wallet = await getWalletByUserId(s.ownerUserId);
     if (!wallet) {
       skip('no_wallet');
+      continue;
+    }
+
+    // Autonomous ceiling: anything above what the agent may settle on its own waits for the user
+    // to approve it in-app. We don't advance the schedule — it stays due until they do.
+    if (exceedsAutonomousCap(s.amountRaw)) {
+      skip(`needs_confirmation_over_${autonomousCapUsdc()}`);
       continue;
     }
 

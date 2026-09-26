@@ -1,21 +1,13 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import "./globals.css";
 
-// The design references these families by name in its inline styles; next/font hands them
-// over as CSS variables, which the generated stylesheet and screens resolve against.
-const geist = Geist({
-  variable: "--font-geist",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
-});
+// Fonts come from the self-hosted `geist` package (the font files ship inside it), not
+// next/font/google — so the build never fetches from Google's CDN, which was failing on the
+// deploy host. The package exposes `--font-geist-sans` / `--font-geist-mono`; globals.css aliases
+// `--font-geist` → `--font-geist-sans` so the existing inline styles keep resolving.
 
 // Public site origin for absolute metadata URLs; localhost fallback in development.
 // `||` (not `??`) so an unset NEXT_PUBLIC_SITE_URL — which the bundler can inline as an empty
@@ -62,7 +54,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${geist.variable} ${geistMono.variable}`}>
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
       <body>
         <AuthProvider>{children}</AuthProvider>
       </body>

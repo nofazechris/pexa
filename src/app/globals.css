@@ -13,6 +13,9 @@
 /* Design tokens (§94–97), mirrored from src/lib/design/tokens.ts. Single source of truth for
    hand-built components; keep the two in sync. */
 :root {
+  /* The geist package exposes --font-geist-sans; the design's inline styles reference
+     --font-geist. Alias so both resolve. (--font-geist-mono is already the package's own name.) */
+  --font-geist: var(--font-geist-sans);
   --pp-primary: #1B45D7;
   --pp-primary-hover: #153AB4;
   --pp-primary-soft: #EDF1FE;

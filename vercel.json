@@ -1,8 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
-    { "path": "/api/cron/recurring", "schedule": "0 * * * *" },
-    { "path": "/api/cron/rules", "schedule": "0 * * * *" },
-    { "path": "/api/cron/fiat-reconcile", "schedule": "0 * * * *" }
+    { "path": "/api/cron/tick", "schedule": "0 0 * * *" }
   ]
 }

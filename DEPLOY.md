@@ -84,10 +84,16 @@ waitlist (`0007`), fiat (`0008`), agent memories (`0009`), and money rules (`001
 ## 5. After deploy
 - **MCP endpoint** is public at `https://<your-domain>/api/mcp` — paste it plus a generated token
   (in-app: Connected → Connect ChatGPT/Claude) into the agent's custom connector.
-- **Cron jobs** (see `vercel.json`, all hourly): `/api/cron/recurring` (recurring payments),
-  `/api/cron/rules` (programmable money rules — auto-save, balance alerts), and
-  `/api/cron/fiat-reconcile` (fiat order reconciliation; a no-op while fiat is disabled). The
-  Hobby plan limits cron to once/day — use Pro for hourly, or adjust the schedules.
+- **Cron** — `vercel.json` registers **one daily** job, `/api/cron/tick`, which runs every worker
+  in sequence: recurring payments, money rules (auto-save, balance alerts), and fiat
+  reconciliation (a no-op while fiat is disabled). This is deliberately a single daily job so it
+  fits the **Hobby plan limits** (max 2 cron jobs, once-per-day) — otherwise the deploy is
+  rejected. For **hourly** cadence you have two options without changing the code:
+  - **Vercel Pro** — bump `vercel.json` back to hourly (`0 * * * *`) and point at the three
+    individual endpoints, or keep `/api/cron/tick` hourly.
+  - **External scheduler** (free) — e.g. cron-job.org or a GitHub Actions cron hitting
+    `/api/cron/recurring`, `/api/cron/rules`, `/api/cron/fiat-reconcile` (or `/api/cron/tick`)
+    with header `Authorization: Bearer $CRON_SECRET`. The individual endpoints are still live.
 - **Waitlist** submissions land in the `waitlist` table via `/api/waitlist`.
 
 ## Launch checklist (mainnet)

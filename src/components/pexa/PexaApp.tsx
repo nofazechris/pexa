@@ -167,7 +167,7 @@ export function PexaApp(props: PexaAppProps) {
 
         <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-            {page === 'chat' ? <ChatScreen chat={chat} getAccessToken={props.getAccessToken} /> : null}
+            {page === 'chat' ? <ChatScreen chat={chat} getAccessToken={props.getAccessToken} balance={balance} /> : null}
             {page === 'wallet' ? (
               <WalletPage
                 balance={balance}
@@ -216,14 +216,18 @@ export function PexaApp(props: PexaAppProps) {
 
 /* ----------------------------------------------------------------- Chat screen */
 
-function ChatScreen({ chat, getAccessToken }: { chat: ReturnType<typeof useAgentChat>; getAccessToken?: () => Promise<string | null> }) {
+function ChatScreen({ chat, getAccessToken, balance }: { chat: ReturnType<typeof useAgentChat>; getAccessToken?: () => Promise<string | null>; balance?: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [chat.messages.length, chat.agentState]);
 
-  const suggestions = ['Add money to my wallet', 'Send $10 to @chris', "What's my balance?", 'Save $10 of every payment I get'];
+  // "Add money" is only useful when there's nothing to spend yet — surface it only for an empty wallet.
+  const walletEmpty = !balance || Number(balance) === 0;
+  const suggestions = walletEmpty
+    ? ['Add money to my wallet', "What's my balance?", 'Send $10 to @chris', 'Save $10 of every payment I get']
+    : ['Send $10 to @chris', 'Request $20 from @chris', "What's my balance?", 'Save $10 of every payment I get'];
   const empty = chat.messages.length === 0;
 
   return (

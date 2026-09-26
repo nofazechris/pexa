@@ -6,6 +6,7 @@ import { activeNetwork, getToken } from '@/lib/config';
 import { getWalletByUserId } from '@/lib/wallets/service';
 import { getUsdcBalance } from '@/lib/celo/balance';
 import { previewPayment, authorizePayment, executeAuthorizedPayment } from '@/lib/payments/engine';
+import { depositToVault } from '@/lib/vaults/service';
 import type { MoneyRuleRow } from '@/lib/db/schema';
 
 /**
@@ -51,7 +52,10 @@ export async function runDueRules(limit = 100): Promise<RulesRunResult> {
 }
 
 async function runAutosave(rule: MoneyRuleRow, out: RulesRunResult): Promise<void> {
-  if (!rule.percentBps || !rule.destinationUsername) return;
+  if (!rule.percentBps) return;
+  // Two flavours: earmark into a vault (no on-chain move) or send on-chain to a @username.
+  if (rule.destinationVaultId) return runAutosaveToVault(rule, out);
+  if (!rule.destinationUsername) return;
   const db = getDb();
   const wallet = await getWalletByUserId(rule.userId);
   if (!wallet) {
@@ -121,6 +125,50 @@ async function runAutosave(rule: MoneyRuleRow, out: RulesRunResult): Promise<voi
       out.details.push({ id: rule.id, result: 'failed', reason: exec.error });
       break;
     }
+  }
+
+  if (cursor) {
+    await db.update(schema.moneyRules).set({ lastRunAt: cursor, updatedAt: new Date() }).where(eq(schema.moneyRules.id, rule.id));
+  }
+}
+
+/**
+ * Auto-save into a vault: for each newly-confirmed incoming payment, earmark `percentBps` of it.
+ * This is a ledger move within the user's own wallet — no on-chain transfer, no gas, no delegation
+ * — so it works regardless of whether the user has delegated their wallet. Idempotency key
+ * `autosave_<paymentId>` guards against double-earmarking on a re-run.
+ */
+async function runAutosaveToVault(rule: MoneyRuleRow, out: RulesRunResult): Promise<void> {
+  if (!rule.destinationVaultId || !rule.percentBps) return;
+  const db = getDb();
+  const since = rule.lastRunAt ?? rule.createdAt;
+
+  const incoming = await db
+    .select()
+    .from(schema.payments)
+    .where(and(eq(schema.payments.recipientUserId, rule.userId), eq(schema.payments.status, 'CONFIRMED'), gt(schema.payments.confirmedAt, since)))
+    .orderBy(asc(schema.payments.confirmedAt))
+    .limit(20);
+
+  let cursor: Date | null = null;
+  for (const p of incoming) {
+    const saveRaw = (BigInt(p.amount) * BigInt(rule.percentBps)) / 10000n;
+    if (saveRaw > 0n) {
+      const res = await depositToVault(rule.userId, {
+        vaultId: rule.destinationVaultId,
+        amountRaw: saveRaw.toString(),
+        source: 'autosave',
+        ref: `autosave_${p.id}`,
+        note: 'Auto-save',
+      });
+      if (!res.ok) {
+        out.failed++;
+        out.details.push({ id: rule.id, result: 'failed', reason: res.error });
+        break; // e.g. vault archived — leave for attention, don't advance
+      }
+      out.saved++;
+    }
+    cursor = p.confirmedAt ?? cursor;
   }
 
   if (cursor) {

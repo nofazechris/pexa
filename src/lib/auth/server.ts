@@ -73,6 +73,28 @@ export async function sendDelegatedTransaction(input: {
 }
 
 /**
+ * Sign EIP-712 typed data from a user's *delegated* embedded wallet, server-side (Privy signs in
+ * its TEE — keys never reach us). This is how the autonomous gasless path gets a user's signature
+ * on an EIP-3009 `transferWithAuthorization` without the user present: the server signs on their
+ * behalf, then the relayer submits it and pays the gas. Same delegation requirement as
+ * {@link sendDelegatedTransaction}. Returns the signature; callers translate a failure into a safe
+ * fallback (direct send, or in-app approval).
+ */
+export async function signDelegatedTypedData(input: {
+  walletId: string;
+  typedData: { domain: Record<string, unknown>; types: Record<string, unknown>; message: Record<string, unknown>; primaryType: string };
+}): Promise<{ signature: `0x${string}` }> {
+  const privy = getClient();
+  if (!privy) throw new Error('Wallet signing is not configured.');
+  if (!env.PRIVY_AUTHORIZATION_KEY) throw new Error('Server signing requires PRIVY_AUTHORIZATION_KEY.');
+  const res = await privy.walletApi.ethereum.signTypedData({
+    walletId: input.walletId,
+    typedData: input.typedData,
+  });
+  return { signature: res.signature as `0x${string}` };
+}
+
+/**
  * Extract the access token from a request: `Authorization: Bearer …` first (how the client
  * attaches it to API calls), falling back to the `privy-token` cookie for same-origin
  * requests.

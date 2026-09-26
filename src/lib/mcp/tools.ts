@@ -1,7 +1,7 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { formatUnits } from 'viem';
+import { formatUnits, parseUnits } from 'viem';
 import { activeNetwork, env, features, getToken, txExplorerUrl, FIAT_LIMITS } from '@/lib/config';
 import { getProfileByUserId, resolveUsername } from '@/lib/users/service';
 import { normalizeUsername } from '@/lib/users/username';
@@ -11,7 +11,8 @@ import { previewPayment, authorizePayment, confirmPayment, executeAuthorizedPaym
 import { listContacts } from '@/lib/contacts/service';
 import { createRequest } from '@/lib/requests/service';
 import { addMemory } from '@/lib/agent/memory';
-import { createAutosaveRule, createBalanceAlertRule, listRules, setRuleStatus } from '@/lib/rules/service';
+import { createAutosaveRule, createAutosaveToVaultRule, createBalanceAlertRule, listRules, setRuleStatus } from '@/lib/rules/service';
+import { createVault, listVaults, findVault, depositToVault, withdrawFromVault, availableBalanceRaw } from '@/lib/vaults/service';
 import { getFiatQuote, createFiatOrder, getFiatOrder, orderKeyForQuote, getConvertedUsdtBalanceRaw } from '@/lib/fiat/service';
 import { verifyPayoutAccount, listPayoutAccounts, createPayout } from '@/lib/fiat/payouts';
 import { presentQuote, presentOrder, presentPayoutAccount } from '@/lib/fiat/present';
@@ -46,6 +47,13 @@ export interface ToolDef {
 
 function decimals(token = 'USDC'): number {
   return getToken(token, activeNetwork.network)?.decimals ?? 6;
+}
+
+/** Parse a decimal amount string into smallest-unit bigint; throws on a malformed value. */
+function parseUnitsSafe(amount: string, token = 'USDC'): bigint {
+  const raw = parseUnits(amount as `${number}`, decimals(token));
+  if (raw <= 0n) throw new Error('Amount must be greater than zero.');
+  return raw;
 }
 
 /** Build one tool from a typed zod schema, validating args before the handler runs. */
@@ -106,16 +114,23 @@ export const TOOLS: ToolDef[] = [
   tool({
     name: 'create_money_rule',
     description:
-      'Set up a programmable money automation. type "autosave_on_income": save `percent` (1-100) of every incoming payment to `destination` (@username). type "balance_alert": notify when USDC balance drops below `threshold` (decimal string). No money moves at setup; auto-saves execute later under policy + the user\'s delegated wallet. Reversible via set_money_rule_status.',
+      'Set up a programmable money automation. type "autosave_on_income": save `percent` (1-100) of every incoming payment — either into a savings `vault` (by name; an earmark within the wallet, no gas/delegation needed) OR on-chain to `destination` (@username, executes later under policy + the delegated wallet). type "balance_alert": notify when USDC balance drops below `threshold` (decimal string). No money moves at setup. Reversible via set_money_rule_status.',
     schema: z.object({
       type: z.enum(['autosave_on_income', 'balance_alert']),
       percent: z.number().min(1).max(100).optional().describe('autosave: percent of incoming to save.'),
-      destination: z.string().optional().describe('autosave: @username to save into.'),
+      destination: z.string().optional().describe('autosave: @username to save into (on-chain).'),
+      vault: z.string().optional().describe('autosave: name of a savings vault to earmark into.'),
       threshold: z.string().optional().describe('balance_alert: decimal USDC threshold, e.g. "20".'),
     }),
     handler: async (ctx, args) => {
       if (args.type === 'autosave_on_income') {
-        if (args.percent == null || !args.destination) throw new ToolError('invalid_arguments', 'percent and destination are required for autosave.');
+        if (args.percent == null) throw new ToolError('invalid_arguments', 'percent is required for autosave.');
+        if (args.vault) {
+          const res = await createAutosaveToVaultRule(ctx.userId, { percent: args.percent, vault: args.vault });
+          if (!res.ok) throw new ToolError('rule_failed', res.error);
+          return { rule: res.rule };
+        }
+        if (!args.destination) throw new ToolError('invalid_arguments', 'destination (@username) or vault is required for autosave.');
         const res = await createAutosaveRule(ctx.userId, { percent: args.percent, destinationUsername: args.destination });
         if (!res.ok) throw new ToolError('rule_failed', res.error);
         return { rule: res.rule };
@@ -148,18 +163,99 @@ export const TOOLS: ToolDef[] = [
 
   tool({
     name: 'get_balance',
-    description: "Get the current user's USDC balance on Celo.",
+    description:
+      "Get the current user's USDC balance on Celo. Returns the on-chain balance, the amount set aside in savings vaults, and the freely-available balance (on-chain minus vaults).",
     schema: z.object({}),
     handler: async (ctx) => {
       const wallet = await getWalletByUserId(ctx.userId);
       if (!wallet) throw new ToolError('no_wallet', 'No wallet is provisioned for this account yet.');
       const bal = await getUsdcBalance(wallet.address);
+      const onchainRaw = bal ? bal.raw : '0';
+      const availableRaw = await availableBalanceRaw(ctx.userId, onchainRaw, 'USDC');
+      const savedRaw = BigInt(onchainRaw) - availableRaw;
+      const d = decimals('USDC');
       return {
         balance: bal ? bal.formatted : '0',
+        available: formatUnits(availableRaw, d),
+        savedInVaults: formatUnits(savedRaw > 0n ? savedRaw : 0n, d),
         token: 'USDC',
         network: activeNetwork.name,
         address: wallet.address,
       };
+    },
+  }),
+
+  tool({
+    name: 'create_vault',
+    description:
+      'Create a savings vault — a named envelope that sets money aside WITHIN the wallet (no on-chain move, no gas). Optional `target` is a savings goal (decimal USDC).',
+    mutating: true,
+    schema: z.object({
+      name: z.string().min(1).describe('Vault name, e.g. "Rent" or "Emergency fund".'),
+      target: z.string().optional().describe('Optional goal, decimal USDC, e.g. "500".'),
+    }),
+    handler: async (ctx, args) => {
+      const res = await createVault(ctx.userId, { name: args.name, target: args.target });
+      if (!res.ok) throw new ToolError('vault_failed', res.error);
+      return { vault: res.vault };
+    },
+  }),
+
+  tool({
+    name: 'list_vaults',
+    description: "List the user's savings vaults with balances and goal progress.",
+    schema: z.object({}),
+    handler: async (ctx) => ({ vaults: await listVaults(ctx.userId) }),
+  }),
+
+  tool({
+    name: 'deposit_to_vault',
+    description:
+      'Set aside `amount` (decimal USDC) into a savings vault (by name or id). An earmark within the wallet — capped at the freely-available balance. No gas, no confirmation.',
+    mutating: true,
+    schema: z.object({
+      vault: z.string().min(1).describe('Vault name or id.'),
+      amount: z.string().min(1).describe('Decimal USDC amount, e.g. "50".'),
+    }),
+    handler: async (ctx, args) => {
+      const vault = await findVault(ctx.userId, args.vault);
+      if (!vault) throw new ToolError('not_found', `No vault called "${args.vault}".`);
+      let amountRaw: bigint;
+      try {
+        amountRaw = parseUnitsSafe(args.amount);
+      } catch {
+        throw new ToolError('invalid_arguments', 'Invalid amount.');
+      }
+      // Cap at available balance (on-chain minus what's already earmarked).
+      const wallet = await getWalletByUserId(ctx.userId);
+      const bal = wallet ? await getUsdcBalance(wallet.address) : null;
+      const availableRaw = await availableBalanceRaw(ctx.userId, bal ? bal.raw : '0', 'USDC');
+      const res = await depositToVault(ctx.userId, { vaultId: vault.id, amountRaw: amountRaw.toString(), availableRaw: availableRaw.toString() });
+      if (!res.ok) throw new ToolError('deposit_failed', res.error);
+      return { vault: res.vault };
+    },
+  }),
+
+  tool({
+    name: 'withdraw_from_vault',
+    description: 'Move `amount` (decimal USDC) back out of a savings vault into freely-available balance.',
+    mutating: true,
+    schema: z.object({
+      vault: z.string().min(1).describe('Vault name or id.'),
+      amount: z.string().min(1).describe('Decimal USDC amount, e.g. "50".'),
+    }),
+    handler: async (ctx, args) => {
+      const vault = await findVault(ctx.userId, args.vault);
+      if (!vault) throw new ToolError('not_found', `No vault called "${args.vault}".`);
+      let amountRaw: bigint;
+      try {
+        amountRaw = parseUnitsSafe(args.amount);
+      } catch {
+        throw new ToolError('invalid_arguments', 'Invalid amount.');
+      }
+      const res = await withdrawFromVault(ctx.userId, { vaultId: vault.id, amountRaw: amountRaw.toString() });
+      if (!res.ok) throw new ToolError('withdraw_failed', res.error);
+      return { vault: res.vault };
     },
   }),
 

@@ -2,11 +2,12 @@ import 'server-only';
 import { and, eq } from 'drizzle-orm';
 import { formatUnits, parseUnits } from 'viem';
 import { getDb, schema } from '@/lib/db';
-import { activeNetwork, env, getToken, txExplorerUrl } from '@/lib/config';
+import { activeNetwork, env, features, getToken, txExplorerUrl } from '@/lib/config';
 import { normalizeUsername } from '@/lib/users/username';
 import { resolveUsername, getUserById } from '@/lib/users/service';
-import { getPrivyEmbeddedWallet, sendDelegatedTransaction } from '@/lib/auth/server';
+import { getPrivyEmbeddedWallet, sendDelegatedTransaction, signDelegatedTypedData } from '@/lib/auth/server';
 import { buildUsdcTransfer, type PreparedUsdcTransfer } from '@/lib/celo/transaction';
+import { buildTransferAuthorization, relayTransfer } from '@/lib/relayer/service';
 import { celoClient } from '@/lib/celo/client';
 import { assertTransition, type PaymentStatus } from './state';
 import { evaluatePaymentPolicy } from './policy';
@@ -169,11 +170,50 @@ export async function authorizePayment(input: { paymentId: string; userId: strin
 }
 
 /**
+ * Broadcast a settlement from a delegated wallet and return the tx hash. Prefers the GASLESS path:
+ * when the relayer is configured and the token supports EIP-3009 (USDC), the server signs a
+ * `transferWithAuthorization` on the user's behalf (delegated) and the relayer submits it, paying
+ * the CELO gas — so the user needs no CELO. Falls back to a direct delegated transfer (the user's
+ * wallet pays gas) when the relayer isn't configured or the token isn't EIP-3009. Either way Privy
+ * signs in its TEE; we never hold a key.
+ */
+async function settleDelegated(input: {
+  walletId: string;
+  from: string;
+  to: string;
+  amountRaw: string;
+  token: string;
+  chainId: number;
+}): Promise<string> {
+  // EIP-3009 gasless: only USDC on Celo, and only when a relayer is funded/configured.
+  if (features.gaslessRelayer && input.token === 'USDC') {
+    const typedData = await buildTransferAuthorization({ from: input.from, to: input.to, valueRaw: input.amountRaw });
+    const { signature } = await signDelegatedTypedData({
+      walletId: input.walletId,
+      typedData: {
+        domain: typedData.domain as unknown as Record<string, unknown>,
+        types: typedData.types as unknown as Record<string, unknown>,
+        message: typedData.message as unknown as Record<string, unknown>,
+        primaryType: typedData.primaryType,
+      },
+    });
+    const relayed = await relayTransfer({ message: typedData.message, signature });
+    return relayed.hash;
+  }
+  // Direct delegated transfer — the user's wallet pays native CELO gas.
+  const decimals = getToken(input.token, activeNetwork.network)?.decimals ?? 6;
+  const prepared = buildUsdcTransfer(input.to, formatUnits(BigInt(input.amountRaw), decimals));
+  const sent = await sendDelegatedTransaction({ walletId: input.walletId, chainId: input.chainId, to: prepared.to, data: prepared.data });
+  return sent.hash;
+}
+
+/**
  * Settle an AUTHORIZED payment server-side via the user's delegated Privy wallet (§ MCP "confirm
  * in agent"). Reuses the same authorization + broadcast + confirmation path as the client flow —
- * Privy signs in its TEE, we never see a key. Returns a typed reason when the wallet isn't
- * delegated or signing isn't configured, so callers can fall back to in-app approval rather than
- * failing the request. Never reports success without an on-chain receipt.
+ * Privy signs in its TEE, we never see a key. Prefers the gasless relayer (user needs no CELO),
+ * falling back to a direct delegated send. Returns a typed reason when the wallet isn't delegated
+ * or signing isn't configured, so callers can fall back to in-app approval rather than failing the
+ * request. Never reports success without an on-chain receipt.
  */
 export async function executeAuthorizedPayment(input: {
   paymentId: string;
@@ -194,13 +234,16 @@ export async function executeAuthorizedPayment(input: {
   if (!wallet || !wallet.walletId) return { ok: false, code: 'error', error: 'No embedded wallet to sign with.' };
   if (!wallet.delegated) return { ok: false, code: 'not_delegated', error: 'Wallet is not delegated for server signing.' };
 
-  const decimals = getToken(payment.token, activeNetwork.network)?.decimals ?? 6;
-  const prepared = buildUsdcTransfer(payment.recipientAddress, formatUnits(BigInt(payment.amount), decimals));
-
   let hash: string;
   try {
-    const sent = await sendDelegatedTransaction({ walletId: wallet.walletId, chainId: payment.chainId, to: prepared.to, data: prepared.data });
-    hash = sent.hash;
+    hash = await settleDelegated({
+      walletId: wallet.walletId,
+      from: wallet.address,
+      to: payment.recipientAddress,
+      amountRaw: payment.amount,
+      token: payment.token,
+      chainId: payment.chainId,
+    });
   } catch (e) {
     return { ok: false, code: 'error', error: e instanceof Error ? e.message : 'Server signing failed.' };
   }

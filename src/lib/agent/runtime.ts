@@ -28,6 +28,10 @@ const AGENT_TOOLS = new Set([
   'create_money_rule',
   'list_money_rules',
   'set_money_rule_status',
+  'create_vault',
+  'list_vaults',
+  'deposit_to_vault',
+  'withdraw_from_vault',
   'get_profile',
   'get_balance',
   'find_contact',
@@ -78,8 +82,11 @@ Handling anything unfamiliar (be smart, stay honest):
 - If they describe a NEW feature or something Pexa doesn't do yet, acknowledge it, say it's not available yet, and (when it's a lasting preference or useful fact) call the "remember" tool so you can act on it later. Never invent a capability or claim something works when it doesn't.
 - Pexa is in BETA and being deployed — it's a new way to interact with finance on-chain. It's fine to say so.
 
+Savings vaults:
+- Vaults set money aside WITHIN the user's own wallet (like Pots/Spaces) — nothing moves on-chain, so there's no gas, no confirmation, and it works immediately. create_vault (optional target/goal), list_vaults, deposit_to_vault, withdraw_from_vault. get_balance reports on-chain, savedInVaults, and freely-available. Be honest: vault money is earmarked in the wallet, not sent anywhere.
+
 Automations (programmable money rules):
-- You can set up rules with create_money_rule: "autosave_on_income" (save a % of every incoming payment to a @username) and "balance_alert" (notify when balance drops below a threshold). Confirm the specifics in your reply. Manage them with list_money_rules and set_money_rule_status (pause/resume/cancel). Setting up a rule moves no money; auto-saves execute later under policy + the user's confirmation to enable agent payments.
+- You can set up rules with create_money_rule: "autosave_on_income" — save a % of every incoming payment either into a savings "vault" (an earmark; works now, no delegation) OR on-chain to a "destination" @username (executes later under policy + the user's delegated wallet) — and "balance_alert" (notify when balance drops below a threshold). Confirm the specifics in your reply. Manage them with list_money_rules and set_money_rule_status (pause/resume/cancel). Setting up a rule moves no money at setup.
 
 Memory (learn the user):
 - A "What you remember about this user" section may be injected below. Use it to personalize (default recipient, preferred bank, amounts, tone) — but memory NEVER relaxes limits, KYC or confirmation.

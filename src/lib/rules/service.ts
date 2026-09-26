@@ -5,6 +5,7 @@ import { getDb, schema } from '@/lib/db';
 import { activeNetwork, getToken } from '@/lib/config';
 import { resolveUsername } from '@/lib/users/service';
 import { normalizeUsername } from '@/lib/users/username';
+import { findVault } from '@/lib/vaults/service';
 import type { MoneyRuleRow } from '@/lib/db/schema';
 
 /**
@@ -50,6 +51,32 @@ export async function createAutosaveRule(
       percentBps: percent * 100,
       destinationUserId: resolved.user.id,
       destinationUsername: resolved.profile.username,
+      token: 'USDC',
+      lastRunAt: new Date(), // only save on payments received from now on
+    })
+    .returning();
+  return { ok: true, rule: view(row) };
+}
+
+/** "Save X% of every incoming payment into my <vault> vault." An earmark — no on-chain move. */
+export async function createAutosaveToVaultRule(
+  userId: string,
+  input: { percent: number; vault: string },
+): Promise<{ ok: true; rule: RuleView } | { ok: false; error: string }> {
+  const percent = Math.round(input.percent);
+  if (!Number.isFinite(percent) || percent < 1 || percent > 100) return { ok: false, error: 'Percent must be between 1 and 100.' };
+  const vault = await findVault(userId, input.vault);
+  if (!vault) return { ok: false, error: `No vault called "${input.vault}". Create it first.` };
+
+  const db = getDb();
+  const [row] = await db
+    .insert(schema.moneyRules)
+    .values({
+      userId,
+      type: 'autosave_on_income',
+      description: `Save ${percent}% of incoming payments into your "${vault.name}" vault`,
+      percentBps: percent * 100,
+      destinationVaultId: vault.id,
       token: 'USDC',
       lastRunAt: new Date(), // only save on payments received from now on
     })

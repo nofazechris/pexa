@@ -354,9 +354,11 @@ export const moneyRules = pgTable('money_rules', {
   token: text('token').notNull().default('USDC'),
   /** autosave: fraction of incoming to move, in basis points (1000 = 10%). */
   percentBps: integer('percent_bps'),
-  /** autosave: where the saved funds go. */
+  /** autosave: where the saved funds go — a Pexa user (on-chain send) OR a vault (earmark). */
   destinationUserId: uuid('destination_user_id').references(() => users.id, { onDelete: 'set null' }),
   destinationUsername: text('destination_username'),
+  /** autosave: a savings vault to earmark into, instead of an on-chain send to a user. */
+  destinationVaultId: uuid('destination_vault_id'),
   /** balance_alert: threshold in the token's smallest unit. */
   thresholdRaw: text('threshold_raw'),
   /** autosave cursor: only incoming payments confirmed after this are processed. */
@@ -386,6 +388,64 @@ export const agentMemories = pgTable(
   (t) => [uniqueIndex('agent_memories_user_content_uq').on(t.userId, t.content)],
 );
 
+/**
+ * Savings vaults (§ savings). A vault is a named envelope that sets money *aside within the user's
+ * own wallet* — the neobank "Pots / Spaces" pattern. The USDC never leaves the wallet or moves
+ * on-chain; `balanceRaw` is the amount earmarked so the app can show "available" (on-chain balance
+ * minus everything earmarked) and keep the user from accidentally spending savings. Deposits and
+ * withdrawals are ledger operations, so they need no gas, no delegation and no confirmation. A
+ * separate on-chain transfer (e.g. auto-save to a @username) is a different thing entirely.
+ * Amounts are integer smallest-unit strings.
+ */
+export const vaults = pgTable(
+  'vaults',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    token: text('token').notNull().default('USDC'),
+    /** Amount currently set aside in this vault, smallest unit. */
+    balanceRaw: text('balance_raw').notNull().default('0'),
+    /** Optional savings goal, smallest unit. */
+    targetRaw: text('target_raw'),
+    /** active | archived. */
+    status: text('status').notNull().default('active'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('vaults_user_name_uq').on(t.userId, t.name)],
+);
+
+/**
+ * Vault ledger. One row per deposit/withdraw so a vault's balance is auditable. `ref` makes an
+ * operation idempotent (e.g. `autosave_<paymentId>`) — a unique (vault, ref) index means a worker
+ * re-run can never double-earmark. NULL refs (manual moves) are always distinct in Postgres.
+ */
+export const vaultTransactions = pgTable(
+  'vault_transactions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    vaultId: uuid('vault_id')
+      .notNull()
+      .references(() => vaults.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** deposit | withdraw. */
+    direction: text('direction').notNull(),
+    amountRaw: text('amount_raw').notNull(),
+    /** manual | autosave. */
+    source: text('source').notNull().default('manual'),
+    /** Idempotency key for automated deposits (e.g. autosave_<paymentId>). */
+    ref: text('ref'),
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('vault_transactions_vault_ref_uq').on(t.vaultId, t.ref)],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type ProfileRow = typeof profiles.$inferSelect;
 export type WalletRow = typeof wallets.$inferSelect;
@@ -403,3 +463,5 @@ export type FiatOrderRow = typeof fiatOrders.$inferSelect;
 export type ProviderWebhookEventRow = typeof providerWebhookEvents.$inferSelect;
 export type AgentMemoryRow = typeof agentMemories.$inferSelect;
 export type MoneyRuleRow = typeof moneyRules.$inferSelect;
+export type VaultRow = typeof vaults.$inferSelect;
+export type VaultTransactionRow = typeof vaultTransactions.$inferSelect;

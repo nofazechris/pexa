@@ -78,6 +78,13 @@
       "when": 1790282899945,
       "tag": "0010_striped_black_cat",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790412862212,
+      "tag": "0011_right_betty_ross",
+      "breakpoints": true
     }
   ]
 }

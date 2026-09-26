@@ -87,6 +87,9 @@ Existing tables (reuse — do not duplicate):
 - Fiat: `fiat_quotes`, `fiat_orders` (the FinancialAction for fiat; buy/sell state machines),
   `payout_accounts` (tokenized bank refs), `compliance_profiles` (KYC), `provider_webhook_events`
   (idempotency + audit).
+- Automations & savings: `money_rules` (autosave-on-income + balance alerts), `agent_memories`
+  (learns the user), `vaults` + `vault_transactions` (savings envelopes within the wallet —
+  earmarks, not on-chain moves; auditable ledger, idempotent automated deposits).
 
 All money amounts are **integer smallest-unit decimal strings** (USDC/USDT 6dp; NGN in kobo, 2dp).
 Never floats.
@@ -178,8 +181,16 @@ off to chat), identity + Celo address, and linked bank accounts.
   quote→order service (price-locked, idempotent), buy/sell/withdraw, payout accounts, signed
   webhook settlement + reconciliation, derived USDT balance, Wallet UI, landing copy + demo.
 - Quidax adapter (inert until keys). Sandbox is the default.
+- Programmable money rules (autosave-on-income, balance alerts) + rules cron worker; agent memory.
+- **Savings vaults** (`src/lib/vaults/`): create/deposit/withdraw + goal progress, "available =
+  on-chain − earmarked", auto-save-into-vault rule, MCP tools + agent, Wallet Savings UI. Earmarks
+  within the wallet — no on-chain move, so no gas/delegation needed.
+- **Gasless in the workers**: recurring + on-chain auto-save settle via the EIP-3009 relayer when
+  `RELAYER_PRIVATE_KEY` is set (server signs the delegated authorization; relayer pays gas), falling
+  back to a direct delegated send. Unattended execution still requires `PRIVY_AUTHORIZATION_KEY` +
+  the user's wallet delegated; otherwise it skips safely. See `DEPLOY.md` feature-readiness matrix.
 
-Health: typecheck clean, full test suite green.
+Health: typecheck clean, full test suite green (93 tests).
 
 ---
 

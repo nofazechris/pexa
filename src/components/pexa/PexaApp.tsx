@@ -513,6 +513,7 @@ function ErrorCard({ m }: { m: ChatMessage }) {
 /* ----------------------------------------------------------------- other pages */
 
 interface PayoutBank { id: string; bankName: string; accountName: string; last4: string }
+interface Vault { id: string; name: string; balance: string; target: string | null; progress: number | null }
 
 function WalletPage({
   balance,
@@ -533,7 +534,9 @@ function WalletPage({
   const [fiatPublic, setFiatPublic] = useState(false);
   const [fundingLive, setFundingLive] = useState(false);
   const [banks, setBanks] = useState<PayoutBank[]>([]);
+  const [vaults, setVaults] = useState<Vault[]>([]);
   const short = address ? address.slice(0, 6) + '…' + address.slice(-4) : '—';
+  const savedTotal = vaults.reduce((s, v) => s + (Number(v.balance) || 0), 0);
 
   // Wallet-screen reads: derived USDT balance + linked bank accounts (only if fiat is enabled).
   useEffect(() => {
@@ -542,9 +545,10 @@ function WalletPage({
       try {
         const token = getAccessToken ? await getAccessToken() : null;
         const headers = token ? { authorization: `Bearer ${token}` } : undefined;
-        const [bRes, aRes] = await Promise.all([
+        const [bRes, aRes, vRes] = await Promise.all([
           fetch('/api/fiat/balance', { headers }),
           fetch('/api/fiat/payout-accounts', { headers }),
+          fetch('/api/vaults', { headers }),
         ]);
         if (!alive) return;
         if (bRes.ok) {
@@ -557,6 +561,10 @@ function WalletPage({
         if (aRes.ok) {
           const d = (await aRes.json()) as { accounts?: PayoutBank[] };
           setBanks(d.accounts ?? []);
+        }
+        if (vRes.ok) {
+          const d = (await vRes.json()) as { vaults?: Vault[] };
+          setVaults(d.vaults ?? []);
         }
       } catch {
         /* leave fiat sections hidden */
@@ -667,6 +675,45 @@ function WalletPage({
             </div>
             <button onClick={copyAddress} style={{ marginLeft: 'auto', border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '12.5px', fontWeight: 500, padding: '8px 12px', borderRadius: '9px', cursor: 'pointer' }}>{copied ? 'Copied' : 'Copy'}</button>
           </div>
+        </div>
+
+        {/* Savings vaults — money set aside within the wallet (earmark, no on-chain move). */}
+        <div style={{ background: color.surface, border: `1px solid ${color.border}`, borderRadius: '16px', padding: '18px', marginTop: '14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>SAVINGS</div>
+            {vaults.length > 0 ? (
+              <span style={{ fontSize: '12.5px', color: color.mutedStrong }}>${money(savedTotal)} set aside</span>
+            ) : null}
+            <button onClick={() => onAsk('Create a savings vault')} style={{ marginLeft: 'auto', border: `1px solid ${color.primary}`, background: color.primarySoft, color: color.primaryHover, fontSize: '13px', fontWeight: 500, padding: '8px 12px', borderRadius: '9px', cursor: 'pointer' }}>+ New vault</button>
+          </div>
+          {vaults.length === 0 ? (
+            <div style={{ fontSize: '13px', color: color.mutedStrong, marginTop: '13px', lineHeight: 1.5 }}>
+              Set money aside for a goal — rent, travel, an emergency fund. It stays in your wallet, just earmarked so you don’t spend it by accident. Ask Pexa to create one.
+            </div>
+          ) : (
+            <div style={{ marginTop: '14px', display: 'grid', gap: '10px' }}>
+              {vaults.map((v) => (
+                <div key={v.id} style={{ border: `1px solid ${color.borderFaint}`, borderRadius: '12px', padding: '13px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
+                    <div style={{ fontSize: '14.5px', fontWeight: 600, letterSpacing: '-.01em' }}>{v.name}</div>
+                    <div style={{ marginLeft: 'auto', fontSize: '14.5px', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                      ${money(Number(v.balance) || 0)}
+                      {v.target ? <span style={{ fontSize: '12px', fontWeight: 400, color: color.mutedStrong }}> / ${money(Number(v.target))}</span> : null}
+                    </div>
+                  </div>
+                  {v.progress != null ? (
+                    <div style={{ height: '6px', borderRadius: '999px', background: color.primarySoft, marginTop: '10px', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.round(v.progress * 100)}%`, background: color.primary, borderRadius: '999px' }} />
+                    </div>
+                  ) : null}
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                    <button onClick={() => onAsk(`Add money to my "${v.name}" vault`)} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '12.5px', fontWeight: 500, padding: '7px 12px', borderRadius: '9px', cursor: 'pointer' }}>Add</button>
+                    <button onClick={() => onAsk(`Withdraw from my "${v.name}" vault`)} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '12.5px', fontWeight: 500, padding: '7px 12px', borderRadius: '9px', cursor: 'pointer' }}>Withdraw</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Linked bank accounts (fiat) */}

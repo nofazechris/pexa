@@ -96,6 +96,36 @@ waitlist (`0007`), fiat (`0008`), agent memories (`0009`), and money rules (`001
     with header `Authorization: Bearer $CRON_SECRET`. The individual endpoints are still live.
 - **Waitlist** submissions land in the `waitlist` table via `/api/waitlist`.
 
+## Feature readiness — live now vs. needs config
+What actually works depends on which secrets are set. Nothing below is faked; features that can't
+run yet **skip safely** rather than pretend.
+
+| Feature | Works with core config | Needs delegated signing¹ | Needs a paid RPC² |
+|---|---|---|---|
+| Manual send / request / pay (user signs in-app) | ✅ | — | ✅ |
+| Savings **vaults** (create/deposit/withdraw) | ✅ | — | — |
+| **Auto-save into a vault** (rule) | ✅ | — | — |
+| Balance alerts | ✅ | — | ✅ (reads balance) |
+| **Recurring auto-pay** (unattended) | ⚠️ skips until ¹ | ✅ | ✅ |
+| **Auto-save on-chain to a @username** (rule) | ⚠️ skips until ¹ | ✅ | ✅ |
+| Gasless sends (user holds no CELO) | ⚠️ off until relayer funded | ✅³ | ✅ |
+| NGN↔USDT (naira) | ❌ hidden | — | — (needs Quidax merchant) |
+
+¹ **Delegated signing** = `PRIVY_AUTHORIZATION_KEY` set in Vercel **and** the user has delegated
+their wallet in-app ("enable agent payments"). Without it, the recurring/on-chain-autosave workers
+return `not_configured`/`not_delegated` and **skip** — no money moves, nothing breaks.
+² Use an SLA RPC in production; the public `forno.celo.org` drops connections.
+³ The recurring and auto-save workers now use the **gasless relayer automatically** when
+`RELAYER_PRIVATE_KEY` is set and the token is USDC: the server signs an EIP-3009
+`transferWithAuthorization` on the user's behalf (delegated) and the relayer pays the CELO gas — so
+unattended payments don't require the user's wallet to hold CELO. If the relayer isn't configured,
+they fall back to a direct delegated send (the user's wallet pays gas).
+
+**Vaults are earmarks, not transfers.** A vault sets USDC aside *within the user's own wallet*
+(the neobank "Pots/Spaces" model) — the funds never move on-chain, so vault deposits/withdrawals
+need no gas, no delegation and no RPC, and work the moment the DB migration is applied. "Available"
+balance = on-chain balance − everything earmarked.
+
 ## Launch checklist (mainnet)
 - [ ] `CELO_NETWORK=mainnet` + paid `CELO_RPC_URL` set in Vercel
 - [ ] `APP_ENV=production`, `NEXT_PUBLIC_SITE_URL` = live origin
@@ -103,5 +133,7 @@ waitlist (`0007`), fiat (`0008`), agent memories (`0009`), and money rules (`001
       `RELAYER_PRIVATE_KEY` set (otherwise users pay their own gas)
 - [ ] Privy allowed origins include the live domain
 - [ ] `MCP_SECRET`, `CRON_SECRET` set; `AI_API_KEY` set (or accept rule-based fallback)
-- [ ] Migrations run against the production DB
+- [ ] Migrations run against the production DB (through `0011` — adds savings vaults)
+- [ ] `PRIVY_AUTHORIZATION_KEY` set + delegated actions enabled, if you want recurring auto-pay and
+      on-chain auto-save to run unattended (vaults + vault auto-save work without it)
 - [ ] Fiat stays hidden: `FIAT_PUBLIC` / `FUNDING_LIVE` unset until Quidax merchant is live

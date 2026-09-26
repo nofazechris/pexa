@@ -321,6 +321,7 @@ function ChatRow({ m, onConfirm, onCancel }: { m: ChatMessage; onConfirm: () => 
         {m.type === 'fiat_quote' ? <FiatQuoteCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
         {m.type === 'fiat_receipt' ? <FiatReceiptCard m={m} /> : null}
         {m.type === 'error' ? <ErrorCard m={m} /> : null}
+        {m.type === 'receive' ? <ReceiveCard m={m} /> : null}
       </div>
     </div>
   );
@@ -506,6 +507,31 @@ function ErrorCard({ m }: { m: ChatMessage }) {
         <span style={{ fontSize: '14.5px', fontWeight: 500, color: '#A8352A' }}>{m.title}</span>
       </div>
       {m.hint ? <div style={{ fontSize: '13.5px', color: color.muted, lineHeight: 1.55, marginTop: '9px' }}>{m.hint}</div> : null}
+    </div>
+  );
+}
+
+function ReceiveCard({ m }: { m: ChatMessage }) {
+  const [copied, setCopied] = useState(false);
+  const r = m.receive;
+  if (!r) return null;
+  const copy = () => {
+    navigator.clipboard?.writeText(r.address).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => {});
+  };
+  return (
+    <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '16px', maxWidth: '360px' }}>
+      <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>ADD MONEY · {r.network.toUpperCase()}</div>
+      <div style={{ fontSize: '14px', color: color.mutedStrong, marginTop: '9px', lineHeight: 1.5 }}>Send <strong style={{ color: color.ink }}>USDC on Celo</strong> to your wallet. Scan the code or copy the address.</div>
+      {r.qr ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={r.qr} alt="Your wallet address QR code" width={180} height={180} style={{ display: 'block', margin: '14px auto 4px', borderRadius: '10px', border: `1px solid ${color.borderFaint}` }} />
+      ) : null}
+      <div style={{ marginTop: '12px', border: `1px solid ${color.borderFaint}`, borderRadius: '11px', padding: '11px 12px' }}>
+        <div style={{ fontSize: '11.5px', color: color.faint }}>Your Celo wallet</div>
+        <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '12.5px', marginTop: '4px', wordBreak: 'break-all', color: color.ink }}>{r.address}</div>
+      </div>
+      <button onClick={copy} style={{ marginTop: '12px', width: '100%', border: 'none', background: color.primary, color: '#fff', fontSize: '14px', fontWeight: 500, padding: '11px', borderRadius: '11px', cursor: 'pointer' }}>{copied ? 'Address copied' : 'Copy address'}</button>
+      <div style={{ fontSize: '11.5px', color: color.warning, marginTop: '10px', lineHeight: 1.5 }}>Only send USDC on Celo. Other networks or tokens may be lost.</div>
     </div>
   );
 }

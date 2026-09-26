@@ -85,6 +85,13 @@
       "when": 1790412862212,
       "tag": "0011_right_betty_ross",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790416119674,
+      "tag": "0012_omniscient_shriek",
+      "breakpoints": true
     }
   ]
 }

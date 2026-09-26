@@ -4,8 +4,10 @@ import { z } from 'zod';
 import { formatUnits } from 'viem';
 import { env, activeNetwork, getToken, features } from '@/lib/config';
 import { TOOLS, TOOLS_BY_NAME, ToolError, type ToolContext } from '@/lib/mcp/tools';
+import QRCode from 'qrcode';
 import { getPayment } from '@/lib/payments/engine';
 import { getProfileByUserId } from '@/lib/users/service';
+import { getWalletByUserId } from '@/lib/wallets/service';
 import { getFiatQuoteById } from '@/lib/fiat/service';
 import { presentQuote, type QuoteView } from '@/lib/fiat/present';
 import { listMemories } from './memory';
@@ -34,6 +36,7 @@ const AGENT_TOOLS = new Set([
   'withdraw_from_vault',
   'get_profile',
   'get_balance',
+  'get_deposit_details',
   'find_contact',
   'get_recent_transactions',
   'get_payment_status',
@@ -52,6 +55,10 @@ const AGENT_TOOLS = new Set([
 
 // EXECUTE tools — intercepted for explicit user confirmation, never auto-run by the model.
 const CONFIRM_TOOLS = new Set(['confirm_payment', 'create_buy_usdt_order', 'create_sell_usdt_order']);
+
+// CARD tools — informational (no money moves), but the runtime surfaces a rich card instead of
+// letting the model describe the result in prose. e.g. the deposit/receive address + QR.
+const CARD_TOOLS = new Set(['get_deposit_details']);
 
 // Fiat tools are only offered when the feature is on.
 const FIAT_TOOLS = new Set([
@@ -73,9 +80,11 @@ How you work:
 - Use tools for every fact. NEVER invent balances, rates, contacts, statuses, or that something succeeded — read it from a tool result.
 - You may freely call read tools (balance, profile, contacts, transactions, quotes, limits, compliance, list payout accounts), preparation tools (create_payment_preview, get_ngn_usdt_quote), and verify_payout_account to link a bank account.
 - To move money — send a payment, buy/sell/convert, or withdraw — FIRST prepare it (create_payment_preview for a send; get_ngn_usdt_quote for buy/sell/withdraw), then in the SAME turn call the matching execute tool (confirm_payment / create_buy_usdt_order / create_sell_usdt_order). Calling the execute tool does NOT run it — it makes the app show the user a Confirm button. So when the user wants to DO the action, you MUST call the execute tool; do NOT stop and ask "would you like to proceed?" in text. Only skip the execute tool when the user explicitly asked for just a rate/quote or preview.
+- NEVER guess or assume an amount or a recipient. If either is missing or unclear, ask one short question first ("How much?" / "Who should it go to — a @username?"). Only prepare a send once you have BOTH a resolved recipient AND an explicit amount the user gave. Do not reuse an amount or person from an earlier, unrelated message.
+- Adding money (deposit / fund / top up / "add money" / "put money in"): this means the user wants to RECEIVE, not send. Call get_deposit_details to show their wallet address + QR to receive USDC on Celo. Never turn "fund/deposit" into a payment to someone. (Funding with naira is separate and coming soon.)
 - Withdraw to a bank = a sell: call get_ngn_usdt_quote with side "sell" and amountCurrency "NGN" for a naira amount, then create_sell_usdt_order (the user's linked account is used automatically). If they have no linked account, ask for their account number and bank, then verify_payout_account.
 - You can chain steps yourself to fulfil a request (e.g. link the account, then quote, then prepare the withdrawal).
-- Be concise, warm and clear. Money amounts: NGN like ₦100,000; USDT/USDC with the ticker. Restate the specifics (amount, recipient/destination) in your reply.
+- Talk like a warm, competent human concierge — natural and friendly, like great customer support. Keep it to ONE short message and, when you need something, ONE question at a time. No robotic multi-step checklists, no walls of text. Make transactions feel effortless. Money amounts: NGN like ₦100,000; USDT/USDC with the ticker. Briefly restate the specifics (amount, recipient/destination) so the user feels understood.
 
 Handling anything unfamiliar (be smart, stay honest):
 - If a request doesn't map cleanly to a tool, don't dead-end with "I didn't catch that." Reason about what the user likely wants, ask a brief clarifying question, or explain what Pexa can and can't do yet — helpfully.
@@ -83,10 +92,10 @@ Handling anything unfamiliar (be smart, stay honest):
 - Pexa is in BETA and being deployed — it's a new way to interact with finance on-chain. It's fine to say so.
 
 Savings vaults:
-- Vaults set money aside WITHIN the user's own wallet (like Pots/Spaces) — nothing moves on-chain, so there's no gas, no confirmation, and it works immediately. create_vault (optional target/goal), list_vaults, deposit_to_vault, withdraw_from_vault. get_balance reports on-chain, savedInVaults, and freely-available. Be honest: vault money is earmarked in the wallet, not sent anywhere.
+- Vaults set money aside WITHIN the user's own wallet (like Pots/Spaces) — nothing moves on-chain, so there's no gas, no confirmation, and it works immediately. create_vault (optional target/goal), list_vaults, deposit_to_vault (a fixed amount, any time), withdraw_from_vault. get_balance reports on-chain, savedInVaults, and freely-available. Be honest: vault money is earmarked in the wallet, not sent anywhere.
 
 Automations (programmable money rules):
-- You can set up rules with create_money_rule: "autosave_on_income" — save a % of every incoming payment either into a savings "vault" (an earmark; works now, no delegation) OR on-chain to a "destination" @username (executes later under policy + the user's delegated wallet) — and "balance_alert" (notify when balance drops below a threshold). Confirm the specifics in your reply. Manage them with list_money_rules and set_money_rule_status (pause/resume/cancel). Setting up a rule moves no money at setup.
+- create_money_rule "autosave_on_income" saves part of every incoming payment automatically — either a PERCENT (e.g. 10%) OR a FIXED amount (e.g. $10) per payment; the user chooses. It can go into a savings "vault" (an earmark; works now, no delegation) OR on-chain to a "destination" @username (executes later under policy + the user's delegated wallet). "balance_alert" notifies when balance drops below a threshold. If the user wants to save but hasn't said percent-or-fixed, ask which. Manage rules with list_money_rules and set_money_rule_status (pause/resume/cancel). Setting up a rule moves no money at setup.
 
 Memory (learn the user):
 - A "What you remember about this user" section may be injected below. Use it to personalize (default recipient, preferred bank, amounts, tone) — but memory NEVER relaxes limits, KYC or confirmation.
@@ -100,7 +109,8 @@ export interface PendingAction {
   /** What the client renders as a confirmation card. */
   render:
     | { type: 'payment_preview'; recipient: string; amount: string; token: string; network: string }
-    | { type: 'fiat_quote'; quote: QuoteView };
+    | { type: 'fiat_quote'; quote: QuoteView }
+    | { type: 'receive'; address: string; username: string; network: string; qr: string };
 }
 
 export interface AgentTurn {
@@ -171,6 +181,18 @@ async function buildRender(ctx: ToolContext, tool: string, args: Record<string, 
     if (!q) return null;
     return { type: 'fiat_quote', quote: presentQuote(q) };
   }
+  if (tool === 'get_deposit_details') {
+    const wallet = await getWalletByUserId(ctx.userId);
+    if (!wallet) return null;
+    const profile = await getProfileByUserId(ctx.userId);
+    let qr = '';
+    try {
+      qr = await QRCode.toDataURL(wallet.address, { margin: 1, width: 240 });
+    } catch {
+      /* a missing QR still leaves a copyable address on the card */
+    }
+    return { type: 'receive', address: wallet.address, username: profile ? '@' + profile.username : '', network: activeNetwork.name, qr };
+  }
   return null;
 }
 
@@ -237,6 +259,14 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
       const render = await buildRender(ctx, confirmCall.function.name, args);
       if (render) return { reply: msg.content ?? '', action: { tool: confirmCall.function.name, args, render } };
       // Preview couldn't be built (e.g. no prepared quote/payment yet) — let the model prepare first.
+    }
+
+    // An informational card call (e.g. deposit/receive) → surface the card with the model's reply.
+    const cardCall = calls.find((c) => CARD_TOOLS.has(c.function.name));
+    if (cardCall) {
+      const args = parseArgs(cardCall.function.arguments);
+      const render = await buildRender(ctx, cardCall.function.name, args);
+      if (render) return { reply: msg.content ?? '', action: { tool: cardCall.function.name, args, render } };
     }
 
     // Otherwise (or on a failed render), run the auto tools and feed results back.

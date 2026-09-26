@@ -352,8 +352,10 @@ export const moneyRules = pgTable('money_rules', {
   /** Human summary shown back to the user. */
   description: text('description').notNull(),
   token: text('token').notNull().default('USDC'),
-  /** autosave: fraction of incoming to move, in basis points (1000 = 10%). */
+  /** autosave: fraction of incoming to move, in basis points (1000 = 10%). Use this OR fixedRaw. */
   percentBps: integer('percent_bps'),
+  /** autosave: a fixed amount to move per incoming payment, smallest unit (e.g. $10). Use this OR percentBps. */
+  fixedRaw: text('fixed_raw'),
   /** autosave: where the saved funds go — a Pexa user (on-chain send) OR a vault (earmark). */
   destinationUserId: uuid('destination_user_id').references(() => users.id, { onDelete: 'set null' }),
   destinationUsername: text('destination_username'),

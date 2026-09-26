@@ -32,17 +32,19 @@ export interface PendingActionView {
   args: Record<string, unknown>;
   render:
     | { type: 'payment_preview'; recipient: string; amount: string; token: string; network: string }
-    | { type: 'fiat_quote'; quote: FiatQuoteView };
+    | { type: 'fiat_quote'; quote: FiatQuoteView }
+    | { type: 'receive'; address: string; username: string; network: string; qr: string };
 }
 
 export interface ChatMessage {
   id: number;
   role: 'user' | 'agent';
-  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error';
+  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive';
   text?: string;
   /** Card payloads. */
   kind?: 'send' | 'buy' | 'sell';
   preview?: { recipient: string; amount: string; token: string; network: string };
+  receive?: { address: string; username: string; network: string; qr: string };
   quote?: FiatQuoteView;
   order?: { orderId: string; status: string };
   result?: { status: string; txHash?: string | null; explorerUrl?: string | null };
@@ -128,7 +130,9 @@ export function useAgentChat(deps: AgentChatDeps) {
 
       const action = turn.action;
       if (action) {
-        if (action.render.type === 'payment_preview') {
+        if (action.render.type === 'receive') {
+          push({ role: 'agent', type: 'receive', receive: action.render });
+        } else if (action.render.type === 'payment_preview') {
           push({
             role: 'agent',
             type: 'preview',

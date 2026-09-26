@@ -114,24 +114,25 @@ export const TOOLS: ToolDef[] = [
   tool({
     name: 'create_money_rule',
     description:
-      'Set up a programmable money automation. type "autosave_on_income": save `percent` (1-100) of every incoming payment — either into a savings `vault` (by name; an earmark within the wallet, no gas/delegation needed) OR on-chain to `destination` (@username, executes later under policy + the delegated wallet). type "balance_alert": notify when USDC balance drops below `threshold` (decimal string). No money moves at setup. Reversible via set_money_rule_status.',
+      'Set up a programmable money automation. type "autosave_on_income": save either a `percent` (1-100) OR a fixed `amount` (decimal USDC, e.g. "10") of every incoming payment — into a savings `vault` (by name; an earmark within the wallet, no gas/delegation needed) OR on-chain to `destination` (@username, executes later under policy + the delegated wallet). type "balance_alert": notify when USDC balance drops below `threshold` (decimal string). No money moves at setup. Reversible via set_money_rule_status.',
     schema: z.object({
       type: z.enum(['autosave_on_income', 'balance_alert']),
-      percent: z.number().min(1).max(100).optional().describe('autosave: percent of incoming to save.'),
+      percent: z.number().min(1).max(100).optional().describe('autosave: percent of incoming to save (use this OR amount).'),
+      amount: z.string().optional().describe('autosave: fixed decimal USDC to save per incoming payment, e.g. "10" (use this OR percent).'),
       destination: z.string().optional().describe('autosave: @username to save into (on-chain).'),
       vault: z.string().optional().describe('autosave: name of a savings vault to earmark into.'),
       threshold: z.string().optional().describe('balance_alert: decimal USDC threshold, e.g. "20".'),
     }),
     handler: async (ctx, args) => {
       if (args.type === 'autosave_on_income') {
-        if (args.percent == null) throw new ToolError('invalid_arguments', 'percent is required for autosave.');
+        if (args.percent == null && !args.amount) throw new ToolError('invalid_arguments', 'percent or amount is required for autosave.');
         if (args.vault) {
-          const res = await createAutosaveToVaultRule(ctx.userId, { percent: args.percent, vault: args.vault });
+          const res = await createAutosaveToVaultRule(ctx.userId, { percent: args.percent, fixed: args.amount, vault: args.vault });
           if (!res.ok) throw new ToolError('rule_failed', res.error);
           return { rule: res.rule };
         }
         if (!args.destination) throw new ToolError('invalid_arguments', 'destination (@username) or vault is required for autosave.');
-        const res = await createAutosaveRule(ctx.userId, { percent: args.percent, destinationUsername: args.destination });
+        const res = await createAutosaveRule(ctx.userId, { percent: args.percent, fixed: args.amount, destinationUsername: args.destination });
         if (!res.ok) throw new ToolError('rule_failed', res.error);
         return { rule: res.rule };
       }
@@ -181,6 +182,25 @@ export const TOOLS: ToolDef[] = [
         token: 'USDC',
         network: activeNetwork.name,
         address: wallet.address,
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_deposit_details',
+    description:
+      'Get the details for the user to ADD MONEY / FUND / DEPOSIT / TOP UP their account: their Celo wallet address to receive USDC into (they send USDC on Celo to it, or scan the QR the app shows). Use this whenever the user wants to put money in — never treat "fund/deposit/add money" as a send. Naira funding is separate and coming soon.',
+    schema: z.object({}),
+    handler: async (ctx) => {
+      const wallet = await getWalletByUserId(ctx.userId);
+      if (!wallet) throw new ToolError('no_wallet', 'No wallet is provisioned for this account yet.');
+      const profile = await getProfileByUserId(ctx.userId);
+      return {
+        address: wallet.address,
+        username: profile ? '@' + profile.username : null,
+        token: 'USDC',
+        network: activeNetwork.name,
+        note: 'Send USDC on Celo to this address, or scan the QR in the app. Only Celo USDC — other networks/tokens may be lost.',
       };
     },
   }),

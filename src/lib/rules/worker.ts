@@ -25,6 +25,20 @@ function decimals(): number {
   return getToken('USDC', activeNetwork.network)?.decimals ?? 6;
 }
 
+/**
+ * How much to save from one incoming payment: a fixed amount (capped at what actually arrived, so
+ * we never save more than the payment) or a percentage. Returns smallest-unit bigint.
+ */
+function computeSaveRaw(incomingRaw: string, rule: MoneyRuleRow): bigint {
+  const incoming = BigInt(incomingRaw);
+  if (rule.fixedRaw) {
+    const fixed = BigInt(rule.fixedRaw);
+    return fixed < incoming ? fixed : incoming;
+  }
+  if (rule.percentBps) return (incoming * BigInt(rule.percentBps)) / 10000n;
+  return 0n;
+}
+
 export interface RulesRunResult {
   rules: number;
   saved: number;
@@ -52,7 +66,7 @@ export async function runDueRules(limit = 100): Promise<RulesRunResult> {
 }
 
 async function runAutosave(rule: MoneyRuleRow, out: RulesRunResult): Promise<void> {
-  if (!rule.percentBps) return;
+  if (!rule.percentBps && !rule.fixedRaw) return;
   // Two flavours: earmark into a vault (no on-chain move) or send on-chain to a @username.
   if (rule.destinationVaultId) return runAutosaveToVault(rule, out);
   if (!rule.destinationUsername) return;
@@ -75,7 +89,7 @@ async function runAutosave(rule: MoneyRuleRow, out: RulesRunResult): Promise<voi
 
   let cursor: Date | null = null;
   for (const p of incoming) {
-    const saveRaw = (BigInt(p.amount) * BigInt(rule.percentBps)) / 10000n;
+    const saveRaw = computeSaveRaw(p.amount, rule);
     if (saveRaw <= 0n) {
       cursor = p.confirmedAt ?? cursor;
       continue;
@@ -139,7 +153,7 @@ async function runAutosave(rule: MoneyRuleRow, out: RulesRunResult): Promise<voi
  * `autosave_<paymentId>` guards against double-earmarking on a re-run.
  */
 async function runAutosaveToVault(rule: MoneyRuleRow, out: RulesRunResult): Promise<void> {
-  if (!rule.destinationVaultId || !rule.percentBps) return;
+  if (!rule.destinationVaultId || (!rule.percentBps && !rule.fixedRaw)) return;
   const db = getDb();
   const since = rule.lastRunAt ?? rule.createdAt;
 
@@ -152,7 +166,7 @@ async function runAutosaveToVault(rule: MoneyRuleRow, out: RulesRunResult): Prom
 
   let cursor: Date | null = null;
   for (const p of incoming) {
-    const saveRaw = (BigInt(p.amount) * BigInt(rule.percentBps)) / 10000n;
+    const saveRaw = computeSaveRaw(p.amount, rule);
     if (saveRaw > 0n) {
       const res = await depositToVault(rule.userId, {
         vaultId: rule.destinationVaultId,

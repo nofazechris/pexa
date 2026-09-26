@@ -1,0 +1,1 @@
+ALTER TABLE "money_rules" ADD COLUMN "fixed_raw" text;

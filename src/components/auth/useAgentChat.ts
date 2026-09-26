@@ -55,6 +55,8 @@ export interface ChatMessage {
   /** Error card. */
   title?: string;
   hint?: string;
+  /** When set, the error card shows a retry button that re-sends this message. */
+  retryText?: string;
 }
 
 /** Why an agent turn failed — drives the plain-language message and the health indicator. */
@@ -144,7 +146,8 @@ export function useAgentChat(deps: AgentChatDeps) {
       if (!turn || turn.ok === false) {
         const reason: AgentFailReason = turn && turn.ok === false ? turn.reason : 'network';
         const { title, hint } = plainError(reason);
-        push({ role: 'agent', type: 'error', title, hint });
+        // Carry the message so the error card can offer a one-tap retry (handy on connection blips).
+        push({ role: 'agent', type: 'error', title, hint, retryText: raw });
         setHealth('degraded');
         setAgentState('error');
         return setTimeout(() => setAgentState('idle'), 400) as unknown as void;

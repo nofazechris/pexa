@@ -262,7 +262,7 @@ function ChatScreen({ chat, getAccessToken, balance }: { chat: ReturnType<typeof
           ) : null}
 
           {chat.messages.map((m) => (
-            <ChatRow key={m.id} m={m} onConfirm={() => chat.confirm(m.id)} onCancel={() => chat.cancel(m.id)} getAccessToken={getAccessToken} />
+            <ChatRow key={m.id} m={m} onConfirm={() => chat.confirm(m.id)} onCancel={() => chat.cancel(m.id)} onRetry={(t) => chat.send(t)} getAccessToken={getAccessToken} />
           ))}
 
           {chat.agentState === 'thinking' || chat.agentState === 'processing' ? (
@@ -312,7 +312,7 @@ function Dot({ delay }: { delay: string }) {
   return <span style={{ width: 5, height: 5, borderRadius: '50%', background: color.primary, display: 'inline-block', animation: `pp-pulse 1.1s ease-in-out ${delay} infinite` }} />;
 }
 
-function ChatRow({ m, onConfirm, onCancel, getAccessToken }: { m: ChatMessage; onConfirm: () => void; onCancel: () => void; getAccessToken?: () => Promise<string | null> }) {
+function ChatRow({ m, onConfirm, onCancel, onRetry, getAccessToken }: { m: ChatMessage; onConfirm: () => void; onCancel: () => void; onRetry?: (text: string) => void; getAccessToken?: () => Promise<string | null> }) {
   if (m.role === 'user') {
     return (
       <div style={{ display: 'flex', justifyContent: 'flex-end', animation: 'pp-step .34s cubic-bezier(.2,.8,.3,1) both' }}>
@@ -329,7 +329,7 @@ function ChatRow({ m, onConfirm, onCancel, getAccessToken }: { m: ChatMessage; o
         {m.type === 'receipt' ? <ReceiptCard m={m} /> : null}
         {m.type === 'fiat_quote' ? <FiatQuoteCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
         {m.type === 'fiat_receipt' ? <FiatReceiptCard m={m} /> : null}
-        {m.type === 'error' ? <ErrorCard m={m} /> : null}
+        {m.type === 'error' ? <ErrorCard m={m} onRetry={onRetry} /> : null}
         {m.type === 'receive' ? <ReceiveCard m={m} getAccessToken={getAccessToken} /> : null}
       </div>
     </div>
@@ -508,7 +508,8 @@ function FiatReceiptCard({ m }: { m: ChatMessage }) {
   );
 }
 
-function ErrorCard({ m }: { m: ChatMessage }) {
+function ErrorCard({ m, onRetry }: { m: ChatMessage; onRetry?: (text: string) => void }) {
+  const canRetry = Boolean(m.retryText && onRetry);
   return (
     <div style={{ border: '1px solid #F0DCD8', background: '#FDF8F7', borderRadius: '16px', padding: '15px 16px', maxWidth: '400px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
@@ -516,7 +517,27 @@ function ErrorCard({ m }: { m: ChatMessage }) {
         <span style={{ fontSize: '14.5px', fontWeight: 500, color: '#A8352A' }}>{m.title}</span>
       </div>
       {m.hint ? <div style={{ fontSize: '13.5px', color: color.muted, lineHeight: 1.55, marginTop: '9px' }}>{m.hint}</div> : null}
+      {canRetry ? (
+        <button
+          onClick={() => onRetry!(m.retryText!)}
+          aria-label="Try again"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', marginTop: '12px', border: '1px solid #E6C9C3', background: '#fff', color: '#A8352A', fontSize: '13px', fontWeight: 500, padding: '7px 12px', borderRadius: '9px', cursor: 'pointer' }}
+        >
+          <RetryIcon size={14} />
+          Try again
+        </button>
+      ) : null}
     </div>
+  );
+}
+
+/** A small circular-arrow "retry" glyph, drawn inline so it needs no icon dependency. */
+function RetryIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 3v6h-6" />
+    </svg>
   );
 }
 

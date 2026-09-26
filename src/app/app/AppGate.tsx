@@ -27,7 +27,7 @@ import { color } from '@/lib/design/tokens';
  */
 export default function AppGate() {
   const { configured, ready, authenticated, logout, getAccessToken } = useAuth();
-  const { loading: profileLoading, profile, wallet, unavailable } = useProfile();
+  const { loading: profileLoading, profile, wallet, unavailable, error: profileError, refresh: refreshProfile } = useProfile();
   const { address: walletAddress } = useWallet();
   const { balance, refresh: refreshBalance } = useBalance(walletAddress ?? wallet?.address ?? null);
   const { pay } = usePayment();
@@ -122,13 +122,33 @@ export default function AppGate() {
     }
   }, [ready, configured, authenticated, router]);
 
-  // Signed-in but no username yet → onboarding (unless the DB is unavailable, where we can't
-  // tell and fall through to the app).
+  // Signed-in but no username yet → onboarding. Only when we KNOW there's no profile (a successful
+  // load): never on a transient error (would skip username setup) and never when the DB is simply
+  // not configured (the local escape hatch below).
   useEffect(() => {
-    if (ready && authenticated && !profileLoading && !profile && !unavailable) {
+    if (ready && authenticated && !profileLoading && !profile && !unavailable && !profileError) {
       router.replace('/onboarding');
     }
-  }, [ready, authenticated, profileLoading, profile, unavailable, router]);
+  }, [ready, authenticated, profileLoading, profile, unavailable, profileError, router]);
+
+  // A signed-in user whose profile couldn't be loaded (a DB/network blip) must NOT land in the app
+  // without a username — show a clear retry instead of guessing.
+  if (ready && configured && authenticated && !profileLoading && !profile && profileError) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: color.background, padding: '24px' }}>
+        <div style={{ display: 'grid', gap: '14px', justifyItems: 'center', textAlign: 'center', maxWidth: 340 }}>
+          <Text variant="body">We couldn’t load your account just now.</Text>
+          <Text variant="caption" tone="muted">This is usually a brief connection hiccup. Try again in a moment.</Text>
+          <button
+            onClick={refreshProfile}
+            style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '14px', fontWeight: 500, padding: '11px 22px', borderRadius: '11px', cursor: 'pointer' }}
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const gating = !ready || !configured || !authenticated || profileLoading || (!profile && !unavailable);
   if (gating) {

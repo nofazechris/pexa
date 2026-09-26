@@ -9,8 +9,13 @@ export interface ProfileState {
   profile: { username: string } | null;
   /** The provisioned Celo wallet address, or null if not synced yet. */
   wallet: { address: string } | null;
-  /** True when the profile couldn't be determined (e.g. database not configured). */
+  /**
+   * True only when the database is genuinely NOT configured (a local dev escape hatch). A transient
+   * backend error is `error`, not this — we must never treat a blip as "no DB" and skip onboarding.
+   */
   unavailable: boolean;
+  /** A transient failure to load the profile (network/DB blip). Distinct from `unavailable`. */
+  error: boolean;
   refresh: () => void;
 }
 
@@ -25,6 +30,7 @@ export function useProfile(): ProfileState {
   const [profile, setProfile] = useState<{ username: string } | null>(null);
   const [wallet, setWallet] = useState<{ address: string } | null>(null);
   const [unavailable, setUnavailable] = useState(false);
+  const [error, setError] = useState(false);
   const [tick, setTick] = useState(0);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
@@ -42,6 +48,7 @@ export function useProfile(): ProfileState {
       }
       setLoading(true);
       setUnavailable(false);
+      setError(false);
       try {
         const token = await getAccessToken();
         const res = await fetch('/api/profile/me', {
@@ -50,7 +57,16 @@ export function useProfile(): ProfileState {
         });
         if (!active) return;
         if (!res.ok) {
-          setUnavailable(true);
+          // Only a genuinely-unconfigured database is `unavailable`; every other failure (a DB/
+          // network blip) is a transient `error` so we retry instead of skipping onboarding.
+          let code = '';
+          try {
+            code = ((await res.json()) as { error?: string })?.error ?? '';
+          } catch {
+            /* no body */
+          }
+          if (res.status === 503 && code === 'database_not_configured') setUnavailable(true);
+          else setError(true);
           setProfile(null);
         } else {
           const data = (await res.json()) as {
@@ -62,7 +78,7 @@ export function useProfile(): ProfileState {
         }
       } catch {
         if (active) {
-          setUnavailable(true);
+          setError(true); // network error reaching our own API — transient, not "no DB"
           setProfile(null);
         }
       } finally {
@@ -75,5 +91,5 @@ export function useProfile(): ProfileState {
     };
   }, [ready, authenticated, getAccessToken, tick]);
 
-  return { loading, profile, wallet, unavailable, refresh };
+  return { loading, profile, wallet, unavailable, error, refresh };
 }

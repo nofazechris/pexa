@@ -15,7 +15,19 @@ export async function GET(req: Request) {
   try {
     const user = await getOrCreateUser(auth.user.userId);
     const [profile, stored] = await Promise.all([getProfileByUserId(user.id), getWalletByUserId(user.id)]);
-    const wallet = stored ?? (await syncWallet(user.id, auth.user.userId));
+    // A brand-new user has no stored wallet yet, so this reaches out to Privy. That call is a
+    // nice-to-have here — the client provisions and persists the wallet itself (POST /api/wallet) —
+    // so a Privy hiccup must NEVER fail the whole request: it would lock a new user out of even
+    // choosing a username. Degrade to "no wallet yet" and log it so the cause stays visible.
+    let wallet = stored;
+    if (!wallet) {
+      try {
+        wallet = await syncWallet(user.id, auth.user.userId);
+      } catch (e) {
+        console.error('[profile/me] wallet sync failed (continuing without it):', e);
+        wallet = null;
+      }
+    }
     return NextResponse.json({
       userId: user.id,
       profile: profile ? { username: profile.username, displayName: profile.displayName } : null,

@@ -50,35 +50,54 @@ export function useProfile(): ProfileState {
       setUnavailable(false);
       setError(false);
       try {
-        const token = await getAccessToken();
-        const res = await fetch('/api/profile/me', {
-          headers: token ? { authorization: `Bearer ${token}` } : {},
-          cache: 'no-store',
-        });
-        if (!active) return;
-        if (!res.ok) {
-          // Only a genuinely-unconfigured database is `unavailable`; every other failure (a DB/
-          // network blip) is a transient `error` so we retry instead of skipping onboarding.
-          let code = '';
+        // Retry a few times before giving up: a momentary blip (network drop, a 5xx, or a token
+        // that isn't ready right after sign-in → 401) shouldn't put a new user on an error screen.
+        // `loading` stays true throughout, so they just see the spinner.
+        const MAX_ATTEMPTS = 3;
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          let res: Response | null = null;
           try {
-            code = ((await res.json()) as { error?: string })?.error ?? '';
+            const token = await getAccessToken();
+            res = await fetch('/api/profile/me', {
+              headers: token ? { authorization: `Bearer ${token}` } : {},
+              cache: 'no-store',
+            });
           } catch {
-            /* no body */
+            res = null; // never reached our API
           }
-          if (res.status === 503 && code === 'database_not_configured') setUnavailable(true);
-          else setError(true);
-          setProfile(null);
-        } else {
-          const data = (await res.json()) as {
-            profile: { username: string } | null;
-            wallet: { address: string } | null;
-          };
-          setProfile(data.profile ?? null);
-          setWallet(data.wallet ?? null);
-        }
-      } catch {
-        if (active) {
-          setError(true); // network error reaching our own API — transient, not "no DB"
+          if (!active) return;
+
+          if (res && res.ok) {
+            const data = (await res.json()) as {
+              profile: { username: string } | null;
+              wallet: { address: string } | null;
+            };
+            setProfile(data.profile ?? null);
+            setWallet(data.wallet ?? null);
+            return;
+          }
+
+          // A genuinely-unconfigured database is `unavailable` (no point retrying). Every other
+          // failure is a transient `error` — never "no DB", which would skip username setup.
+          let code = '';
+          if (res) {
+            try {
+              code = ((await res.json()) as { error?: string })?.error ?? '';
+            } catch {
+              /* no body */
+            }
+          }
+          if (res && res.status === 503 && code === 'database_not_configured') {
+            setUnavailable(true);
+            setProfile(null);
+            return;
+          }
+          if (attempt < MAX_ATTEMPTS) {
+            await new Promise((r) => setTimeout(r, 900 * attempt));
+            if (!active) return;
+            continue;
+          }
+          setError(true);
           setProfile(null);
         }
       } finally {

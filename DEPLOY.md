@@ -94,6 +94,12 @@ waitlist (`0007`), fiat (`0008`), agent memories (`0009`), and money rules (`001
   - **External scheduler** (free) — e.g. cron-job.org or a GitHub Actions cron hitting
     `/api/cron/recurring`, `/api/cron/rules`, `/api/cron/fiat-reconcile` (or `/api/cron/tick`)
     with header `Authorization: Bearer $CRON_SECRET`. The individual endpoints are still live.
+- **One wallet per user.** Privy creates the embedded wallet at login (`createOnLogin`); the app
+  never creates one eagerly and the wallet pinned in the `wallets` table is permanent and is the
+  only one ever displayed or signed with. To prove the invariant after a deploy or a batch of
+  sign-ups, run the read-only audit (needs `DATABASE_URL`, `PRIVY_APP_ID`, `PRIVY_APP_SECRET` in
+  `.env`): `npm run wallets:audit` — it lists every user's Privy wallets, balances, and flags any
+  mismatch. Privy has no API to delete a single wallet; pre-fix duplicates are empty and unused.
 - **Waitlist** submissions land in the `waitlist` table via `/api/waitlist`. Export them as a CSV
   spreadsheet from `GET /api/waitlist/export` (admin-only — gated on `CRON_SECRET`):
   `curl -H "Authorization: Bearer $CRON_SECRET" https://<domain>/api/waitlist/export -o waitlist.csv`

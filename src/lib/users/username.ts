@@ -61,12 +61,18 @@ function usernameStem(rawBase: string): string {
  */
 export function generateUsernameCandidates(rawBase: string, count = 5): string[] {
   const stem = usernameStem(rawBase);
-  const suffixes = ['1', '2', '_1', '01', '99', '23', '007', '_x', '2025', '_pexa'];
+  // Suffix variants first (closest to what they wanted), then natural-sounding prefixes as
+  // fallbacks for when the suffixed ones are taken too. No year suffixes — they go stale.
+  const variants = [
+    ...['1', '2', '_1', '01', '99', '23', '007', '_x', '_hq', '_pexa'].map((s) => `${stem}${s}`),
+    `its${stem}`,
+    `real${stem}`,
+    `the_${stem}`,
+  ];
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const suffix of suffixes) {
+  for (const candidate of variants) {
     if (out.length >= count) break;
-    const candidate = `${stem}${suffix}`;
     if (seen.has(candidate) || !isValidUsername(candidate)) continue;
     seen.add(candidate);
     out.push(candidate);

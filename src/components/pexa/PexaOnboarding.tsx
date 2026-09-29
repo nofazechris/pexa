@@ -173,24 +173,34 @@ export function PexaOnboarding() {
                 autoFocus
                 style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontSize: '17px', fontWeight: 500, letterSpacing: '-.01em', color: color.ink }}
               />
-              {validLen && avail ? (
-                <span style={{ fontSize: '12.5px', fontWeight: 500, color: avail.ok ? color.success : color.danger, whiteSpace: 'nowrap', animation: 'pp-pop .28s cubic-bezier(.2,.8,.3,1) both' }}>
-                  {avail.ok ? '✓ Available' : avail.message}
+              {validLen && avail?.ok ? (
+                <span style={{ fontSize: '12.5px', fontWeight: 500, color: color.success, whiteSpace: 'nowrap', animation: 'pp-pop .28s cubic-bezier(.2,.8,.3,1) both' }}>
+                  ✓ Available
                 </span>
               ) : null}
             </div>
-            {avail && !avail.ok && suggestions.length > 0 ? (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '11px', animation: 'pp-pop .28s cubic-bezier(.2,.8,.3,1) both' }}>
-                <span style={{ fontSize: '12.5px', color: color.faint, alignSelf: 'center' }}>Try:</span>
-                {suggestions.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => pickSuggestion(s)}
-                    style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '13px', fontWeight: 500, padding: '6px 11px', borderRadius: '999px', cursor: 'pointer' }}
-                  >
-                    @{s}
-                  </button>
-                ))}
+            {/* Not available (taken / reserved / malformed): say so plainly, then offer free alternatives. */}
+            {validLen && avail && !avail.ok ? (
+              <div role="alert" style={{ marginTop: '11px', animation: 'pp-pop .28s cubic-bezier(.2,.8,.3,1) both' }}>
+                <div style={{ fontSize: '13.5px', fontWeight: 500, color: color.danger, lineHeight: 1.45 }}>{avail.message}</div>
+                {suggestions.length > 0 ? (
+                  <>
+                    <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '8px' }}>These are free — tap one to use it:</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
+                      {suggestions.map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => pickSuggestion(s)}
+                          style={{ border: `1px solid ${color.primarySoftBorder}`, background: color.primarySoft, color: color.primaryHover, fontSize: '13.5px', fontWeight: 500, padding: '7px 12px', borderRadius: '999px', cursor: 'pointer' }}
+                        >
+                          @{s}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '6px' }}>Try a different name, or add a number or underscore.</div>
+                )}
               </div>
             ) : null}
             {checkFailed && validLen ? (

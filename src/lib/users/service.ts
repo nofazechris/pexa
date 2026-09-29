@@ -1,5 +1,5 @@
 import 'server-only';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db';
 import { isUniqueViolation } from '@/lib/db/errors';
 import { normalizeUsername, validateUsername, generateUsernameCandidates, type UsernameError } from './username';
@@ -76,13 +76,13 @@ export async function isUsernameTaken(username: string): Promise<boolean> {
 
 /** Suggest available usernames close to a base someone wanted but couldn't have (taken/reserved). */
 export async function suggestUsernames(rawBase: string, count = 3): Promise<string[]> {
+  // Over-generate, then find which are already taken in ONE query (not one query per candidate).
   const candidates = generateUsernameCandidates(rawBase, count * 4);
-  const out: string[] = [];
-  for (const candidate of candidates) {
-    if (out.length >= count) break;
-    if (!(await isUsernameTaken(candidate))) out.push(candidate);
-  }
-  return out;
+  if (candidates.length === 0) return [];
+  const db = getDb();
+  const rows = await db.select({ username: schema.profiles.username }).from(schema.profiles).where(inArray(schema.profiles.username, candidates));
+  const taken = new Set(rows.map((r) => r.username));
+  return candidates.filter((c) => !taken.has(c)).slice(0, count);
 }
 
 export type CreateProfileResult =

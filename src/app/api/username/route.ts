@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { withUser, errorResponse, jsonError } from '@/lib/http';
 import { getOrCreateUser, createProfile, suggestUsernames } from '@/lib/users/service';
-import { usernameErrorMessage } from '@/lib/users/username';
+import { usernameErrorMessage, normalizeUsername } from '@/lib/users/username';
 
 /**
  * Claim a username for the authenticated user (§9). Format is validated and uniqueness is
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     if (!result.ok) {
       const message =
         result.error === 'taken'
-          ? 'That username is taken.'
+          ? `@${normalizeUsername(username)} is already taken.`
           : result.error === 'already_has_profile'
             ? 'You already have a username.'
             : usernameErrorMessage(result.error);

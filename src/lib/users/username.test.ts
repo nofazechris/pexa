@@ -60,6 +60,15 @@ describe('generateUsernameCandidates', () => {
     for (const c of generateUsernameCandidates('sarah okafor!', 2)) expect(isValidUsername(c)).toBe(true);
   });
 
+  it('keeps the closest variants first, and falls back to natural prefixes when more are needed', () => {
+    const all = generateUsernameCandidates('chris', 20);
+    expect(all.slice(0, 3)).toEqual(['chris1', 'chris2', 'chris_1']);
+    expect(all).toContain('itschris');
+    expect(all).toContain('realchris');
+    expect(all.some((c) => /20\d\d$/.test(c))).toBe(false); // no year suffixes that go stale
+    for (const c of all) expect(isValidUsername(c)).toBe(true);
+  });
+
   it('never exceeds the max length even for a long base', () => {
     const candidates = generateUsernameCandidates('a'.repeat(USERNAME_MAX), 5);
     for (const c of candidates) expect(c.length).toBeLessThanOrEqual(USERNAME_MAX);

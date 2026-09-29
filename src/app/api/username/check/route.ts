@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { withUser, errorResponse } from '@/lib/http';
-import { validateUsername, usernameErrorMessage } from '@/lib/users/username';
+import { validateUsername, usernameErrorMessage, normalizeUsername } from '@/lib/users/username';
 import { isUsernameTaken, suggestUsernames } from '@/lib/users/service';
 
 /**
@@ -27,7 +27,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ available: true, reason: null, message: 'Available' });
     }
     const suggestions = await suggestUsernames(u).catch(() => []);
-    return NextResponse.json({ available: false, reason: 'taken', message: 'That username is taken.', suggestions });
+    return NextResponse.json({ available: false, reason: 'taken', message: `@${normalizeUsername(u)} is already taken.`, suggestions });
   } catch (e) {
     return errorResponse(e);
   }

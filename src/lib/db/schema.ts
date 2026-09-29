@@ -125,7 +125,7 @@ export const requests = pgTable('requests', {
   token: text('token').notNull(),
   chainId: integer('chain_id').notNull(),
   memo: text('memo'),
-  /** PENDING | PAID | CANCELLED. */
+  /** PENDING | PAID | CANCELLED (by requester) | DECLINED (by payer). */
   status: text('status').notNull().default('PENDING'),
   /** The payment that fulfilled this request, once paid. */
   paymentId: uuid('payment_id').references(() => payments.id, { onDelete: 'set null' }),

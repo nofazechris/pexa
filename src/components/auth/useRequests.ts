@@ -30,6 +30,8 @@ export function useRequests(): {
   refresh: () => void;
   create: (args: { payer: string; amount: string; memo?: string }) => Promise<MutateResult>;
   markPaid: (id: string, paymentId?: string | null) => Promise<MutateResult>;
+  cancel: (id: string) => Promise<MutateResult>;
+  decline: (id: string) => Promise<MutateResult>;
 } {
   const { ready, authenticated, getAccessToken } = useAuth();
   const [items, setItems] = useState<RequestItem[]>([]);
@@ -104,5 +106,27 @@ export function useRequests(): {
     [getAccessToken, refresh],
   );
 
-  return { items, loading, refresh, create, markPaid };
+  // Shared POST helper for the simple request state-change endpoints (cancel / decline).
+  const post = useCallback(
+    async (id: string, action: 'cancel' | 'decline'): Promise<MutateResult> => {
+      try {
+        const token = await getAccessToken();
+        const res = await fetch(`/api/requests/${id}/${action}`, {
+          method: 'POST',
+          headers: token ? { authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return { ok: false, error: `Could not ${action} request.` };
+        refresh();
+        return { ok: true };
+      } catch {
+        return { ok: false, error: `Could not ${action} request.` };
+      }
+    },
+    [getAccessToken, refresh],
+  );
+
+  const cancel = useCallback((id: string) => post(id, 'cancel'), [post]);
+  const decline = useCallback((id: string) => post(id, 'decline'), [post]);
+
+  return { items, loading, refresh, create, markPaid, cancel, decline };
 }

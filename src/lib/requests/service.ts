@@ -160,7 +160,7 @@ export async function markRequestPaid(
   return { ok: true };
 }
 
-/** Cancel an outgoing request the caller created (while still pending). */
+/** Cancel an outgoing request the caller created (while still pending). The payer then sees it gone. */
 export async function cancelRequest(requestId: string, requesterUserId: string): Promise<PayRequestResult> {
   const db = getDb();
   const rows = await db.select().from(schema.requests).where(eq(schema.requests.id, requestId)).limit(1);
@@ -168,5 +168,20 @@ export async function cancelRequest(requestId: string, requesterUserId: string):
   if (!req || req.requesterUserId !== requesterUserId) return { ok: false, error: 'not_found' };
   if (req.status !== 'PENDING') return { ok: false, error: 'not_payable' };
   await db.update(schema.requests).set({ status: 'CANCELLED', cancelledAt: new Date() }).where(eq(schema.requests.id, requestId));
+  return { ok: true };
+}
+
+/**
+ * Decline an incoming request the caller was asked to pay (while still pending). The requester then
+ * sees the request marked DECLINED (surfaced live on their side), so they know the answer was no.
+ * Reuses `cancelledAt` as the closed-at timestamp; the status distinguishes a decline from a cancel.
+ */
+export async function declineRequest(requestId: string, payerUserId: string): Promise<PayRequestResult> {
+  const db = getDb();
+  const rows = await db.select().from(schema.requests).where(eq(schema.requests.id, requestId)).limit(1);
+  const req = rows[0];
+  if (!req || req.payerUserId !== payerUserId) return { ok: false, error: 'not_found' };
+  if (req.status !== 'PENDING') return { ok: false, error: 'not_payable' };
+  await db.update(schema.requests).set({ status: 'DECLINED', cancelledAt: new Date() }).where(eq(schema.requests.id, requestId));
   return { ok: true };
 }

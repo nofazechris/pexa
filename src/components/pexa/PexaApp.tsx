@@ -59,6 +59,9 @@ export interface PexaAppProps {
   executeSend: AgentChatDeps['executeSend'];
   /** Pay a received request through the engine, then mark it settled. */
   payRequest: (args: { requestId: string; recipient: string; amount: string }) => Promise<{ ok: boolean; error?: string }>;
+  /** Cancel a request you sent; decline a request sent to you. */
+  cancelRequest: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  declineRequest: (id: string) => Promise<{ ok: boolean; error?: string }>;
   setRecurringPaused: (id: string, paused: boolean) => Promise<{ ok: boolean; error?: string }>;
   cancelRecurring: (id: string) => Promise<{ ok: boolean; error?: string }>;
   /** Authorized token getter, for the Wallet screen's own reads (USDT balance, linked banks). */
@@ -191,6 +194,8 @@ export function PexaApp(props: PexaAppProps) {
                 requests={props.requests}
                 recurring={props.recurring}
                 payRequest={props.payRequest}
+                cancelRequest={props.cancelRequest}
+                declineRequest={props.declineRequest}
                 setRecurringPaused={props.setRecurringPaused}
                 cancelRecurring={props.cancelRecurring}
                 onGoChat={() => setPage('chat')}
@@ -931,6 +936,8 @@ function PaymentsPage({
   requests,
   recurring,
   payRequest,
+  cancelRequest,
+  declineRequest,
   setRecurringPaused,
   cancelRecurring,
   onGoChat,
@@ -938,6 +945,8 @@ function PaymentsPage({
   requests: RequestItem[];
   recurring: RecurringItem[];
   payRequest: PexaAppProps['payRequest'];
+  cancelRequest: PexaAppProps['cancelRequest'];
+  declineRequest: PexaAppProps['declineRequest'];
   setRecurringPaused: PexaAppProps['setRecurringPaused'];
   cancelRecurring: PexaAppProps['cancelRecurring'];
   onGoChat: () => void;
@@ -981,16 +990,25 @@ function PaymentsPage({
                   <div style={{ fontSize: '14.5px', fontWeight: 500 }}>{r.counterparty}</div>
                   <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '2px' }}>{r.memo || 'No note'}</div>
                 </div>
-                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '9px' }}>
                   <div style={{ fontSize: '14.5px', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>${money(Number(r.amount))}</div>
                   {r.payable ? (
-                    <button
-                      onClick={() => withBusy(r.id, () => payRequest({ requestId: r.id, recipient: r.counterparty, amount: r.amount }))}
-                      disabled={busy[r.id]}
-                      style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '13.5px', fontWeight: 500, padding: '8px 15px', borderRadius: '9px', cursor: busy[r.id] ? 'default' : 'pointer', opacity: busy[r.id] ? 0.6 : 1 }}
-                    >
-                      {busy[r.id] ? 'Paying…' : 'Pay'}
-                    </button>
+                    <>
+                      <button
+                        onClick={() => withBusy(r.id, () => declineRequest(r.id))}
+                        disabled={busy[r.id]}
+                        style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '13.5px', fontWeight: 500, padding: '8px 13px', borderRadius: '9px', cursor: busy[r.id] ? 'default' : 'pointer', opacity: busy[r.id] ? 0.6 : 1 }}
+                      >
+                        Decline
+                      </button>
+                      <button
+                        onClick={() => withBusy(r.id, () => payRequest({ requestId: r.id, recipient: r.counterparty, amount: r.amount }))}
+                        disabled={busy[r.id]}
+                        style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '13.5px', fontWeight: 500, padding: '8px 15px', borderRadius: '9px', cursor: busy[r.id] ? 'default' : 'pointer', opacity: busy[r.id] ? 0.6 : 1 }}
+                      >
+                        {busy[r.id] ? 'Paying…' : 'Pay'}
+                      </button>
+                    </>
                   ) : (
                     <StatusPill label={r.status} />
                   )}
@@ -1012,9 +1030,19 @@ function PaymentsPage({
                   <div style={{ fontSize: '14.5px', fontWeight: 500 }}>{r.counterparty}</div>
                   <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '2px' }}>{r.memo || 'No note'}</div>
                 </div>
-                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '9px' }}>
                   <div style={{ fontSize: '14.5px', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>${money(Number(r.amount))}</div>
-                  <StatusPill label={r.status} />
+                  {r.status === 'PENDING' ? (
+                    <button
+                      onClick={() => withBusy(r.id, () => cancelRequest(r.id))}
+                      disabled={busy[r.id]}
+                      style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '13.5px', fontWeight: 500, padding: '8px 13px', borderRadius: '9px', cursor: busy[r.id] ? 'default' : 'pointer', opacity: busy[r.id] ? 0.6 : 1 }}
+                    >
+                      {busy[r.id] ? 'Cancelling…' : 'Cancel'}
+                    </button>
+                  ) : (
+                    <StatusPill label={r.status} />
+                  )}
                 </div>
               </Row>
             ))}

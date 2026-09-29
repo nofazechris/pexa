@@ -32,7 +32,7 @@ export default function AppGate() {
   const { balance, refresh: refreshBalance } = useBalance(walletAddress ?? wallet?.address ?? null);
   const { pay } = usePayment();
   const { items: activity, refresh: refreshActivity } = useActivity();
-  const { items: requests, markPaid: markRequestPaid, refresh: refreshRequests } = useRequests();
+  const { items: requests, markPaid: markRequestPaid, refresh: refreshRequests, cancel: cancelRequest, decline: declineRequest } = useRequests();
   const { items: recurring, setPaused: setRecurringPaused, cancel: cancelRecurring, refresh: refreshRecurring } = useRecurring();
   const router = useRouter();
 
@@ -208,6 +208,8 @@ export default function AppGate() {
       executeAction={hooks.executeAction}
       executeSend={hooks.executeSend}
       payRequest={hooks.payRequest}
+      cancelRequest={cancelRequest}
+      declineRequest={declineRequest}
       setRecurringPaused={hooks.setRecurringPaused}
       cancelRecurring={hooks.cancelRecurring}
       getAccessToken={getAccessToken}

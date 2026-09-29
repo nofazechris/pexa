@@ -1,9 +1,10 @@
 'use client';
 
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { PrivyProvider, usePrivy, useCreateWallet } from '@privy-io/react-auth';
 import { celo, celoSepolia } from 'viem/chains';
 import { color } from '@/lib/design/tokens';
+import { pickCanonicalWallet, type LinkedAccountLike } from '@/lib/wallets/select';
 
 /**
  * Authentication provider (§8).
@@ -70,35 +71,103 @@ export function useAuth(): AuthState {
   return useContext(AuthContext);
 }
 
+// --- Embedded-wallet provisioning -------------------------------------------------------------
+//
+// One user = one wallet. Privy already creates it at login (`createOnLogin: 'users-without-wallets'`
+// below), so this app must NEVER create one eagerly: doing so raced Privy's own create and minted
+// duplicate wallets (up to 4 per user). `ensureWallet` therefore only WAITS for Privy's wallet, and
+// creates one itself as a last resort — at most once, throttled, and de-duplicated across callers.
+
+/** How long to wait for Privy's own auto-create before considering a manual fallback. */
+const WALLET_WAIT_MS = 12_000;
+/** A manual fallback create is attempted at most once per user per this window (per browser). */
+const WALLET_CREATE_THROTTLE_MS = 10 * 60 * 1000;
+/** In-flight `ensureWallet` per Privy DID, so concurrent callers share one attempt. */
+const ensureInflight = new Map<string, Promise<string | null>>();
+/** DIDs we've already fired a fallback create for in this page session (even if storage is blocked). */
+const fallbackCreated = new Set<string>();
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 /** Bridges Privy's hook into our stable AuthState shape. Only rendered inside PrivyProvider. */
 function PrivyBridge({ children }: { children: ReactNode }) {
   const privy = usePrivy();
   const { createWallet } = useCreateWallet();
-  const value = useMemo<AuthState>(() => {
-    const account = privy.user?.email?.address ?? undefined;
-    const walletAddress = privy.user?.wallet?.address ?? null;
-    return {
+
+  // Always-current Privy handles for the stable callbacks below. Kept in refs so the context value
+  // (and `ensureWallet`) do NOT change identity on every Privy re-render — that churn is what used
+  // to re-trigger wallet creation.
+  const privyRef = useRef(privy);
+  const createWalletRef = useRef(createWallet);
+  useEffect(() => {
+    privyRef.current = privy;
+    createWalletRef.current = createWallet;
+  });
+
+  const userId = privy.user?.id ?? null;
+  const email = privy.user?.email?.address ?? undefined;
+  // The canonical wallet: the oldest embedded one — the same rule the server uses (wallets/select).
+  const walletAddress =
+    pickCanonicalWallet(privy.user?.linkedAccounts as unknown as LinkedAccountLike[] | undefined)?.address ?? null;
+
+  const ensureWallet = useCallback(async (): Promise<string | null> => {
+    const current = () =>
+      pickCanonicalWallet(privyRef.current.user?.linkedAccounts as unknown as LinkedAccountLike[] | undefined)?.address ?? null;
+    const have = current();
+    if (have) return have;
+    const did = privyRef.current.user?.id;
+    if (!did) return null;
+
+    const pending = ensureInflight.get(did);
+    if (pending) return pending;
+
+    const attempt = (async (): Promise<string | null> => {
+      // 1) Give Privy's own create-on-login time to finish. Almost always this is all that's needed.
+      const deadline = Date.now() + WALLET_WAIT_MS;
+      while (Date.now() < deadline) {
+        await sleep(500);
+        const a = current();
+        if (a) return a;
+      }
+
+      // 2) Last resort — Privy never produced one. Create exactly one, and never repeatedly.
+      if (fallbackCreated.has(did)) return current();
+      const key = `pexa:wallet-create:${did}`;
+      try {
+        const last = Number(localStorage.getItem(key) ?? 0);
+        if (Date.now() - last < WALLET_CREATE_THROTTLE_MS) return current();
+        localStorage.setItem(key, String(Date.now()));
+      } catch {
+        /* storage unavailable: the in-memory guards above still hold for this page session */
+      }
+      fallbackCreated.add(did);
+      try {
+        const w = await createWalletRef.current();
+        return w?.address ?? current();
+      } catch (e) {
+        // "Already has a wallet" is the expected case here — read it back rather than retry.
+        console.error('[wallet] fallback createWallet failed:', e);
+        return current();
+      }
+    })().finally(() => ensureInflight.delete(did));
+
+    ensureInflight.set(did, attempt);
+    return attempt;
+  }, []);
+
+  const value = useMemo<AuthState>(
+    () => ({
       configured: true,
       ready: privy.ready,
       authenticated: privy.authenticated,
-      user: privy.user ? { id: privy.user.id, email: account } : null,
-      login: () => privy.login(),
-      logout: () => privy.logout(),
-      getAccessToken: () => privy.getAccessToken(),
+      user: userId ? { id: userId, email } : null,
+      login: () => privyRef.current.login(),
+      logout: () => privyRef.current.logout(),
+      getAccessToken: () => privyRef.current.getAccessToken(),
       walletAddress,
-      ensureWallet: async () => {
-        if (walletAddress) return walletAddress;
-        try {
-          const w = await createWallet();
-          return w?.address ?? null;
-        } catch (e) {
-          // Most commonly "already has a wallet" — read it back from the user object.
-          console.error('[wallet] createWallet failed:', e);
-          return privy.user?.wallet?.address ?? null;
-        }
-      },
-    };
-  }, [privy, createWallet]);
+      ensureWallet,
+    }),
+    [privy.ready, privy.authenticated, userId, email, walletAddress, ensureWallet],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

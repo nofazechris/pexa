@@ -2,6 +2,7 @@ import 'server-only';
 import { PrivyClient } from '@privy-io/server-auth';
 import { cookies } from 'next/headers';
 import { env } from '@/lib/config';
+import { findWalletByAddress, pickCanonicalWallet, type LinkedAccountLike } from '@/lib/wallets/select';
 
 /**
  * Server-side authentication (§46, §79).
@@ -33,19 +34,28 @@ function getClient(): PrivyClient | null {
   return client;
 }
 
-/** The user's Privy embedded EVM wallet address, or null if none is provisioned yet. */
+/**
+ * The user's Privy embedded EVM wallet, or null if there isn't one.
+ *
+ * A user can (historically) hold several embedded wallets, so "the wallet" must be chosen
+ * deterministically. By default that's the canonical one (the oldest — see wallets/select.ts). When
+ * `address` is given, ONLY that exact wallet is returned (null if the user doesn't own it): callers
+ * that sign or move money pass the address our database has pinned for the user, so the wallet that
+ * signs is always the wallet policy checked — never merely "whichever Privy lists first".
+ */
 export async function getPrivyEmbeddedWallet(
   privyDid: string,
+  opts?: { address?: string },
 ): Promise<{ address: string; walletId: string | null; delegated: boolean } | null> {
   const privy = getClient();
   if (!privy) return null;
   const user = await privy.getUser(privyDid);
-  const wallet = user.linkedAccounts.find(
-    (a) => a.type === 'wallet' && a.walletClientType === 'privy' && a.chainType === 'ethereum',
-  );
-  if (!wallet || !('address' in wallet) || typeof wallet.address !== 'string') return null;
-  const walletId = 'id' in wallet && typeof wallet.id === 'string' ? wallet.id : null;
-  const delegated = 'delegated' in wallet && wallet.delegated === true;
+  const accounts = user.linkedAccounts as unknown as LinkedAccountLike[];
+  const wallet = opts?.address ? findWalletByAddress(accounts, opts.address) : pickCanonicalWallet(accounts);
+  if (!wallet || typeof wallet.address !== 'string') return null;
+  const w = wallet as LinkedAccountLike & { id?: unknown; delegated?: unknown };
+  const walletId = typeof w.id === 'string' ? w.id : null;
+  const delegated = w.delegated === true;
   return { address: wallet.address, walletId, delegated };
 }
 

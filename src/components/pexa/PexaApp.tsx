@@ -1189,7 +1189,7 @@ function SettingsPage({ username, address, onSignOut }: { username?: string; add
         {/* Delegated (agent) payments */}
         <section>
           <SectionHead title="Automation" subtitle="Let a connected agent settle a payment right after you confirm it — within your limits." />
-          <AgentPayments />
+          <AgentPayments address={address} />
         </section>
 
         {/* Privacy */}

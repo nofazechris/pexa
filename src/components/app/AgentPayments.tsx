@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { usePrivy, useDelegatedActions } from '@privy-io/react-auth';
 import { color } from '@/lib/design/tokens';
+import { findWalletByAddress, pickCanonicalWallet, type LinkedAccountLike } from '@/lib/wallets/select';
 
 /**
  * "Agent payments" consent on the Connected screen. Delegating the embedded wallet lets an agent
@@ -10,17 +11,18 @@ import { color } from '@/lib/design/tokens';
  * Keys stay in Privy's TEE; every delegated payment still passes policy (per-payment + daily
  * caps), single-use authorization and idempotency. Off by default; one tap to enable/disable.
  */
-export function AgentPayments() {
+export function AgentPayments({ address: pinnedAddress }: { address?: string }) {
   const { user } = usePrivy();
   const { delegateWallet, revokeWallets } = useDelegatedActions();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const wallet = user?.linkedAccounts?.find(
-    (a) => a.type === 'wallet' && a.walletClientType === 'privy' && a.chainType === 'ethereum',
-  ) as { address?: string; delegated?: boolean } | undefined;
+  // Delegate the wallet Pexa has pinned for this account (so server-side signing and the wallet the
+  // user sees are the same one). Fall back to the canonical (oldest) embedded wallet.
+  const accounts = user?.linkedAccounts as unknown as LinkedAccountLike[] | undefined;
+  const wallet = (pinnedAddress ? findWalletByAddress(accounts, pinnedAddress) : null) ?? pickCanonicalWallet(accounts);
   const address = wallet?.address;
-  const delegated = wallet?.delegated === true;
+  const delegated = (wallet as { delegated?: boolean } | null)?.delegated === true;
 
   if (!address) {
     // No embedded wallet yet — say so instead of rendering nothing (which looks broken).

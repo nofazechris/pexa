@@ -6,6 +6,7 @@ import { activeNetwork, env, features, getToken, txExplorerUrl } from '@/lib/con
 import { normalizeUsername } from '@/lib/users/username';
 import { resolveUsername, getUserById } from '@/lib/users/service';
 import { getPrivyEmbeddedWallet, sendDelegatedTransaction, signDelegatedTypedData } from '@/lib/auth/server';
+import { getWalletByUserId } from '@/lib/wallets/service';
 import { buildUsdcTransfer, type PreparedUsdcTransfer } from '@/lib/celo/transaction';
 import { buildTransferAuthorization, relayTransfer } from '@/lib/relayer/service';
 import { celoClient } from '@/lib/celo/client';
@@ -230,8 +231,14 @@ export async function executeAuthorizedPayment(input: {
 
   const appUser = await getUserById(input.userId);
   if (!appUser) return { ok: false, code: 'error', error: 'User not found.' };
-  const wallet = await getPrivyEmbeddedWallet(appUser.privyDid);
-  if (!wallet || !wallet.walletId) return { ok: false, code: 'error', error: 'No embedded wallet to sign with.' };
+  // Sign with EXACTLY the wallet our database has pinned for this user — the one policy checked the
+  // balance and limits against — never "whichever wallet Privy lists first". A user can hold extra
+  // (duplicate) embedded wallets; if the pinned one can't be found among them we refuse to sign
+  // rather than fall back to a different wallet.
+  const pinned = await getWalletByUserId(input.userId);
+  if (!pinned) return { ok: false, code: 'error', error: 'No wallet is recorded for this account yet.' };
+  const wallet = await getPrivyEmbeddedWallet(appUser.privyDid, { address: pinned.address });
+  if (!wallet || !wallet.walletId) return { ok: false, code: 'error', error: 'Your account wallet could not be verified for signing.' };
   if (!wallet.delegated) return { ok: false, code: 'not_delegated', error: 'Wallet is not delegated for server signing.' };
 
   let hash: string;

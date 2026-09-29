@@ -32,37 +32,38 @@ export async function getWalletByUserId(userId: string): Promise<StoredWallet | 
 }
 
 /**
- * Ensure the user's Privy embedded wallet is recorded for the active network, returning it.
- * Returns null if Privy hasn't provisioned one yet (the client creates it on login; there can
- * be a brief lag before the server sees it).
+ * Ensure the user has exactly one recorded wallet for the active network, returning it.
+ *
+ * **A stored wallet is permanent.** Once a (user, chain) row exists it is returned as-is and never
+ * overwritten by whatever Privy happens to list — a stray duplicate wallet must not be able to
+ * silently re-point someone's account at a different (empty) address. Only when NOTHING is stored
+ * do we record Privy's canonical wallet (the oldest — see wallets/select.ts). Returns null if
+ * Privy hasn't provisioned one yet (there can be a brief lag after login).
  */
 export async function syncWallet(userId: string, privyDid: string): Promise<StoredWallet | null> {
   const existing = await getWalletByUserId(userId);
-  const fromPrivy = await getPrivyEmbeddedWallet(privyDid);
+  if (existing) return existing;
 
-  if (!fromPrivy) return existing; // nothing to sync yet
-  if (existing && existing.address.toLowerCase() === fromPrivy.address.toLowerCase()) {
-    return existing;
-  }
+  const fromPrivy = await getPrivyEmbeddedWallet(privyDid);
+  if (!fromPrivy) return null; // nothing to record yet
 
   const db = getDb();
   const chainId = activeNetwork.chainId;
+  // DoNothing on conflict: if a concurrent request already recorded a wallet, that one stands.
   await db
     .insert(schema.wallets)
     .values({ userId, chainId, address: fromPrivy.address, providerWalletId: fromPrivy.walletId, provider: 'privy' })
-    .onConflictDoUpdate({
-      target: [schema.wallets.userId, schema.wallets.chainId],
-      set: { address: fromPrivy.address, providerWalletId: fromPrivy.walletId, updatedAt: new Date() },
-    });
+    .onConflictDoNothing({ target: [schema.wallets.userId, schema.wallets.chainId] });
 
-  return { address: fromPrivy.address, chainId, providerWalletId: fromPrivy.walletId };
+  // Re-read so a concurrent winner is what we report (never our losing candidate).
+  return getWalletByUserId(userId);
 }
 
 /**
- * Persist an address for the active network. Prefers Privy's authoritative record; if Privy
- * hasn't caught up yet (the client just created the wallet), falls back to the client-supplied
- * address, which is the authenticated user's own public wallet address. Idempotent on
- * (user, chain).
+ * Persist the caller's wallet for the active network. Same permanence rule as {@link syncWallet}:
+ * an already-stored wallet is returned untouched. If nothing is stored and Privy hasn't caught up
+ * yet (the client just got its wallet), falls back to the client-supplied address — the
+ * authenticated user's own public address. Never overwrites.
  */
 export async function persistWallet(userId: string, privyDid: string, clientAddress?: string): Promise<StoredWallet | null> {
   const synced = await syncWallet(userId, privyDid);
@@ -74,9 +75,6 @@ export async function persistWallet(userId: string, privyDid: string, clientAddr
   await db
     .insert(schema.wallets)
     .values({ userId, chainId, address: clientAddress, provider: 'privy' })
-    .onConflictDoUpdate({
-      target: [schema.wallets.userId, schema.wallets.chainId],
-      set: { address: clientAddress, updatedAt: new Date() },
-    });
-  return { address: clientAddress, chainId, providerWalletId: null };
+    .onConflictDoNothing({ target: [schema.wallets.userId, schema.wallets.chainId] });
+  return getWalletByUserId(userId);
 }

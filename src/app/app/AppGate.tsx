@@ -29,7 +29,10 @@ export default function AppGate() {
   const { configured, ready, authenticated, logout, getAccessToken } = useAuth();
   const { loading: profileLoading, profile, wallet, unavailable, error: profileError, refresh: refreshProfile } = useProfile();
   const { address: walletAddress } = useWallet();
-  const { balance, refresh: refreshBalance } = useBalance(walletAddress ?? wallet?.address ?? null);
+  // The wallet our database has pinned for this user is authoritative; the browser's own view of
+  // it (walletAddress) is only a fallback until the server answers.
+  const canonicalAddress = wallet?.address ?? walletAddress ?? null;
+  const { balance, refresh: refreshBalance } = useBalance(canonicalAddress);
   const { pay } = usePayment();
   const { items: activity, refresh: refreshActivity } = useActivity();
   const { items: requests, markPaid: markRequestPaid, refresh: refreshRequests, cancel: cancelRequest, decline: declineRequest } = useRequests();
@@ -202,7 +205,7 @@ export default function AppGate() {
   return (
     <PexaApp
       username={profile?.username}
-      address={walletAddress ?? wallet?.address}
+      address={canonicalAddress ?? undefined}
       balance={balance ?? '0'}
       activity={activity}
       requests={requests}

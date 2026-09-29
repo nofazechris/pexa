@@ -1,7 +1,7 @@
 import 'server-only';
 import { eq } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db';
-import { normalizeUsername, validateUsername, type UsernameError } from './username';
+import { normalizeUsername, validateUsername, generateUsernameCandidates, type UsernameError } from './username';
 
 /**
  * User + profile service (§9, §23, §35).
@@ -74,6 +74,17 @@ export async function isUsernameTaken(username: string): Promise<boolean> {
   const name = normalizeUsername(username);
   const rows = await db.select({ userId: schema.profiles.userId }).from(schema.profiles).where(eq(schema.profiles.username, name)).limit(1);
   return rows.length > 0;
+}
+
+/** Suggest available usernames close to a base someone wanted but couldn't have (taken/reserved). */
+export async function suggestUsernames(rawBase: string, count = 3): Promise<string[]> {
+  const candidates = generateUsernameCandidates(rawBase, count * 4);
+  const out: string[] = [];
+  for (const candidate of candidates) {
+    if (out.length >= count) break;
+    if (!(await isUsernameTaken(candidate))) out.push(candidate);
+  }
+  return out;
 }
 
 export type CreateProfileResult =

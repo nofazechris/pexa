@@ -7,6 +7,7 @@ import { color } from '@/lib/design/tokens';
 import { statusColor } from '@/lib/format';
 import { ServiceConnect } from '@/components/app/ServiceConnect';
 import { AgentPayments } from '@/components/app/AgentPayments';
+import { Modal } from '@/components/ui';
 import type { ActivityItem } from '@/components/auth/useActivity';
 import type { RequestItem } from '@/components/auth/useRequests';
 import type { RecurringItem } from '@/components/auth/useRecurring';
@@ -953,12 +954,21 @@ function PaymentsPage({
 }) {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
+  // Paying a request is a real money move, so it gets the same "are you sure" confirmation as a
+  // chat-initiated send — never fire on the first tap of "Pay".
+  const [confirming, setConfirming] = useState<RequestItem | null>(null);
   const withBusy = async (id: string, fn: () => Promise<{ ok: boolean; error?: string }>) => {
     setBusy((b) => ({ ...b, [id]: true }));
     setError(null);
     const r = await fn();
     if (!r.ok) setError(r.error ?? 'Something went wrong.');
     setBusy((b) => ({ ...b, [id]: false }));
+  };
+  const confirmPay = async () => {
+    if (!confirming) return;
+    const r = confirming;
+    setConfirming(null);
+    await withBusy(r.id, () => payRequest({ requestId: r.id, recipient: r.counterparty, amount: r.amount }));
   };
 
   const incoming = requests.filter((r) => r.direction === 'incoming');
@@ -1002,7 +1012,7 @@ function PaymentsPage({
                         Decline
                       </button>
                       <button
-                        onClick={() => withBusy(r.id, () => payRequest({ requestId: r.id, recipient: r.counterparty, amount: r.amount }))}
+                        onClick={() => setConfirming(r)}
                         disabled={busy[r.id]}
                         style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '13.5px', fontWeight: 500, padding: '8px 15px', borderRadius: '9px', cursor: busy[r.id] ? 'default' : 'pointer', opacity: busy[r.id] ? 0.6 : 1 }}
                       >
@@ -1087,6 +1097,36 @@ function PaymentsPage({
           </div>
         </section>
       </div>
+
+      <Modal open={confirming !== null} onClose={() => setConfirming(null)} title="Send money?" maxWidth={380}>
+        {confirming ? (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px' }}>
+              <Avatar name={confirming.counterparty} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: '14.5px', color: color.muted }}>
+                  Are you sure you want to send <strong style={{ color: color.ink }}>${money(Number(confirming.amount))}</strong> to
+                </div>
+                <div style={{ fontSize: '16px', fontWeight: 600, letterSpacing: '-.016em', marginTop: '2px' }}>{confirming.counterparty}?</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={() => setConfirming(null)}
+                style={{ flex: 1, border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '14.5px', fontWeight: 500, padding: '12px 16px', borderRadius: '11px', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmPay}
+                style={{ flex: 1, border: 'none', background: color.primary, color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: '12px 16px', borderRadius: '11px', cursor: 'pointer' }}
+              >
+                Yes, send it
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }

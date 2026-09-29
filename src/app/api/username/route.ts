@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { withUser, errorResponse, jsonError } from '@/lib/http';
-import { getOrCreateUser, createProfile } from '@/lib/users/service';
+import { getOrCreateUser, createProfile, suggestUsernames } from '@/lib/users/service';
 import { usernameErrorMessage } from '@/lib/users/username';
 
 /**
@@ -30,7 +30,8 @@ export async function POST(req: Request) {
           : result.error === 'already_has_profile'
             ? 'You already have a username.'
             : usernameErrorMessage(result.error);
-      return jsonError(409, result.error, { message });
+      const suggestions = result.error === 'taken' || result.error === 'reserved' ? await suggestUsernames(username).catch(() => []) : undefined;
+      return jsonError(409, result.error, { message, ...(suggestions ? { suggestions } : {}) });
     }
     return NextResponse.json({ profile: { username: result.profile.username } }, { status: 201 });
   } catch (e) {

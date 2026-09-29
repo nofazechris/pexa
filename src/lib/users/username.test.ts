@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeUsername, validateUsername, isValidUsername, USERNAME_MAX } from './username';
+import { normalizeUsername, validateUsername, isValidUsername, generateUsernameCandidates, USERNAME_MAX } from './username';
 
 describe('username normalization', () => {
   it('strips a leading @, trims and lowercases', () => {
@@ -40,5 +40,27 @@ describe('username validation', () => {
     // "user" is reserved, but "user_2026" is a distinct, allowed name.
     expect(isValidUsername('user_2026')).toBe(true);
     expect(validateUsername('user')).toBe('reserved');
+  });
+});
+
+describe('generateUsernameCandidates', () => {
+  it('derives valid, distinct suffixed candidates from a taken base', () => {
+    const candidates = generateUsernameCandidates('chris', 3);
+    expect(candidates.length).toBe(3);
+    expect(new Set(candidates).size).toBe(candidates.length);
+    for (const c of candidates) {
+      expect(c.startsWith('chris')).toBe(true);
+      expect(isValidUsername(c)).toBe(true);
+    }
+  });
+
+  it('sanitizes an unusable base (reserved word, or invalid chars) into a valid stem', () => {
+    for (const c of generateUsernameCandidates('admin', 2)) expect(isValidUsername(c)).toBe(true);
+    for (const c of generateUsernameCandidates('sarah okafor!', 2)) expect(isValidUsername(c)).toBe(true);
+  });
+
+  it('never exceeds the max length even for a long base', () => {
+    const candidates = generateUsernameCandidates('a'.repeat(USERNAME_MAX), 5);
+    for (const c of candidates) expect(c.length).toBeLessThanOrEqual(USERNAME_MAX);
   });
 });

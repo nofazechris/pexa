@@ -48,6 +48,32 @@ export function isValidUsername(input: string): boolean {
   return validateUsername(input) === null;
 }
 
+/** Trim/pad a candidate base down to a stem that leaves room for a suffix within the length bounds. */
+function usernameStem(rawBase: string): string {
+  const stripped = normalizeUsername(rawBase).replace(/[^a-z0-9_]/g, '');
+  return (stripped || 'user').slice(0, USERNAME_MAX - 4);
+}
+
+/**
+ * Candidate usernames derived from a base the caller wanted but couldn't have (taken or
+ * reserved) — e.g. "chris" → "chris1", "chris_x". Callers check these against the database for
+ * availability; this is pure and doesn't guarantee any candidate is actually free.
+ */
+export function generateUsernameCandidates(rawBase: string, count = 5): string[] {
+  const stem = usernameStem(rawBase);
+  const suffixes = ['1', '2', '_1', '01', '99', '23', '007', '_x', '2025', '_pexa'];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const suffix of suffixes) {
+    if (out.length >= count) break;
+    const candidate = `${stem}${suffix}`;
+    if (seen.has(candidate) || !isValidUsername(candidate)) continue;
+    seen.add(candidate);
+    out.push(candidate);
+  }
+  return out;
+}
+
 /** Human-readable message for a validation error, for API responses and the UI. */
 export function usernameErrorMessage(error: UsernameError): string {
   switch (error) {

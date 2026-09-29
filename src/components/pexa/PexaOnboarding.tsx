@@ -26,6 +26,7 @@ export function PexaOnboarding() {
   const [step, setStep] = useState<Step>('username');
   const [handle, setHandle] = useState('');
   const [avail, setAvail] = useState<{ ok: boolean; message: string } | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [setupIdx, setSetupIdx] = useState(0);
   const submitting = useRef(false);
 
@@ -42,8 +43,11 @@ export function PexaOnboarding() {
           headers: token ? { authorization: `Bearer ${token}` } : {},
           cache: 'no-store',
         });
-        const data = (await res.json()) as { available: boolean; message: string };
-        if (active) setAvail({ ok: data.available, message: data.message });
+        const data = (await res.json()) as { available: boolean; message: string; suggestions?: string[] };
+        if (active) {
+          setAvail({ ok: data.available, message: data.message });
+          setSuggestions(data.available ? [] : (data.suggestions ?? []));
+        }
       } catch {
         /* leave unchecked */
       }
@@ -70,8 +74,12 @@ export function PexaOnboarding() {
         setStep('creating');
         return;
       }
-      const data = (await res.json().catch(() => ({}))) as { message?: string };
+      const data = (await res.json().catch(() => ({}))) as { message?: string; suggestions?: string[] };
       toast.show(data.message ?? 'Couldn’t claim that username. Try another.', { tone: 'danger', duration: 4000 });
+      if (data.suggestions?.length) {
+        setAvail({ ok: false, message: data.message ?? 'That username is taken.' });
+        setSuggestions(data.suggestions);
+      }
     } catch {
       toast.show('Something went wrong. Please try again.', { tone: 'danger' });
     } finally {
@@ -90,6 +98,12 @@ export function PexaOnboarding() {
     };
   }, [step]);
 
+  const pickSuggestion = useCallback((s: string) => {
+    setAvail(null);
+    setSuggestions([]);
+    setHandle(s);
+  }, []);
+
   const handleDisplay = handle.trim() ? '@' + handle.trim().toLowerCase() : '@you';
   const validLen = handle.trim().length >= 3;
   const canContinue = validLen && (!avail || avail.ok);
@@ -106,7 +120,7 @@ export function PexaOnboarding() {
               <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '16px', color: color.faint }}>@</span>
               <input
                 value={handle}
-                onChange={(e) => { setAvail(null); setHandle(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 20)); }}
+                onChange={(e) => { setAvail(null); setSuggestions([]); setHandle(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 20)); }}
                 onKeyDown={(e) => e.key === 'Enter' && canContinue && claim()}
                 placeholder="chris"
                 autoFocus
@@ -118,6 +132,20 @@ export function PexaOnboarding() {
                 </span>
               ) : null}
             </div>
+            {avail && !avail.ok && suggestions.length > 0 ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '11px', animation: 'pp-pop .28s cubic-bezier(.2,.8,.3,1) both' }}>
+                <span style={{ fontSize: '12.5px', color: color.faint, alignSelf: 'center' }}>Try:</span>
+                {suggestions.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => pickSuggestion(s)}
+                    style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '13px', fontWeight: 500, padding: '6px 11px', borderRadius: '999px', cursor: 'pointer' }}
+                  >
+                    @{s}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <button onClick={claim} disabled={!canContinue} style={{ width: '100%', marginTop: '14px', border: 'none', background: color.primary, color: '#fff', fontSize: '15px', fontWeight: 500, padding: '14px', borderRadius: '11px', cursor: canContinue ? 'pointer' : 'default', opacity: canContinue ? 1 : 0.5 }}>Continue</button>
             <div style={{ fontSize: '12.5px', color: color.faint, marginTop: '16px', lineHeight: 1.6 }}>Your Celo payment wallet is created automatically — nothing to install or connect.</div>
           </div>

@@ -229,10 +229,12 @@ function ChatScreen({ chat, getAccessToken, balance }: { chat: ReturnType<typeof
   }, [chat.messages.length, chat.agentState]);
 
   // "Add money" is only useful when there's nothing to spend yet — surface it only for an empty wallet.
+  // Keep the prompts generic (no specific @username): a new user doesn't know anyone yet, and the
+  // agent will ask who/how much when it needs to.
   const walletEmpty = !balance || Number(balance) === 0;
   const suggestions = walletEmpty
-    ? ['Add money to my wallet', "What's my balance?", 'Send $10 to @chris', 'Save $10 of every payment I get']
-    : ['Send $10 to @chris', 'Request $20 from @chris', "What's my balance?", 'Save $10 of every payment I get'];
+    ? ['Add money to my wallet', "What's my balance?", 'Send a payment', 'Save part of every payment I get']
+    : ['Send a payment', 'Request a payment', "What's my balance?", 'Save part of every payment I get'];
   const empty = chat.messages.length === 0;
 
   return (

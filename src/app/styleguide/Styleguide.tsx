@@ -50,7 +50,7 @@ function Interactive() {
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '48px 24px', display: 'grid', gap: '44px' }}>
       <header style={{ display: 'grid', gap: '8px' }}>
         <Text variant="metadata" tone="primary">
-          PrivyPay · Design system
+          Pexa · Design system
         </Text>
         <Text variant="section" as="h1">
           Component reference

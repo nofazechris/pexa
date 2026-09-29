@@ -32,8 +32,8 @@ export default function AppGate() {
   const { balance, refresh: refreshBalance } = useBalance(walletAddress ?? wallet?.address ?? null);
   const { pay } = usePayment();
   const { items: activity, refresh: refreshActivity } = useActivity();
-  const { items: requests, markPaid: markRequestPaid } = useRequests();
-  const { items: recurring, setPaused: setRecurringPaused, cancel: cancelRecurring } = useRecurring();
+  const { items: requests, markPaid: markRequestPaid, refresh: refreshRequests } = useRequests();
+  const { items: recurring, setPaused: setRecurringPaused, cancel: cancelRecurring, refresh: refreshRecurring } = useRecurring();
   const router = useRouter();
 
   // The real hooks the agent + screens drive. The chat itself is now a server-side tool-calling
@@ -86,6 +86,12 @@ export default function AppGate() {
             return { ok: false as const, reason };
           }
           const data = (await res.json()) as { reply: string; action?: PendingActionView };
+          // The agent may have created a request, set up a recurring payment, or moved money in this
+          // turn — reflect it right away so the user never has to reload to see it.
+          refreshRequests();
+          refreshRecurring();
+          refreshActivity();
+          refreshBalance();
           return { ok: true as const, reply: data.reply, action: data.action };
         } catch {
           // Network error / offline / request never reached the server.
@@ -113,7 +119,7 @@ export default function AppGate() {
         }
       },
     }),
-    [pay, refreshBalance, refreshActivity, markRequestPaid, setRecurringPaused, cancelRecurring, getAccessToken],
+    [pay, refreshBalance, refreshActivity, refreshRequests, refreshRecurring, markRequestPaid, setRecurringPaused, cancelRecurring, getAccessToken],
   );
 
   useEffect(() => {
@@ -121,6 +127,31 @@ export default function AppGate() {
       router.replace('/');
     }
   }, [ready, configured, authenticated, router]);
+
+  // Live updates without a manual reload: refresh the app's data on an interval and whenever the
+  // tab regains focus, so an incoming request, a new recurring payment, a received payment, and the
+  // balance all appear on their own.
+  useEffect(() => {
+    if (!ready || !authenticated) return;
+    const refreshAll = () => {
+      refreshBalance();
+      refreshActivity();
+      refreshRequests();
+      refreshRecurring();
+    };
+    const id = setInterval(refreshAll, 15000);
+    const onFocus = () => refreshAll();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshAll();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [ready, authenticated, refreshBalance, refreshActivity, refreshRequests, refreshRecurring]);
 
   // Signed-in but no username yet → onboarding. Only when we KNOW there's no profile (a successful
   // load): never on a transient error (would skip username setup) and never when the DB is simply

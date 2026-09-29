@@ -160,7 +160,7 @@ function ConnectModal({
   return (
     <Modal open onClose={onClose} title={`Connect ${svc.name}`} maxWidth={480}>
       <p style={{ margin: '0 0 16px', fontSize: '13.5px', color: color.muted, lineHeight: 1.6 }}>
-        Three quick steps — PrivyPay detects the connection automatically once {svc.name} uses your key.
+        Three quick steps — Pexa detects the connection automatically once {svc.name} uses your key.
       </p>
 
       <div style={{ display: 'grid', gap: '12px' }}>

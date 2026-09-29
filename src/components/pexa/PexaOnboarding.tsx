@@ -26,6 +26,9 @@ export function PexaOnboarding() {
   const [step, setStep] = useState<Step>('username');
   const [handle, setHandle] = useState('');
   const [avail, setAvail] = useState<{ ok: boolean; message: string } | null>(null);
+  /** The live availability check itself failed (network/server) — distinct from "name is taken". */
+  const [checkFailed, setCheckFailed] = useState(false);
+  const [claiming, setClaiming] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [setupIdx, setSetupIdx] = useState(0);
   const submitting = useRef(false);
@@ -43,13 +46,25 @@ export function PexaOnboarding() {
           headers: token ? { authorization: `Bearer ${token}` } : {},
           cache: 'no-store',
         });
-        const data = (await res.json()) as { available: boolean; message: string; suggestions?: string[] };
-        if (active) {
-          setAvail({ ok: data.available, message: data.message });
-          setSuggestions(data.available ? [] : (data.suggestions ?? []));
+        const data = (await res.json().catch(() => null)) as { available?: unknown; message?: string; suggestions?: string[] } | null;
+        if (!active) return;
+        // Trust only a well-formed availability answer. A 401/429/500/503 (or junk) means we
+        // couldn't verify — never treat that as "unavailable", which would silently lock the
+        // Continue button. The claim itself is authoritative (the database's unique index).
+        if (!res.ok || !data || typeof data.available !== 'boolean') {
+          setAvail(null);
+          setSuggestions([]);
+          setCheckFailed(true);
+          return;
         }
+        setCheckFailed(false);
+        setAvail({ ok: data.available, message: data.message ?? (data.available ? 'Available' : 'That username isn’t available.') });
+        setSuggestions(data.available ? [] : (data.suggestions ?? []));
       } catch {
-        /* leave unchecked */
+        if (active) {
+          setAvail(null);
+          setCheckFailed(true);
+        }
       }
     }, 350);
     return () => {
@@ -62,30 +77,62 @@ export function PexaOnboarding() {
     const username = handle.trim().toLowerCase();
     if (submitting.current || username.length < 3 || (avail && !avail.ok)) return;
     submitting.current = true;
+    setClaiming(true);
     try {
-      const token = await getAccessToken();
-      const res = await fetch('/api/username', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ username }),
-      });
-      if (res.status === 201) {
+      // One automatic retry for a transient failure (network drop, 5xx, or a token that wasn't
+      // ready yet → 401), so a momentary blip never reaches the user. Safe to repeat: if the first
+      // attempt actually landed, the retry answers `already_has_profile`, handled below.
+      let res: Response | null = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const token = await getAccessToken();
+          res = await fetch('/api/username', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+            body: JSON.stringify({ username }),
+          });
+        } catch {
+          res = null; // never reached the server
+        }
+        const transient = res === null || res.status === 401 || res.status >= 500;
+        if (!transient || attempt === 1) break;
+        await new Promise((r) => setTimeout(r, 800));
+      }
+
+      if (res && res.status === 201) {
         setSetupIdx(0);
         setStep('creating');
         return;
       }
-      const data = (await res.json().catch(() => ({}))) as { message?: string; suggestions?: string[] };
-      toast.show(data.message ?? 'Couldn’t claim that username. Try another.', { tone: 'danger', duration: 4000 });
-      if (data.suggestions?.length) {
-        setAvail({ ok: false, message: data.message ?? 'That username is taken.' });
-        setSuggestions(data.suggestions);
+
+      const data = res ? ((await res.json().catch(() => ({}))) as { error?: string; message?: string; suggestions?: string[] }) : {};
+
+      // They already have a username (e.g. the earlier attempt succeeded) — nothing to claim.
+      if (res?.status === 409 && data.error === 'already_has_profile') {
+        router.replace('/app');
+        return;
       }
-    } catch {
-      toast.show('Something went wrong. Please try again.', { tone: 'danger' });
+      // The name itself is the problem: taken, reserved or malformed. This is the only case where
+      // "try another" is the right advice.
+      if (res && (res.status === 409 || res.status === 400)) {
+        toast.show(data.message ?? 'That username isn’t available. Try another.', { tone: 'danger', duration: 4000 });
+        if (data.suggestions?.length) {
+          setAvail({ ok: false, message: data.message ?? 'That username is taken.' });
+          setSuggestions(data.suggestions);
+        }
+        return;
+      }
+      // Everything else is on our side, not the name — say so, so they don't keep guessing names.
+      if (res?.status === 401) {
+        toast.show('Your session expired. Please sign in again to continue.', { tone: 'danger', duration: 5000 });
+      } else {
+        toast.show('We couldn’t reach our servers just now. Your username hasn’t been taken — please tap Continue again.', { tone: 'danger', duration: 5000 });
+      }
     } finally {
       submitting.current = false;
+      setClaiming(false);
     }
-  }, [handle, avail, getAccessToken, toast]);
+  }, [handle, avail, getAccessToken, toast, router]);
 
   // Provisioning animation → ready.
   useEffect(() => {
@@ -120,7 +167,7 @@ export function PexaOnboarding() {
               <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '16px', color: color.faint }}>@</span>
               <input
                 value={handle}
-                onChange={(e) => { setAvail(null); setSuggestions([]); setHandle(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 20)); }}
+                onChange={(e) => { setAvail(null); setCheckFailed(false); setSuggestions([]); setHandle(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 20)); }}
                 onKeyDown={(e) => e.key === 'Enter' && canContinue && claim()}
                 placeholder="chris"
                 autoFocus
@@ -146,7 +193,12 @@ export function PexaOnboarding() {
                 ))}
               </div>
             ) : null}
-            <button onClick={claim} disabled={!canContinue} style={{ width: '100%', marginTop: '14px', border: 'none', background: color.primary, color: '#fff', fontSize: '15px', fontWeight: 500, padding: '14px', borderRadius: '11px', cursor: canContinue ? 'pointer' : 'default', opacity: canContinue ? 1 : 0.5 }}>Continue</button>
+            {checkFailed && validLen ? (
+              <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '10px', lineHeight: 1.5 }}>
+                Couldn’t check availability just now — you can still continue and we’ll confirm it for you.
+              </div>
+            ) : null}
+            <button onClick={claim} disabled={!canContinue || claiming} style={{ width: '100%', marginTop: '14px', border: 'none', background: color.primary, color: '#fff', fontSize: '15px', fontWeight: 500, padding: '14px', borderRadius: '11px', cursor: canContinue && !claiming ? 'pointer' : 'default', opacity: canContinue && !claiming ? 1 : 0.5 }}>{claiming ? 'Claiming…' : 'Continue'}</button>
             <div style={{ fontSize: '12.5px', color: color.faint, marginTop: '16px', lineHeight: 1.6 }}>Your Celo payment wallet is created automatically — nothing to install or connect.</div>
           </div>
         ) : null}

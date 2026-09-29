@@ -82,7 +82,11 @@ export default function AppGate() {
               /* no JSON body */
             }
             const reason: AgentFailReason =
-              res.status === 503 ? (code === 'database_not_configured' ? 'account' : 'unavailable') : 'server';
+              res.status === 503
+                ? code === 'database_not_configured' || code === 'temporarily_unavailable'
+                  ? 'account' // our database/servers, not the AI
+                  : 'unavailable'
+                : 'server';
             return { ok: false as const, reason };
           }
           const data = (await res.json()) as { reply: string; action?: PendingActionView };

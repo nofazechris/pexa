@@ -1,6 +1,7 @@
 import 'server-only';
 import { eq } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db';
+import { isUniqueViolation } from '@/lib/db/errors';
 import { normalizeUsername, validateUsername, generateUsernameCandidates, type UsernameError } from './username';
 
 /**
@@ -24,9 +25,6 @@ export interface Profile {
   username: string;
   displayName: string | null;
 }
-
-/** Postgres unique-violation SQLSTATE. */
-const UNIQUE_VIOLATION = '23505';
 
 /** Get the internal user for a Privy DID, creating it on first sight (§35). */
 export async function getOrCreateUser(privyDid: string, email?: string | null): Promise<AppUser> {
@@ -106,8 +104,12 @@ export async function createProfile(userId: string, rawUsername: string): Promis
     const p = inserted[0];
     return { ok: true, profile: { userId: p.userId, username: p.username, displayName: p.displayName } };
   } catch (e) {
-    if (e && typeof e === 'object' && 'code' in e && (e as { code?: string }).code === UNIQUE_VIOLATION) {
-      return { ok: false, error: 'taken' };
+    if (isUniqueViolation(e)) {
+      // Two different unique constraints can fire here: the username index (someone else has the
+      // name → "taken") or the user's own primary key (a concurrent/retried claim already created
+      // their profile → "already has one"). Re-read to tell them apart, so a user is never told
+      // their OWN just-claimed name is taken.
+      return (await getProfileByUserId(userId)) ? { ok: false, error: 'already_has_profile' } : { ok: false, error: 'taken' };
     }
     throw e;
   }

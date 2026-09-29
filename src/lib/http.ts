@@ -2,6 +2,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { getSessionUser, type SessionUser } from '@/lib/auth/server';
 import { DbNotConfiguredError } from '@/lib/db';
+import { isTransientDbError } from '@/lib/db/errors';
 
 /**
  * Small helpers shared by API routes: consistent JSON errors, the auth gate, and translating
@@ -21,10 +22,19 @@ export async function withUser(
   return { user };
 }
 
-/** Map a thrown error to a response; re-throw anything unexpected. */
+/**
+ * Map a thrown error to a JSON response. Never leaves the client with a body-less 500: a missing
+ * database is `database_not_configured`, an infrastructure hiccup (DNS, dropped connection, pooler
+ * at capacity) is a retryable 503 `temporarily_unavailable`, and anything else is a logged 500
+ * `server_error`. Clients rely on the JSON `error`/`message` to show something accurate.
+ */
 export function errorResponse(e: unknown): NextResponse {
   if (e instanceof DbNotConfiguredError) {
     return jsonError(503, 'database_not_configured');
   }
-  throw e;
+  console.error('[api] unhandled error:', e);
+  if (isTransientDbError(e)) {
+    return jsonError(503, 'temporarily_unavailable', { message: 'We couldn’t reach our servers just now. Please try again in a moment.' });
+  }
+  return jsonError(500, 'server_error', { message: 'Something went wrong on our end. Please try again.' });
 }

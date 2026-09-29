@@ -1,6 +1,7 @@
 import 'server-only';
 import { and, desc, eq } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db';
+import { isUniqueViolation } from '@/lib/db/errors';
 import { normalizeUsername, validateUsername, type UsernameError } from '@/lib/users/username';
 import { resolveUsername } from '@/lib/users/service';
 
@@ -17,9 +18,6 @@ export interface Contact {
   username: string;
   displayName: string | null;
 }
-
-/** Postgres unique-violation SQLSTATE. */
-const UNIQUE_VIOLATION = '23505';
 
 /** The caller's contacts, newest first. */
 export async function listContacts(ownerUserId: string): Promise<Contact[]> {
@@ -63,7 +61,7 @@ export async function addContact(ownerUserId: string, rawUsername: string): Prom
     const c = inserted[0];
     return { ok: true, contact: { username: c.username, displayName: c.displayName } };
   } catch (e) {
-    if (e && typeof e === 'object' && 'code' in e && (e as { code?: string }).code === UNIQUE_VIOLATION) {
+    if (isUniqueViolation(e)) {
       return { ok: false, error: 'already_added' };
     }
     throw e;

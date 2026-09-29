@@ -32,6 +32,7 @@ describe('username validation', () => {
   it('blocks reserved words (case/@-insensitively)', () => {
     expect(validateUsername('admin')).toBe('reserved');
     expect(validateUsername('@PrivyPay')).toBe('reserved');
+    expect(validateUsername('@Pexa')).toBe('reserved'); // the product's own name can't be impersonated
     expect(validateUsername('SUPPORT')).toBe('reserved');
   });
 

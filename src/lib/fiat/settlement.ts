@@ -1,6 +1,7 @@
 import 'server-only';
 import { and, eq, inArray, lt } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db';
+import { isUniqueViolation } from '@/lib/db/errors';
 import { getFiatProvider } from './index';
 import { canReach, isTerminal, isValidStatus, type FiatOrderStatus } from './state';
 import type { OrderSide } from './provider';
@@ -70,7 +71,7 @@ export async function applyWebhookEvent(providerId: string, rawBody: string, sig
       payload: rawBody.slice(0, 4000),
     });
   } catch (e) {
-    if (e && typeof e === 'object' && 'code' in e && (e as { code?: string }).code === '23505') {
+    if (isUniqueViolation(e)) {
       return { status: 200, body: { ok: true, duplicate: true } };
     }
     throw e;

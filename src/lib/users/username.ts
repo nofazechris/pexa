@@ -17,7 +17,7 @@ const USERNAME_RE = /^[a-z0-9_]+$/;
  * Kept lowercase; matching is case-insensitive via normalization.
  */
 export const RESERVED_USERNAMES: ReadonlySet<string> = new Set([
-  'admin', 'administrator', 'root', 'system', 'support', 'help', 'security', 'privypay', 'privy',
+  'admin', 'administrator', 'root', 'system', 'support', 'help', 'security', 'privypay', 'privy', 'pexa',
   'official', 'team', 'staff', 'moderator', 'mod', 'billing', 'payments', 'payment', 'pay', 'wallet',
   'api', 'app', 'www', 'mail', 'email', 'login', 'signup', 'signin', 'logout', 'auth', 'account',
   'settings', 'profile', 'me', 'you', 'user', 'users', 'null', 'undefined', 'anonymous', 'guest',

@@ -1,6 +1,7 @@
 import 'server-only';
 import { desc, eq } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db';
+import { isUniqueViolation } from '@/lib/db/errors';
 
 /**
  * Waitlist service (§25–27).
@@ -56,7 +57,7 @@ export async function joinWaitlist(input: {
     return { ok: true, created: true };
   } catch (e) {
     // Unique-violation race (two requests for the same email at once): still a success.
-    if (e && typeof e === 'object' && 'code' in e && (e as { code?: string }).code === '23505') {
+    if (isUniqueViolation(e)) {
       return { ok: true, created: false };
     }
     throw e;

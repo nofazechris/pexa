@@ -2,6 +2,7 @@ import 'server-only';
 import { and, desc, eq } from 'drizzle-orm';
 import { formatUnits, parseUnits } from 'viem';
 import { getDb, schema } from '@/lib/db';
+import { isUniqueViolation } from '@/lib/db/errors';
 import { activeNetwork, getToken } from '@/lib/config';
 import type { VaultRow } from '@/lib/db/schema';
 
@@ -178,8 +179,12 @@ export async function depositToVault(
         ref: input.ref,
         note: input.note ?? null,
       });
-    } catch {
-      return { ok: true, vault: view(vault), deposited: false }; // already applied
+    } catch (e) {
+      // ONLY a duplicate (vault, ref) means "already applied". Anything else (a DB blip) must
+      // surface — swallowing it would let the auto-save worker advance past a deposit that never
+      // happened, silently losing that save.
+      if (isUniqueViolation(e)) return { ok: true, vault: view(vault), deposited: false };
+      throw e;
     }
   } else {
     await db.insert(schema.vaultTransactions).values({

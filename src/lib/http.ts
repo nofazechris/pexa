@@ -1,6 +1,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { getSessionUser, type SessionUser } from '@/lib/auth/server';
+import { env } from '@/lib/config';
 import { DbNotConfiguredError } from '@/lib/db';
 import { isTransientDbError } from '@/lib/db/errors';
 
@@ -11,6 +12,18 @@ import { isTransientDbError } from '@/lib/db/errors';
 
 export function jsonError(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ error, ...extra }, { status });
+}
+
+/**
+ * The public origin to put in links we generate (referral links, emails). The configured
+ * NEXT_PUBLIC_SITE_URL wins; otherwise the request's own origin. We deliberately do NOT read
+ * X-Forwarded-Host / similar: they're attacker-controllable, and a forged one would let someone get
+ * an email sent to a victim containing a link to a domain of their choosing.
+ */
+export function siteOrigin(req: Request): string {
+  const configured = env.NEXT_PUBLIC_SITE_URL;
+  if (configured) return configured.replace(/\/+$/, '');
+  return new URL(req.url).origin;
 }
 
 /** Resolve the session or return a 401 response to send back. */

@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { PrivyPayLogo } from '@/components/brand/PrivyPayLogo';
 import { color } from '@/lib/design/tokens';
+import { ShareLink } from '@/components/pexa/ShareLink';
+import { shareMessage } from '@/lib/referrals/code';
+import { captureReferralFromUrl, getOwnWaitlistCode, getStoredReferral, rememberOwnWaitlistCode } from '@/lib/referrals/client';
 
 /**
  * Pexa marketing landing (rebuilt faithfully from design/Pexa.dc.html). Agent-first: sticky nav,
@@ -532,11 +535,47 @@ type WaitStatus = 'idle' | 'submitting' | 'success' | 'error';
  * honeypot all live server-side). Shows a single friendly success for both new and repeat
  * signups; a failed request surfaces a plain-language message, never a raw error.
  */
+/** A waitlist entrant's share info (from the API). Position/total are present when they could be computed. */
+interface WaitlistReferral {
+  code: string;
+  link: string;
+  position?: number;
+  total?: number;
+  referrals?: number;
+}
+
 function WaitlistForm() {
   const [email, setEmail] = useState('');
   const [company, setCompany] = useState(''); // honeypot — real people never see or fill this
   const [status, setStatus] = useState<WaitStatus>('idle');
   const [message, setMessage] = useState('');
+  const [referral, setReferral] = useState<WaitlistReferral | null>(null);
+
+  // On load: remember a friend's `?ref=` link (so signing up credits them), and if this visitor
+  // already joined on this device, show their current place in line instead of the form.
+  useEffect(() => {
+    captureReferralFromUrl();
+    const own = getOwnWaitlistCode();
+    if (!own) return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/waitlist/status?code=${encodeURIComponent(own)}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = (await res.json()) as { referral?: WaitlistReferral };
+        if (alive && data.referral) {
+          setReferral(data.referral);
+          setStatus('success');
+          setMessage("You're on the list.");
+        }
+      } catch {
+        /* offline / blocked: just show the normal form */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const submit = useCallback(async () => {
     if (status === 'submitting') return;
@@ -552,12 +591,16 @@ function WaitlistForm() {
       const res = await fetch('/api/waitlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: value, company }),
+        body: JSON.stringify({ email: value, company, ref: getStoredReferral() }),
       });
-      const data = (await res.json().catch(() => ({}))) as { message?: string };
+      const data = (await res.json().catch(() => ({}))) as { message?: string; referral?: WaitlistReferral };
       if (res.ok) {
         setStatus('success');
         setMessage(data.message ?? "You're on the list.");
+        if (data.referral) {
+          setReferral(data.referral);
+          rememberOwnWaitlistCode(data.referral.code); // so a return visit shows their place in line
+        }
       } else {
         setStatus('error');
         setMessage(data.message ?? 'Something went wrong. Please try again.');
@@ -567,6 +610,30 @@ function WaitlistForm() {
       setMessage('Network error. Please try again.');
     }
   }, [email, company, status]);
+
+  if (status === 'success' && referral) {
+    const { position, total, referrals } = referral;
+    return (
+      <div style={{ maxWidth: '460px', margin: '0 auto', textAlign: 'left', border: `1px solid ${color.primarySoftBorder}`, background: color.surface, borderRadius: '16px', padding: 'clamp(18px,3vw,24px)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
+          <span style={{ width: 22, height: 22, borderRadius: '50%', background: color.primary, color: '#fff', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', animation: 'pp-pop .34s cubic-bezier(.2,.8,.3,1) both' }}>✓</span>
+          <span style={{ fontSize: '14.5px', fontWeight: 500, color: color.primaryHover }}>You’re on the list.</span>
+        </div>
+        {position ? (
+          <div style={{ marginTop: '14px', display: 'flex', alignItems: 'baseline', gap: '9px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 'clamp(38px,7vw,48px)', fontWeight: 600, letterSpacing: '-.05em', lineHeight: 1 }}>#{position}</span>
+            <span style={{ fontSize: '14.5px', color: color.mutedStrong }}>{total ? `of ${total} in line` : 'in line'}</span>
+          </div>
+        ) : null}
+        <p style={{ fontSize: '14.5px', color: color.muted, lineHeight: 1.6, margin: '12px 0 14px' }}>
+          <strong style={{ color: color.ink }}>Want to move up?</strong> Share your link — every friend who joins with it puts you ahead.
+          {typeof referrals === 'number' && referrals > 0 ? ` ${referrals} ${referrals === 1 ? 'friend has' : 'friends have'} joined so far.` : ''}
+        </p>
+        <ShareLink link={referral.link} text={shareMessage({ position })} />
+        <div style={{ fontSize: '12.5px', color: color.faint, marginTop: '14px', lineHeight: 1.5 }}>We’ll email your early-access invite when the app opens.</div>
+      </div>
+    );
+  }
 
   if (status === 'success') {
     return (

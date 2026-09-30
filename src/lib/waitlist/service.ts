@@ -24,7 +24,8 @@ export function isValidEmail(email: string): boolean {
 }
 
 export type JoinResult =
-  | { ok: true; created: boolean }
+  | { ok: true; created: true; id: string; email: string }
+  | { ok: true; created: false }
   | { ok: false; error: 'invalid_email' };
 
 /**
@@ -51,10 +52,11 @@ export async function joinWaitlist(input: {
   if (existing[0]) return { ok: true, created: false };
 
   try {
-    await db
+    const [row] = await db
       .insert(schema.waitlist)
-      .values({ email, firstName, source: input.source ?? 'landing' });
-    return { ok: true, created: true };
+      .values({ email, firstName, source: input.source ?? 'landing' })
+      .returning({ id: schema.waitlist.id });
+    return { ok: true, created: true, id: row.id, email };
   } catch (e) {
     // Unique-violation race (two requests for the same email at once): still a success.
     if (isUniqueViolation(e)) {

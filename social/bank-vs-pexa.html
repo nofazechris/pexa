@@ -1,0 +1,60 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Chat is the interface</title>
+<style>
+@font-face{font-family:Geist;font-weight:400;src:url("../node_modules/geist/dist/fonts/geist-sans/Geist-Regular.woff2")}
+@font-face{font-family:Geist;font-weight:500;src:url("../node_modules/geist/dist/fonts/geist-sans/Geist-Medium.woff2")}
+@font-face{font-family:Geist;font-weight:600;src:url("../node_modules/geist/dist/fonts/geist-sans/Geist-SemiBold.woff2")}
+@font-face{font-family:GeistMono;font-weight:400;src:url("../node_modules/geist/dist/fonts/geist-mono/GeistMono-Regular.woff2")}
+:root{--primary:#1B45D7;--ink:#0E1420;--muted:#5B6472;--border:#E4E7EC;--soft:#EDF1FE;--softb:#DDE3F6;--ok:#167A54;--okbg:#E8F3ED}
+*{box-sizing:border-box;margin:0}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:Geist,system-ui,sans-serif;color:var(--ink);position:relative;background:linear-gradient(135deg,#fff,#F3F5FA)}
+.glowA{position:absolute;left:1080px;top:-380px;width:1300px;height:1300px;border-radius:50%;background:radial-gradient(closest-side,rgba(27,69,215,.17),rgba(27,69,215,0))}
+.glowB{position:absolute;left:-420px;top:700px;width:1000px;height:1000px;border-radius:50%;background:radial-gradient(closest-side,rgba(27,69,215,.08),rgba(27,69,215,0))}
+.dots{position:absolute;inset:0;background-image:radial-gradient(circle,rgba(27,69,215,.14) 2px,transparent 2.5px);background-size:44px 44px;-webkit-mask-image:linear-gradient(90deg,transparent 15%,#000 100%);mask-image:linear-gradient(90deg,transparent 15%,#000 100%)}
+.bigP{position:absolute;right:-330px;top:-170px;height:1500px;opacity:1}
+.brand{position:absolute;left:120px;top:96px;display:flex;align-items:center;gap:16px}
+.brand span{font-size:38px;font-weight:600;letter-spacing:-.02em}
+h1{position:absolute;left:112px;top:300px;font-size:196px;line-height:.98;font-weight:600;letter-spacing:-.05em}
+h1 em{font-style:normal;color:var(--primary)}
+.sub{position:absolute;left:120px;top:735px;font-size:40px;line-height:1.35;color:var(--muted);letter-spacing:-.015em;font-weight:400}
+.foot{position:absolute;left:120px;bottom:88px;font-family:GeistMono,monospace;font-size:22px;letter-spacing:.06em;color:#6C7484;text-transform:uppercase}
+.foot b{color:var(--primary);font-weight:400}
+/* right column */
+.col{position:absolute;left:1120px;top:150px;width:690px}
+.bank{border:2px dashed #C9CED8;border-radius:26px;padding:28px 32px;background:rgba(255,255,255,.55)}
+.bank .lab,.pex .lab{font-family:GeistMono,monospace;font-size:19px;letter-spacing:.08em;text-transform:uppercase;color:#6C7484;margin-bottom:20px}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.st{display:flex;align-items:center;gap:12px;font-size:23px;color:#8A93A3;background:#F1F3F7;border-radius:14px;padding:13px 16px;text-decoration:line-through;text-decoration-color:#B8BFCC}
+.st i{font-style:normal;font-family:GeistMono,monospace;font-size:17px;width:28px;height:28px;border-radius:50%;background:#DDE1E9;color:#6C7484;display:grid;place-items:center;flex:none}
+.vs{font-family:GeistMono,monospace;font-size:20px;letter-spacing:.1em;color:var(--primary);text-align:center;margin:22px 0}
+.pex{background:#fff;border:1.5px solid var(--border);border-radius:30px;padding:30px 34px 14px;box-shadow:0 40px 80px -44px rgba(14,20,32,.38)}
+.pex .lab{color:var(--primary)}
+.turn{display:flex;flex-direction:row;justify-content:space-between;align-items:center;gap:16px;margin-bottom:20px}
+.turn:last-child{margin-bottom:0}
+.me{background:var(--ink);color:#fff;font-size:29px;font-weight:500;letter-spacing:-.015em;padding:18px 28px;border-radius:24px 24px 8px 24px}
+.done{display:flex;align-items:center;gap:12px;background:var(--okbg);border:1.5px solid #cfe6da;border-radius:16px;padding:10px 20px 10px 12px;font-size:25px;font-weight:500;color:var(--ok)}
+.done i{width:30px;height:30px;border-radius:50%;background:var(--ok);display:grid;place-items:center;flex:none}
+.pmark{position:absolute;left:120px;top:96px}
+</style></head><body>
+<div class="glowA"></div><div class="glowB"></div><div class="dots"></div>
+<svg class="bigP" viewBox="8 3.4 20.4 25.8" fill="none" stroke="rgba(27,69,215,.16)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12.4 5C12.2 12 11.4 19.6 9.6 27.6"/><path d="M16.8 5.5C22.2 4.7 26.8 6.9 26.5 10.2"/><path d="M25.9 14.6C25.3 17.6 21.2 19 16 18.3"/></svg>
+
+<div class="brand">
+  <svg height="60" viewBox="8 3.4 20.4 25.8" fill="none" stroke="#1B45D7" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12.4 5C12.2 12 11.4 19.6 9.6 27.6"/><path d="M16.8 5.5C22.2 4.7 26.8 6.9 26.5 10.2"/><path d="M25.9 14.6C25.3 17.6 21.2 19 16 18.3"/></svg>
+  <span>Pexa</span>
+</div>
+
+<h1 style="font-size:190px;top:300px">6 steps.<br><em>Or say it.</em></h1>
+<p class="sub" style="top:730px">Dollars. Instant. Zero menus.</p>
+<div class="foot"><b>●</b>&nbsp; Your payment agent, wherever you work</div>
+<div class="col">
+  <div class="bank"><div class="lab">Your bank: send $20</div><div class="steps"><div class="st"><i>1</i>Menu</div><div class="st"><i>2</i>Transfer</div><div class="st"><i>3</i>Payee</div><div class="st"><i>4</i>Amount</div><div class="st"><i>5</i>Review</div><div class="st"><i>6</i>OTP</div></div></div>
+  <div class="vs">VS</div>
+  <div class="pex"><div class="lab">Pexa</div>
+    <div class="turn"><div class="me">Send $20 to @tunde</div><div class="done"><i><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.6 4.6L19 7.5"/></svg></i>Done</div></div>
+    <div class="turn"><div class="me">Save 10% of every payment</div><div class="done"><i><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.6 4.6L19 7.5"/></svg></i>Done</div></div>
+    <div class="turn"><div class="me">Pay rent every month</div><div class="done"><i><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.6 4.6L19 7.5"/></svg></i>Done</div></div>
+  </div>
+</div>
+</body></html>

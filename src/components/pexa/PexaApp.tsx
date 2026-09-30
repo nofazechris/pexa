@@ -7,6 +7,8 @@ import { color } from '@/lib/design/tokens';
 import { statusColor } from '@/lib/format';
 import { ServiceConnect } from '@/components/app/ServiceConnect';
 import { AgentPayments } from '@/components/app/AgentPayments';
+import { ShareLink } from '@/components/pexa/ShareLink';
+import { shareMessage } from '@/lib/referrals/code';
 import { Modal } from '@/components/ui';
 import type { ActivityItem } from '@/components/auth/useActivity';
 import type { RequestItem } from '@/components/auth/useRequests';
@@ -694,6 +696,7 @@ function WalletPage({
   const [fundingLive, setFundingLive] = useState(false);
   const [banks, setBanks] = useState<PayoutBank[]>([]);
   const [vaults, setVaults] = useState<Vault[]>([]);
+  const [invite, setInvite] = useState<{ link: string; referrals: number } | null>(null);
   const short = address ? address.slice(0, 6) + '…' + address.slice(-4) : '—';
   const savedTotal = vaults.reduce((s, v) => s + (Number(v.balance) || 0), 0);
 
@@ -724,6 +727,13 @@ function WalletPage({
         if (vRes.ok) {
           const d = (await vRes.json()) as { vaults?: Vault[] };
           setVaults(d.vaults ?? []);
+        }
+        // The user's referral link (created on first view) and how many friends have joined with it.
+        try {
+          const rRes = await fetch('/api/referrals/me', { headers });
+          if (alive && rRes.ok) setInvite((await rRes.json()) as { link: string; referrals: number });
+        } catch {
+          /* leave the invite card hidden */
         }
       } catch {
         /* leave fiat sections hidden */
@@ -874,6 +884,23 @@ function WalletPage({
             </div>
           )}
         </div>
+
+        {/* Invite friends — the user's referral link. Attribution is recorded permanently, so
+            rewards (e.g. sharing fees) can be layered on later without losing anyone's history. */}
+        {invite ? (
+          <div style={{ background: color.surface, border: `1px solid ${color.border}`, borderRadius: '16px', padding: '18px', marginTop: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px' }}>
+              <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>INVITE FRIENDS</div>
+              <span style={{ marginLeft: 'auto', fontSize: '12.5px', color: color.mutedStrong }}>
+                {invite.referrals === 0 ? 'No one has joined yet' : `${invite.referrals} ${invite.referrals === 1 ? 'friend has' : 'friends have'} joined`}
+              </span>
+            </div>
+            <div style={{ fontSize: '13.5px', color: color.muted, lineHeight: 1.55, margin: '10px 0 13px' }}>
+              Share your link. Everyone who joins Pexa with it is credited to you.
+            </div>
+            <ShareLink link={invite.link} text={shareMessage()} />
+          </div>
+        ) : null}
 
         {/* Linked bank accounts (fiat) */}
         {fiatOn && fiatPublic ? (

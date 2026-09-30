@@ -7,6 +7,7 @@ import { useWallet } from '@/components/auth/useWallet';
 import { useToast } from '@/components/ui';
 import { color } from '@/lib/design/tokens';
 import { shortAddress } from '@/lib/format';
+import { clearStoredReferral, getStoredReferral } from '@/lib/referrals/client';
 
 /**
  * Pexa username onboarding (rebuilt from design/Pexa.dc.html). Choose a username (checked live for
@@ -89,7 +90,8 @@ export function PexaOnboarding() {
           res = await fetch('/api/username', {
             method: 'POST',
             headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
-            body: JSON.stringify({ username }),
+            // `ref` = the friend whose link brought them here (if any), credited server-side.
+            body: JSON.stringify({ username, ref: getStoredReferral() }),
           });
         } catch {
           res = null; // never reached the server
@@ -100,6 +102,7 @@ export function PexaOnboarding() {
       }
 
       if (res && res.status === 201) {
+        clearStoredReferral(); // credited (or ignored) server-side; don't reuse it
         setSetupIdx(0);
         setStep('creating');
         return;

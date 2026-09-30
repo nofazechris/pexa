@@ -54,6 +54,24 @@ committed — enter them here. Names are copied from `.env.example` / `src/lib/c
   with `Authorization: Bearer $CRON_SECRET`, which each endpoint checks. Without it the cron
   endpoints are disabled.
 
+**Email (waitlist welcome + your referral link)** — optional; nothing is sent until both are set
+- You do **not** need your own mail server. Sending is done by an email service (we use
+  [Resend](https://resend.com); free tier is enough to start). Steps:
+  1. Create a Resend account → **Domains → Add domain** → `pexaapp.xyz`.
+  2. Resend shows a few DNS records (SPF, DKIM, and optionally DMARC). Add them at wherever the
+     domain is registered/managed (Namecheap, Cloudflare, Vercel Domains, …). Wait until Resend
+     says **Verified** (minutes to a few hours).
+  3. Resend → **API Keys** → create one (sending access).
+  4. In Vercel set `RESEND_API_KEY` = that key and `EMAIL_FROM` = e.g. `Pexa <hello@pexaapp.xyz>`
+     (must be an address on the verified domain), then redeploy.
+- Also set `NEXT_PUBLIC_SITE_URL` = `https://pexaapp.xyz` so referral links inside emails use your
+  real domain (the app deliberately doesn't trust request headers for this).
+- Until configured, signup still works and the on-screen "#N in line" + share link still appear;
+  only the email is skipped. Failures to send are logged (Vercel → Logs → `[email]`), never shown to users.
+- Sending to **everyone** on the waitlist (e.g. an "app is live" invite): export the list
+  (`/api/waitlist/export`, below) and import the CSV into Resend Audiences / Mailchimp / Loops, or
+  ask to have a bulk-invite script added. Only email people the invite promises (they joined for it).
+
 **Fiat / NGN↔USDT (naira)** — leave UNSET for launch (feature stays hidden)
 - `FIAT_PROVIDER` — `sandbox` (labeled mock, never moves real money) or `quidax` (live). Absent
   → the fiat feature is disabled entirely.
@@ -100,6 +118,15 @@ waitlist (`0007`), fiat (`0008`), agent memories (`0009`), and money rules (`001
   sign-ups, run the read-only audit (needs `DATABASE_URL`, `PRIVY_APP_ID`, `PRIVY_APP_SECRET` in
   `.env`): `npm run wallets:audit` — it lists every user's Privy wallets, balances, and flags any
   mismatch. Privy has no API to delete a single wallet; pre-fix duplicates are empty and unused.
+- **Referrals.** Everyone on the waitlist and every app user has a share link (`/?ref=<code>`).
+  Waitlist: joining shows "#N in line"; each friend who joins through your link moves you up
+  (ranking = most referrals first, ties by who joined earlier). App: the Wallet screen has an
+  "Invite friends" card; a referral counts when the friend finishes onboarding (claims a username).
+  Attribution is stored permanently in `referral_codes` / `referrals` (one referrer per person, ever),
+  so sharing fees with referrers later is a query over that ledger — no data migration needed.
+  Known limit: waitlist referrals count on signup (emails aren't verified yet), so someone could
+  inflate their rank with fake addresses; per-IP rate limiting slows this. Once email is live, the
+  fix is to count a referral only after the friend confirms their email.
 - **Waitlist** submissions land in the `waitlist` table via `/api/waitlist`. Export them as a CSV
   spreadsheet from `GET /api/waitlist/export` (admin-only — gated on `CRON_SECRET`):
   `curl -H "Authorization: Bearer $CRON_SECRET" https://<domain>/api/waitlist/export -o waitlist.csv`

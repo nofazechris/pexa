@@ -1,6 +1,10 @@
-import { NextResponse } from 'next/server';
-import { jsonError, errorResponse } from '@/lib/http';
+import { NextResponse, after } from 'next/server';
+import { jsonError, errorResponse, siteOrigin } from '@/lib/http';
 import { joinWaitlist } from '@/lib/waitlist/service';
+import { getOrCreateCode, recordReferral, waitlistStatus } from '@/lib/referrals/service';
+import { buildReferralLink } from '@/lib/referrals/code';
+import { waitlistWelcomeEmail } from '@/lib/email/templates';
+import { sendEmail } from '@/lib/email/send';
 
 /**
  * Public waitlist signup (§26–27). No auth — anyone on the landing page can join. Defends the
@@ -35,11 +39,13 @@ export async function POST(req: Request) {
   let email = '';
   let firstName: string | undefined;
   let honeypot = '';
+  let ref: unknown;
   try {
-    const body = (await req.json()) as { email?: unknown; firstName?: unknown; company?: unknown };
+    const body = (await req.json()) as { email?: unknown; firstName?: unknown; company?: unknown; ref?: unknown };
     if (typeof body.email === 'string') email = body.email;
     if (typeof body.firstName === 'string') firstName = body.firstName;
     if (typeof body.company === 'string') honeypot = body.company; // hidden field; humans leave it blank
+    ref = body.ref; // the referrer's code from the share link (validated/ignored if junk downstream)
   } catch {
     return jsonError(400, 'invalid_body');
   }
@@ -56,7 +62,32 @@ export async function POST(req: Request) {
     if (!res.ok) {
       return jsonError(400, res.error, { message: 'Please enter a valid email address.' });
     }
-    return NextResponse.json(SUCCESS);
+    // Already on the list: the same generic success as a new signup, with nothing extra — returning
+    // a position or link here would reveal who is on the list to anyone who types an email.
+    if (!res.created) return NextResponse.json(SUCCESS);
+
+    // New signup. Everything below is best-effort: the signup itself is already saved, so a hiccup
+    // in the referral bookkeeping must never turn into a failed signup.
+    try {
+      const code = await getOrCreateCode('waitlist', res.id);
+      if (ref) await recordReferral({ code: ref, refereeType: 'waitlist', refereeId: res.id }).catch((e) => console.error('[waitlist] referral credit failed:', e));
+      const status = await waitlistStatus(res.id);
+      const link = buildReferralLink(siteOrigin(req), code);
+      if (status) {
+        const welcome = waitlistWelcomeEmail({ position: status.position, total: status.total, link });
+        const to = res.email;
+        after(async () => {
+          await sendEmail(to, welcome); // no-op until RESEND_API_KEY + EMAIL_FROM are configured
+        });
+      }
+      return NextResponse.json({
+        ...SUCCESS,
+        referral: status ? { code, link, position: status.position, total: status.total, referrals: status.referrals } : { code, link },
+      });
+    } catch (e) {
+      console.error('[waitlist] referral setup failed (signup saved):', e);
+      return NextResponse.json(SUCCESS);
+    }
   } catch (e) {
     return errorResponse(e);
   }

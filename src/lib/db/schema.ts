@@ -448,6 +448,48 @@ export const vaultTransactions = pgTable(
   (t) => [uniqueIndex('vault_transactions_vault_ref_uq').on(t.vaultId, t.ref)],
 );
 
+/**
+ * Referral codes (§ growth). Every waitlist entrant and every app user can own one code, which forms
+ * their share link (`/?ref=<code>`). Codes are short, lowercase and unambiguous. One code per owner.
+ */
+export const referralCodes = pgTable(
+  'referral_codes',
+  {
+    code: text('code').primaryKey(),
+    /** waitlist | user. */
+    ownerType: text('owner_type').notNull(),
+    /** waitlist.id or users.id, per ownerType. */
+    ownerId: uuid('owner_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('referral_codes_owner_uq').on(t.ownerType, t.ownerId)],
+);
+
+/**
+ * Referral ledger. One row per person who joined through someone's link, recording which code
+ * brought them. A person can be attributed only ONCE (unique on referee), so a referral can never be
+ * double-counted or re-assigned — and because this is a permanent ledger, sharing fees with referrers
+ * later is a query over these rows, not a data migration. Waitlist referrals count when the friend
+ * joins the list; app referrals count when the friend finishes onboarding (claims a username).
+ */
+export const referrals = pgTable(
+  'referrals',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    /** The code that referred them (whose owner gets the credit). */
+    code: text('code')
+      .notNull()
+      .references(() => referralCodes.code, { onDelete: 'cascade' }),
+    /** waitlist | user. */
+    refereeType: text('referee_type').notNull(),
+    refereeId: uuid('referee_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('referrals_referee_uq').on(t.refereeType, t.refereeId)],
+);
+
+export type ReferralCodeRow = typeof referralCodes.$inferSelect;
+export type ReferralRow = typeof referrals.$inferSelect;
 export type UserRow = typeof users.$inferSelect;
 export type ProfileRow = typeof profiles.$inferSelect;
 export type WalletRow = typeof wallets.$inferSelect;

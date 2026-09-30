@@ -87,6 +87,12 @@ const schema = z.object({
    */
   FIAT_PUBLIC: z.string().optional(),
 
+  // Transactional email (waitlist welcome, etc.) via Resend. Both must be set to send; absent → the
+  // app simply doesn't send email (nothing breaks). EMAIL_FROM must be on a domain verified in Resend,
+  // e.g. "Pexa <hello@pexaapp.xyz>".
+  RESEND_API_KEY: z.string().min(1).optional(),
+  EMAIL_FROM: z.string().min(3).optional(),
+
   // Integrations (Stages 14–17)
   MCP_SECRET: z.string().min(1).optional(),
   WHATSAPP_WEBHOOK_SECRET: z.string().min(1).optional(),

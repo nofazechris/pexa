@@ -92,6 +92,13 @@
       "when": 1790416119674,
       "tag": "0012_omniscient_shriek",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790774207558,
+      "tag": "0013_chemical_onslaught",
+      "breakpoints": true
     }
   ]
 }

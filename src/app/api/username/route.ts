@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { withUser, errorResponse, jsonError } from '@/lib/http';
 import { getOrCreateUser, createProfile, suggestUsernames } from '@/lib/users/service';
 import { usernameErrorMessage, normalizeUsername } from '@/lib/users/username';
+import { recordReferral } from '@/lib/referrals/service';
 
 /**
  * Claim a username for the authenticated user (§9). Format is validated and uniqueness is
@@ -33,6 +34,10 @@ export async function POST(req: Request) {
       const suggestions = result.error === 'taken' || result.error === 'reserved' ? await suggestUsernames(username).catch(() => []) : undefined;
       return jsonError(409, result.error, { message, ...(suggestions ? { suggestions } : {}) });
     }
+    // Credit whoever's link brought them here. A person finishing onboarding is a real, activated
+    // signup — the point at which a referral counts. Best-effort: never fail a claim over it.
+    const ref = (body as { ref?: unknown })?.ref;
+    if (ref) await recordReferral({ code: ref, refereeType: 'user', refereeId: user.id }).catch((e) => console.error('[username] referral credit failed:', e));
     return NextResponse.json({ profile: { username: result.profile.username } }, { status: 201 });
   } catch (e) {
     return errorResponse(e);

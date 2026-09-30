@@ -23,14 +23,15 @@ export function isValidEmail(email: string): boolean {
   return email.length <= 254 && EMAIL_RE.test(email);
 }
 
+/** `id` is the entry's id whether it was just created or already existed. */
 export type JoinResult =
-  | { ok: true; created: true; id: string; email: string }
-  | { ok: true; created: false }
+  | { ok: true; created: boolean; id: string; email: string }
   | { ok: false; error: 'invalid_email' };
 
 /**
- * Add an email to the waitlist. `created` is false when the email was already present — the
- * caller returns the same friendly success either way, so we never leak who is on the list.
+ * Add an email to the waitlist. `created` is false when the email was already present. The caller
+ * must give the same response either way (so nobody can probe who is on the list), and must only
+ * do first-signup side effects — like sending the welcome email — when `created` is true.
  */
 export async function joinWaitlist(input: {
   email: string;
@@ -49,7 +50,7 @@ export async function joinWaitlist(input: {
     .from(schema.waitlist)
     .where(eq(schema.waitlist.email, email))
     .limit(1);
-  if (existing[0]) return { ok: true, created: false };
+  if (existing[0]) return { ok: true, created: false, id: existing[0].id, email };
 
   try {
     const [row] = await db
@@ -60,7 +61,8 @@ export async function joinWaitlist(input: {
   } catch (e) {
     // Unique-violation race (two requests for the same email at once): still a success.
     if (isUniqueViolation(e)) {
-      return { ok: true, created: false };
+      const [winner] = await db.select({ id: schema.waitlist.id }).from(schema.waitlist).where(eq(schema.waitlist.email, email)).limit(1);
+      if (winner) return { ok: true, created: false, id: winner.id, email };
     }
     throw e;
   }

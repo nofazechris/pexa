@@ -38,24 +38,32 @@ export function normalizeReferralCode(raw: unknown): string | null {
   return /^[a-z0-9]{6,16}$/.test(code) ? code : null;
 }
 
-/** The public share link for a code, on the given site origin. */
+/**
+ * The public share link for a code, on the given site origin: `/r/<code>`. That page carries the
+ * social-preview tags (the personal picture) and then sends the visitor on to the landing page with
+ * the code remembered. The older `/?ref=<code>` form keeps working, so links already out there are fine.
+ */
 export function buildReferralLink(origin: string, code: string): string {
-  return `${origin.replace(/\/+$/, '')}/?ref=${encodeURIComponent(code)}`;
+  return `${origin.replace(/\/+$/, '')}/r/${encodeURIComponent(code)}`;
 }
 
 /** Ready-made share text. `position` (waitlist only) makes it more compelling when known. */
 export function shareMessage(opts?: { position?: number }): string {
   return opts?.position
-    ? `I'm #${opts.position} in line for Pexa — a new way to move money on-chain by just talking to an AI agent. Join me on the waitlist:`
-    : 'Join me on Pexa — a new way to move money on-chain by just talking to an AI agent:';
+    ? `I'm #${opts.position} on the Pexa waitlist 🚀 The AI agent for your money on-chain. Use my referral link to climb up the ranking 👇`
+    : 'Join me on Pexa 🚀 The AI agent for your money on-chain. Sign up with my referral link 👇';
 }
 
-/** One-tap share URLs for the common channels. */
+/**
+ * One-tap share URLs for the common channels. The X link opens the compose box with the tweet
+ * already written — text, the person's link (which X unfurls into their personal picture card), and
+ * the #Pexa hashtag — so it's one tap to post.
+ */
 export function shareUrls(link: string, text: string) {
   const u = encodeURIComponent(link);
   const t = encodeURIComponent(text);
   return {
-    x: `https://twitter.com/intent/tweet?text=${t}&url=${u}`,
+    x: `https://twitter.com/intent/tweet?text=${t}&url=${u}&hashtags=Pexa`,
     whatsapp: `https://wa.me/?text=${encodeURIComponent(`${text} ${link}`)}`,
     telegram: `https://t.me/share/url?url=${u}&text=${t}`,
   };

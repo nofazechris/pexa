@@ -118,10 +118,22 @@ waitlist (`0007`), fiat (`0008`), agent memories (`0009`), and money rules (`001
   sign-ups, run the read-only audit (needs `DATABASE_URL`, `PRIVY_APP_ID`, `PRIVY_APP_SECRET` in
   `.env`): `npm run wallets:audit` — it lists every user's Privy wallets, balances, and flags any
   mismatch. Privy has no API to delete a single wallet; pre-fix duplicates are empty and unused.
-- **Referrals.** Everyone on the waitlist and every app user has a share link (`/?ref=<code>`).
-  Waitlist: joining shows "#N in line"; each friend who joins through your link moves you up
-  (ranking = most referrals first, ties by who joined earlier). App: the Wallet screen has an
-  "Invite friends" card; a referral counts when the friend finishes onboarding (claims a username).
+- **Referrals.** Everyone on the waitlist and every app user has a share link (`/r/<code>`; the
+  older `/?ref=<code>` form still works). Waitlist: joining shows "#N in line" (with confetti for a
+  new signup); each friend who joins through your link moves you up (ranking = most referrals
+  first, ties by who joined earlier). **Anyone already on the list — including people who joined
+  before referrals existed — gets their link by typing their email into the waitlist form again**
+  ("You're already on the list — here's your link"); a code is created on the spot if they have none.
+  So to bring the early people in, just message them the site and ask them to re-enter their email.
+  Trade-off: that makes the form reveal whether an email is on the list (it returns no email/name,
+  only the entry's share link and rank; per-IP rate limiting slows enumeration).
+  **Ready-made tweet:** "Post on X" opens X's compose box pre-filled ("I'm #N on the Pexa waitlist…
+  use my referral link to climb up the ranking", their link, `#Pexa`). Posting the link unfurls a
+  personal 1200×630 picture ("I'm #N on the Pexa waitlist") rendered by `/api/og/waitlist` and wired
+  in by the `/r/<code>` page's `og:image` / `twitter:image`. X's web intent can't attach an uploaded
+  image, so the picture appears as the link's preview card. Set `NEXT_PUBLIC_SITE_URL` so those
+  preview URLs use your real domain. App: the Wallet screen has an "Invite friends" card; a referral
+  counts when the friend finishes onboarding (claims a username).
   Attribution is stored permanently in `referral_codes` / `referrals` (one referrer per person, ever),
   so sharing fees with referrers later is a query over that ledger — no data migration needed.
   Known limit: waitlist referrals count on signup (emails aren't verified yet), so someone could

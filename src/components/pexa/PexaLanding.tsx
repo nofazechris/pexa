@@ -5,6 +5,7 @@ import { PrivyPayLogo } from '@/components/brand/PrivyPayLogo';
 import { color } from '@/lib/design/tokens';
 import { ShareLink } from '@/components/pexa/ShareLink';
 import { shareMessage } from '@/lib/referrals/code';
+import { fireConfetti } from '@/lib/confetti';
 import { captureReferralFromUrl, getOwnWaitlistCode, getStoredReferral, rememberOwnWaitlistCode } from '@/lib/referrals/client';
 
 /**
@@ -550,6 +551,8 @@ function WaitlistForm() {
   const [status, setStatus] = useState<WaitStatus>('idle');
   const [message, setMessage] = useState('');
   const [referral, setReferral] = useState<WaitlistReferral | null>(null);
+  /** How to greet them: a brand-new signup, someone who was already on the list, or a return visit. */
+  const [greeting, setGreeting] = useState<'new' | 'already' | 'back'>('new');
 
   // On load: remember a friend's `?ref=` link (so signing up credits them), and if this visitor
   // already joined on this device, show their current place in line instead of the form.
@@ -565,6 +568,7 @@ function WaitlistForm() {
         const data = (await res.json()) as { referral?: WaitlistReferral };
         if (alive && data.referral) {
           setReferral(data.referral);
+          setGreeting('back'); // remembered on this device: welcome them back, no confetti
           setStatus('success');
           setMessage("You're on the list.");
         }
@@ -593,14 +597,18 @@ function WaitlistForm() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: value, company, ref: getStoredReferral() }),
       });
-      const data = (await res.json().catch(() => ({}))) as { message?: string; referral?: WaitlistReferral };
+      const data = (await res.json().catch(() => ({}))) as { message?: string; alreadyJoined?: boolean; referral?: WaitlistReferral };
       if (res.ok) {
         setStatus('success');
         setMessage(data.message ?? "You're on the list.");
+        setGreeting(data.alreadyJoined ? 'already' : 'new');
         if (data.referral) {
           setReferral(data.referral);
           rememberOwnWaitlistCode(data.referral.code); // so a return visit shows their place in line
         }
+        // Celebrate a genuinely new signup — not someone who was already on the list, and never a
+        // return visit that just reloads their status.
+        if (!data.alreadyJoined) fireConfetti();
       } else {
         setStatus('error');
         setMessage(data.message ?? 'Something went wrong. Please try again.');
@@ -617,7 +625,9 @@ function WaitlistForm() {
       <div style={{ maxWidth: '460px', margin: '0 auto', textAlign: 'left', border: `1px solid ${color.primarySoftBorder}`, background: color.surface, borderRadius: '16px', padding: 'clamp(18px,3vw,24px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
           <span style={{ width: 22, height: 22, borderRadius: '50%', background: color.primary, color: '#fff', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', animation: 'pp-pop .34s cubic-bezier(.2,.8,.3,1) both' }}>✓</span>
-          <span style={{ fontSize: '14.5px', fontWeight: 500, color: color.primaryHover }}>You’re on the list.</span>
+          <span style={{ fontSize: '14.5px', fontWeight: 500, color: color.primaryHover }}>
+            {greeting === 'already' ? 'You’re already on the list — here’s your link.' : greeting === 'back' ? 'Welcome back — you’re on the list.' : 'You’re on the list.'}
+          </span>
         </div>
         {position ? (
           <div style={{ marginTop: '14px', display: 'flex', alignItems: 'baseline', gap: '9px', flexWrap: 'wrap' }}>

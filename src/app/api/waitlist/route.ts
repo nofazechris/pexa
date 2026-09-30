@@ -62,18 +62,26 @@ export async function POST(req: Request) {
     if (!res.ok) {
       return jsonError(400, res.error, { message: 'Please enter a valid email address.' });
     }
-    // Already on the list: the same generic success as a new signup, with nothing extra — returning
-    // a position or link here would reveal who is on the list to anyone who types an email.
-    if (!res.created) return NextResponse.json(SUCCESS);
-
-    // New signup. Everything below is best-effort: the signup itself is already saved, so a hiccup
-    // in the referral bookkeeping must never turn into a failed signup.
+    // Someone who is already on the list gets their existing link and place in line back (that's how
+    // people who joined before referrals existed pick up their link, and how anyone who lost theirs
+    // recovers it) — with `alreadyJoined: true` so the page can greet them accordingly.
+    // Trade-off, by product choice: this means the form reveals whether an email is on the waitlist.
+    // It returns no personal data (no email/name — just the entry's public share link and rank), and
+    // the per-IP rate limit slows enumeration. If that ever matters, the alternative is to email the
+    // link instead of showing it (needs email configured).
+    // Only a genuine FIRST signup triggers side effects: crediting the referrer and sending the
+    // welcome email (so the form can't be used to spam a stranger's inbox or re-credit anyone).
+    //
+    // Everything below is best-effort: the signup itself is already saved, so a hiccup in the
+    // referral bookkeeping must never turn into a failed signup.
     try {
       const code = await getOrCreateCode('waitlist', res.id);
-      if (ref) await recordReferral({ code: ref, refereeType: 'waitlist', refereeId: res.id }).catch((e) => console.error('[waitlist] referral credit failed:', e));
+      if (res.created && ref) {
+        await recordReferral({ code: ref, refereeType: 'waitlist', refereeId: res.id }).catch((e) => console.error('[waitlist] referral credit failed:', e));
+      }
       const status = await waitlistStatus(res.id);
       const link = buildReferralLink(siteOrigin(req), code);
-      if (status) {
+      if (status && res.created) {
         const welcome = waitlistWelcomeEmail({ position: status.position, total: status.total, link });
         const to = res.email;
         after(async () => {
@@ -82,6 +90,9 @@ export async function POST(req: Request) {
       }
       return NextResponse.json({
         ...SUCCESS,
+        // Returning members are told so, and shown their existing link and place in line.
+        message: res.created ? SUCCESS.message : "You're already on the list — here's your link.",
+        alreadyJoined: !res.created,
         referral: status ? { code, link, position: status.position, total: status.total, referrals: status.referrals } : { code, link },
       });
     } catch (e) {

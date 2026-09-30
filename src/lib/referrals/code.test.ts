@@ -41,22 +41,38 @@ describe('normalizeReferralCode', () => {
 });
 
 describe('links and sharing', () => {
-  it('builds the link and tolerates a trailing slash on the origin', () => {
-    expect(buildReferralLink('https://pexaapp.xyz', 'abc23xyz')).toBe('https://pexaapp.xyz/?ref=abc23xyz');
-    expect(buildReferralLink('https://pexaapp.xyz/', 'abc23xyz')).toBe('https://pexaapp.xyz/?ref=abc23xyz');
+  it('builds the /r/<code> share link and tolerates a trailing slash on the origin', () => {
+    expect(buildReferralLink('https://pexaapp.xyz', 'abc23xyz')).toBe('https://pexaapp.xyz/r/abc23xyz');
+    expect(buildReferralLink('https://pexaapp.xyz/', 'abc23xyz')).toBe('https://pexaapp.xyz/r/abc23xyz');
   });
 
-  it('mentions the position only when known', () => {
-    expect(shareMessage({ position: 12 })).toContain('#12');
+  it('the ready-made tweet states the position and asks people to use the referral link to climb', () => {
+    const t = shareMessage({ position: 12 });
+    expect(t).toContain("I'm #12 on the Pexa waitlist");
+    expect(t.toLowerCase()).toContain('referral link');
+    expect(t.toLowerCase()).toContain('climb up the ranking');
+  });
+
+  it('has a sensible tweet when the position is not known, with no stray "#"', () => {
     expect(shareMessage()).not.toContain('#');
+    expect(shareMessage().toLowerCase()).toContain('referral link');
   });
 
   it('URL-encodes the link and text in every share URL', () => {
-    const link = 'https://pexaapp.xyz/?ref=abc23xyz';
+    const link = 'https://pexaapp.xyz/r/abc23xyz';
     const urls = shareUrls(link, "I'm #3 & ready");
     expect(urls.x).toContain(encodeURIComponent(link));
     expect(urls.x).toContain(encodeURIComponent("I'm #3 & ready"));
     expect(urls.whatsapp).toContain(encodeURIComponent(link));
     expect(urls.telegram).toContain(encodeURIComponent(link));
+  });
+
+  it('the X link opens a ready-to-post tweet: text + link + the #Pexa hashtag', () => {
+    const u = new URL(shareUrls('https://pexaapp.xyz/r/abc23xyz', 'hello').x);
+    expect(u.hostname).toBe('twitter.com');
+    expect(u.pathname).toBe('/intent/tweet');
+    expect(u.searchParams.get('text')).toBe('hello');
+    expect(u.searchParams.get('url')).toBe('https://pexaapp.xyz/r/abc23xyz');
+    expect(u.searchParams.get('hashtags')).toBe('Pexa');
   });
 });

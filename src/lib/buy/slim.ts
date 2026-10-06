@@ -62,3 +62,72 @@ export function slimForAgent(value: unknown, maxChars: number): { output: unknow
   const text = JSON.stringify(slimValue(value, 0, 1) ?? null);
   return { output: text.slice(0, maxChars), truncated: true };
 }
+
+/**
+ * Recover the data from a JSON text that was cut off partway: drop the unfinished tail, then close whatever
+ * brackets were still open. Returns undefined when nothing complete can be recovered.
+ */
+export function salvageTruncatedJson(text: string): unknown {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  let lastGood = -1;
+  let stackAtGood: string[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === '\\') escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else if (c === '{') stack.push('}');
+    else if (c === '[') stack.push(']');
+    else if (c === '}' || c === ']') {
+      stack.pop();
+      // A value inside a container just finished: this is a safe place to cut.
+      if (stack.length >= 1) {
+        lastGood = i;
+        stackAtGood = [...stack];
+      }
+    }
+  }
+  if (lastGood < 0) return undefined;
+  try {
+    return JSON.parse(text.slice(0, lastGood + 1) + stackAtGood.reverse().join(''));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Turn a service's reply into real data. Gateways often return JSON as a string (sometimes twice over, and
+ * sometimes cut short by our own storage limit); this unwraps it. Anything that isn't JSON comes back as given.
+ */
+export function parseMaybeJson(value: unknown): unknown {
+  let v = value;
+  for (let depth = 0; depth < 3; depth++) {
+    if (typeof v !== 'string') return v;
+    const t = v.trim();
+    if (!t || (t[0] !== '{' && t[0] !== '[' && t[0] !== '"')) return v;
+    try {
+      v = JSON.parse(t);
+      continue;
+    } catch {
+      /* maybe cut short — try to recover below */
+    }
+    if (t[0] === '"') {
+      // A JSON string literal that was cut inside the string: close it, then unwrap what it holds.
+      try {
+        v = JSON.parse(t.replace(/\\$/, '') + '"');
+        continue;
+      } catch {
+        return v;
+      }
+    }
+    const salvaged = salvageTruncatedJson(t);
+    return salvaged === undefined ? v : salvaged;
+  }
+  return v;
+}

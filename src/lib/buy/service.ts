@@ -37,7 +37,7 @@ import {
   type BuyCapability,
 } from './catalog';
 import { DEFAULT_BUY_SETTINGS, HARD_CAP_ATOMIC, evaluateBuyPurchase, sanitizeBuySettings, type BuyDecision, type BuySettings } from './policy';
-import { slimForAgent } from './slim';
+import { parseMaybeJson, slimForAgent } from './slim';
 
 /**
  * Buy integration service (§ Buy). Pexa's agent buys paid services from Celo's x402 marketplace on a
@@ -445,10 +445,16 @@ export async function cancelPurchase(userId: string, purchaseId: string): Promis
   return res.length > 0;
 }
 
+/**
+ * What we keep of a service's reply. It is unwrapped (gateways often send JSON as a string) and pruned to a
+ * budget BEFORE it is stored, so the saved result is always valid, compact data — never a JSON text sliced off
+ * mid-way, which is what a plain size cap produced.
+ */
 function capJson(v: unknown, max: number): string {
   let s: string;
   try {
-    s = JSON.stringify(v) ?? 'null';
+    const kept = slimForAgent(parseMaybeJson(v), max - 200).output;
+    s = JSON.stringify(kept) ?? 'null';
   } catch {
     s = '"[unserializable]"';
   }
@@ -591,15 +597,10 @@ export type BuyOutcome =
   | { status: 'uncertain'; purchase: PurchaseView; message: string }
   | { status: 'not_charged'; code: string; message: string };
 
-export function agentOutput(row: BuyPurchaseRow): { output: unknown; truncated: boolean } {
+export function agentOutput(row: BuyPurchaseRow, maxChars = MAX_AGENT_OUTPUT_CHARS): { output: unknown; truncated: boolean } {
   if (!row.responseJson) return { output: null, truncated: false };
-  let parsed: unknown = row.responseJson;
-  try {
-    parsed = JSON.parse(row.responseJson);
-  } catch {
-    /* keep raw (it was truncated when stored) */
-  }
-  return slimForAgent(parsed, MAX_AGENT_OUTPUT_CHARS);
+  // Also recovers results stored before pruning existed (JSON text, doubly encoded, cut at the old size cap).
+  return slimForAgent(parseMaybeJson(row.responseJson), maxChars);
 }
 
 /**

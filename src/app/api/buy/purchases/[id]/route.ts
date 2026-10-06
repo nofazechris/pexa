@@ -17,7 +17,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     const user = await getOrCreateUser(auth.user.userId);
     const row = await getPurchase(user.id, id);
     if (!row) return jsonError(404, 'not_found');
-    const { output, truncated } = agentOutput(row);
+    const { output, truncated } = agentOutput(row, 20_000); // the receipt screen can show more than the agent reads
     return NextResponse.json({ purchase: toPurchaseView(row), output, outputTruncated: truncated });
   } catch (e) {
     return errorResponse(e);

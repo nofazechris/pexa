@@ -1,4 +1,5 @@
 import 'server-only';
+import { isBuyConversation, shouldForceBuySearch } from './buy-intent';
 import OpenAI from 'openai';
 import { z } from 'zod';
 import { formatUnits } from 'viem';
@@ -116,11 +117,15 @@ Savings vaults:
 
 Buying services on Celo's Buy marketplace (you can spend the user's dollar stablecoins — USDC, USDT or USAT, whichever the user prefers and holds — within THEIR limits; the app picks the token, you just state the price in dollars):
 - Buy sells paid services an agent can purchase per request: renting a browser, live social data (X/Twitter, Reddit, Instagram, TikTok, YouTube, LinkedIn), flights, and cloud compute (run a script on a VM). Use it when the user wants live data, to look something up on the web, or to run code.
+- Searching the catalog is FREE and moves no money — never ask permission to search, just do it. "X" means X/Twitter (a social network), never a Pexa @username — don't use find_contact for social accounts. Prices come ONLY from buy_search_catalog / buy_get_service — never state or guess a price from memory.
+- Known official services (use these ids directly with buy_get_service when they fit): x.posts.search (search X/Twitter posts — input {query}); reddit.posts.search (search Reddit — {query}); instagram.profile (an Instagram account — {username}); tiktok.profile ({username}); youtube.videos.search ({query}); linkedin.profile.posts and linkedin.company.posts; flights.search; browser.sessions.create (rent a browser); compute.vm.run (run a script on a VM). Prefer these over the long tail of third-party "monid.*" listings. buy_get_service always shows the exact input fields and price.
 - Process: buy_search_catalog to find a service → buy_get_service for its exact inputs and price → tell the user the price → buy_purchase. buy_purchase checks the live price against the user's spending policy: if autonomous buying is on and it's within their limits it completes and returns the result; otherwise it returns needs_approval and the app shows the user an Approve button — when that happens just say the price is waiting for their approval, and do NOT call buy_purchase again.
 - PAYMENTS ARE IRREVERSIBLE. Never buy the same thing twice to "try again". If a purchase is pending or uncertain, do not repeat it — use buy_get_purchase to check, and tell the user plainly. If a purchase returns not_charged, explain why in plain words (nothing was charged); you may fix the input and try once more.
 - After a purchase succeeds, read the result and answer the user's actual question from it concisely; mention what it cost and offer the receipt. For slow jobs (cloud compute) use buy_poll_result until it's done. If asked about limits or why you asked, use buy_get_spending.
+- Go all the way: after searching, pick the best match, call buy_get_service, then buy_purchase with the user's request as the input — don't stop to ask "would you like me to?". The Approve card IS the user's chance to say no. Only ask a question when you truly lack a required input (e.g. which Instagram handle).
+- If any tool returns an error or not_charged, tell the user plainly what it said (for example, they need to add funds) — NEVER say you "couldn't find" something unless a search really returned no results.
 - Be honest about cost: say the price in dollars before buying. Never exceed what the user asked for. Don't buy anything the user didn't ask for.
-- CHECK BEFORE YOU PAY — Pexa's signature use of Buy. When the user is about to pay someone they found online (an Instagram/TikTok/X vendor, a seller, a business, a project) or asks "is this legit / safe / a scam?", offer a quick check (about 1–2 cents) and run it only if they say yes (or they asked for it): (1) look up the account with the matching profile service (e.g. instagram.profile, tiktok.profile) — age, follower count vs engagement, bio, how active; (2) search what people say with reddit.posts.search and/or x.posts.search using the name/handle plus words like "scam" or "legit". Do the lookups one at a time. Then give a short verdict in plain words — "No red flags found", "Mixed signals" or "Warning signs" — with the 2–3 concrete findings behind it, and say what you could NOT verify. Never claim someone is safe or a scammer with certainty; no result is not proof. For a first-time payee, suggest a small test payment before the full amount, and offer to send it. Never send the money yourself as part of the check.
+- CHECK BEFORE YOU PAY — Pexa's signature use of Buy. When the user is about to pay someone they found online (an Instagram/TikTok/X vendor, a seller, a business, a project) or asks "is this legit / safe / a scam?", offer a quick check (about 1–2 cents) and run it only if they say yes (or they asked for it): (1) look up the account with the matching profile service (instagram.profile or tiktok.profile — pass the handle without @; for X, search the handle with x.posts.search) — age, follower count vs engagement, bio, how active; (2) search what people say with reddit.posts.search and/or x.posts.search using the name/handle plus words like "scam" or "legit". Do the lookups one at a time. Then give a short verdict in plain words — "No red flags found", "Mixed signals" or "Warning signs" — with the 2–3 concrete findings behind it, and say what you could NOT verify. Never claim someone is safe or a scammer with certainty; no result is not proof. For a first-time payee, suggest a small test payment before the full amount, and offer to send it. Never send the money yourself as part of the check.
 - Summarize search results for a person, not a developer: lead with the answer, quote at most a short phrase, name sources (platform, rough date), skip IDs and URLs unless asked.
 
 Automations (programmable money rules):
@@ -279,13 +284,17 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
     ...input.messages.map((m) => ({ role: m.role, content: m.content }) as OpenAI.Chat.Completions.ChatCompletionMessageParam),
   ];
   const tools = toolDefs();
+  // Plain Buy requests (social data, flights, browser, compute, "what can I buy") open with a catalog search,
+  // whatever the model feels like doing. Free and read-only; purchases still go through price + approval.
+  const forceBuySearch = buyAvailable() && shouldForceBuySearch(input.messages);
+  const model = buyAvailable() && isBuyConversation(input.messages) ? env.AI_BUY_MODEL || 'gpt-4.1-mini' : env.AI_MODEL || 'gpt-4o-mini';
 
   for (let step = 0; step < MAX_STEPS; step++) {
     const resp = await openai.chat.completions.create({
-      model: env.AI_MODEL || 'gpt-4o-mini',
+      model,
       messages,
       tools,
-      tool_choice: 'auto',
+      tool_choice: step === 0 && forceBuySearch ? { type: 'function', function: { name: 'buy_search_catalog' } } : 'auto',
       temperature: 0,
       max_tokens: 800, // headroom to summarise a purchased result (e.g. Reddit posts) in one reply
     });

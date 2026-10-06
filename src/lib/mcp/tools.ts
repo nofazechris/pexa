@@ -290,7 +290,7 @@ export const TOOLS: ToolDef[] = [
 
   tool({
     name: 'find_contact',
-    description: 'Look up a PrivyPay user by @username. Reports whether they exist and are in your contacts.',
+    description: 'Look up a Pexa user by @username. Reports whether they exist and are in your contacts. ONLY for Pexa accounts — never for Instagram/X/TikTok/Reddit handles or for "X" the social network.',
     schema: z.object({ username: z.string().min(1).describe('The @username to look up.') }),
     handler: async (ctx, args) => {
       const name = normalizeUsername(args.username);
@@ -429,7 +429,7 @@ export const TOOLS: ToolDef[] = [
     description:
       "Search Buy — Celo's marketplace of paid services an agent can purchase with dollar stablecoins (USDC, USDT or USAT): rent a browser, social data (X/Twitter, Reddit, Instagram, TikTok, YouTube, LinkedIn), flights, and cloud compute (run a script on a VM). Returns service ids with starting prices. Use this first when the user wants live data, web access, or computing.",
     schema: z.object({
-      query: z.string().max(200).optional().describe('What the user wants, e.g. "reddit posts about celo" or "run a python script".'),
+      query: z.string().max(200).optional().describe('The KIND of service wanted, e.g. "x posts search", "instagram profile", "flights", "run a script". The topic to research (e.g. "stablecoins") goes in the purchase input later, not here. Leave empty to browse everything.'),
       platform: z.string().max(40).optional().describe('Narrow to one category: browser, compute, x, reddit, instagram, tiktok, youtube, linkedin, flights.'),
       limit: z.number().int().min(1).max(15).optional(),
     }),

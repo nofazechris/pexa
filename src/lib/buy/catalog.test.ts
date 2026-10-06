@@ -122,18 +122,21 @@ describe('search', () => {
     expect(searchCapabilities(caps, { query: 'open a website' })[0].id).toBe('browser.sessions.create'); // website → browser
   });
 
-  it('narrows by platform, and returns nothing for a query that matches nothing', () => {
+  it('narrows by platform, and falls back to the marketplace overview when no words match', () => {
     expect(searchCapabilities(caps, { platform: 'compute' }).map((c) => c.id)).toEqual(['compute.vm.run']);
     const x = searchCapabilities(caps, { platform: 'twitter' }); // "twitter" is understood as the catalog's "x"
     expect(x.map((c) => c.id)).toContain('x.posts.search');
     expect(x.every((c) => c.platform === 'x')).toBe(true);
-    expect(searchCapabilities(caps, { query: 'zzzqqq' })).toEqual([]);
+    // Never an empty answer: an unmatched query gets the overview (one official listing per category).
+    const overview = searchCapabilities(caps, { query: 'zzzqqq' });
+    expect(overview.length).toBeGreaterThan(1);
+    expect(new Set(overview.map((c) => c.platform)).size).toBe(overview.length);
   });
 
-  it('with no query lists the cheapest first, and respects the limit', () => {
+  it('with no query gives an overview — one listing per category — and respects the limit', () => {
     const all = searchCapabilities(caps, { limit: 2 });
     expect(all).toHaveLength(2);
-    expect(all[0].id).toBe('browser.sessions.create'); // $0.0036 is the cheapest
+    expect(new Set(all.map((c) => c.platform)).size).toBe(2);
   });
 });
 
@@ -203,5 +206,74 @@ describe('real-world catalog shapes', () => {
 
   it('finds the Instagram profile lookup for a vendor check', () => {
     expect(searchCapabilities(caps, { query: 'is this instagram vendor legit', limit: 3 }).map((c) => c.id)).toContain('instagram.profile');
+  });
+});
+
+describe('search never answers "nothing" for a topic query', () => {
+  const entry = (id: string, platform: string, description: string, atomic: string) => ({
+    id, title: id, description, available: true, method: 'POST', url: `https://gateway.usebuy.ai/v1/${id.replace(/\./g, '/')}`, platform,
+    inputSchema: { type: 'object', required: ['query'], properties: { query: { type: 'string' } } },
+    price: { usd: 'x', atomic, tokens: ['USDC'], pricingModel: 'per_call' },
+  });
+  const caps = normalizeGatewayCatalog({
+    payment: { payTo: '0x20faAca5F980E29639A0FCC6dcA6988E18ed333B' },
+    capabilities: [
+      entry('monid.youtube.tikhub.get-video-captions', 'youtube', 'Get captions', '3000'),
+      entry('youtube.videos.search', 'youtube', 'Search public YouTube videos by keyword.', '6000'),
+      entry('monid.x.tikhub.trending', 'x', 'Trending', '6000'),
+      entry('x.posts.search', 'x', 'Search public X posts by keyword.', '6000'),
+      entry('reddit.posts.search', 'reddit', 'Search public Reddit posts.', '6000'),
+      entry('flights.search', 'flights', 'Search Google Flights.', '23000'),
+    ],
+  }).capabilities;
+
+  it('a topic with a platform returns that platform’s official listings first', () => {
+    const ids = searchCapabilities(caps, { query: 'stablecoins', platform: 'x' }).map((c) => c.id);
+    expect(ids[0]).toBe('x.posts.search');
+    expect(ids.every((id) => id.includes('.x.') || id.startsWith('x.'))).toBe(true);
+  });
+
+  it('a topic with no platform returns a tour: one official listing per category, not the cheapest oddity', () => {
+    const r = searchCapabilities(caps, { query: 'stablecoins' });
+    expect(r.map((c) => c.platform)).toEqual(['x', 'reddit', 'youtube', 'flights']);
+    expect(r.find((c) => c.platform === 'youtube')!.id).toBe('youtube.videos.search');
+  });
+
+  it('browsing with no query is the same tour', () => {
+    expect(searchCapabilities(caps, {}).map((c) => c.id)).toEqual(['x.posts.search', 'reddit.posts.search', 'youtube.videos.search', 'flights.search']);
+  });
+
+  it('real matches still win over the fallback', () => {
+    expect(searchCapabilities(caps, { query: 'flights' })[0].id).toBe('flights.search');
+  });
+});
+
+describe('search resilience (weak-model inputs)', () => {
+  const entry = (id: string, platform: string, description: string) => ({
+    id, title: id, description, available: true, method: 'POST', url: `https://gateway.usebuy.ai/v1/${id.replace(/\./g, '/')}`, platform,
+    inputSchema: { type: 'object', required: ['query'], properties: { query: { type: 'string' } } },
+    price: { usd: 'x', atomic: '6000', tokens: ['USDC'], pricingModel: 'per_call' },
+  });
+  const caps = normalizeGatewayCatalog({
+    payment: { payTo: '0x20faAca5F980E29639A0FCC6dcA6988E18ed333B' },
+    capabilities: [
+      entry('monid.instagram.tikhub.fetch-user-following', 'instagram', 'Get user following'),
+      entry('instagram.profile', 'instagram', 'Return public Instagram profile data by username.'),
+      entry('x.posts.search', 'x', 'Search public X posts by keyword.'),
+      entry('reddit.posts.search', 'reddit', 'Search public Reddit posts.'),
+    ],
+  }).capabilities;
+
+  it('a platform hint full of junk still finds the right category', () => {
+    expect(searchCapabilities(caps, { query: 'stablecoins', platform: 'x posts search' })[0].id).toBe('x.posts.search');
+  });
+
+  it('an unknown platform is ignored, not treated as "no results"', () => {
+    expect(searchCapabilities(caps, { query: 'reddit', platform: 'banana' })[0].id).toBe('reddit.posts.search');
+  });
+
+  it('an Instagram handle does not match inside unrelated words ("ng" in "following")', () => {
+    const r = searchCapabilities(caps, { query: 'sneakerplug_ng', platform: 'instagram' });
+    expect(r[0].id).toBe('instagram.profile');
   });
 });

@@ -183,7 +183,12 @@ export function searchCapabilities(
   caps: readonly BuyCapability[],
   opts: { query?: string; platform?: string; limit?: number },
 ): BuyCapability[] {
-  const platform = opts.platform ? (SYNONYMS[opts.platform.toLowerCase()] ?? opts.platform.toLowerCase()) : null;
+  // A platform hint can arrive as junk from a weak model ("x posts search"); use the first word in it that is
+  // a real category, and ignore it otherwise rather than filtering everything away.
+  const known = new Set(caps.map((c) => c.platform.toLowerCase()));
+  const platform = opts.platform
+    ? (opts.platform.toLowerCase().split(/[^a-z0-9]+/).map((w) => SYNONYMS[w] ?? w).find((w) => known.has(w)) ?? null)
+    : null;
   const pool = platform ? caps.filter((c) => c.platform.toLowerCase() === platform) : [...caps];
   const q = tokens(opts.query ?? '');
   const implied = impliedPlatforms(opts.query ?? '');
@@ -194,6 +199,8 @@ export function searchCapabilities(
     const hay = { id: c.id.toLowerCase(), title: c.title.toLowerCase(), desc: c.description.toLowerCase(), plat: c.platform.toLowerCase() };
     for (const t of q) {
       if (hay.plat === t) score += 5;
+      // Fragments under 3 letters ("ng" in a handle) would match inside unrelated words ("followiNG").
+      if (t.length < 3) continue;
       if (hay.id.includes(t)) score += 3;
       if (hay.title.includes(t)) score += 3;
       if (hay.desc.includes(t)) score += 1;
@@ -204,16 +211,35 @@ export function searchCapabilities(
     return { c, score };
   });
 
-  return scored
-    .filter((s) => q.length === 0 || s.score > 0)
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      const pa = priceFrom(a.c) ?? 10n ** 18n;
-      const pb = priceFrom(b.c) ?? 10n ** 18n;
-      return pa < pb ? -1 : pa > pb ? 1 : 0;
-    })
-    .slice(0, limit)
-    .map((s) => s.c);
+  const byRank = (x: { c: BuyCapability; score: number }, y: { c: BuyCapability; score: number }) => {
+    if (y.score !== x.score) return y.score - x.score;
+    const px = priceFrom(x.c) ?? 10n ** 18n;
+    const py = priceFrom(y.c) ?? 10n ** 18n;
+    return px < py ? -1 : px > py ? 1 : 0;
+  };
+
+  const matched = scored.filter((s) => s.score > 0);
+  if (matched.length > 0) return matched.sort(byRank).slice(0, limit).map((s) => s.c);
+
+  // Nothing matched the words. People (and models) often describe the TOPIC they want data about ("stablecoins")
+  // rather than the kind of service, so never answer "nothing" — fall back to something useful:
+  //  • inside a category: that category's best listings, official ones first;
+  //  • otherwise: a tour of the marketplace, the best listing from each category.
+  const firstParty = (c: BuyCapability) => (c.id.startsWith('monid.') ? 0 : 1);
+  const best = (x: BuyCapability, y: BuyCapability) => {
+    if (firstParty(y) !== firstParty(x)) return firstParty(y) - firstParty(x);
+    const px = priceFrom(x) ?? 10n ** 18n;
+    const py = priceFrom(y) ?? 10n ** 18n;
+    return px < py ? -1 : px > py ? 1 : 0;
+  };
+  if (platform) return [...pool].sort(best).slice(0, limit);
+
+  const byPlatform = new Map<string, BuyCapability>();
+  for (const c of [...pool].sort(best)) if (!byPlatform.has(c.platform)) byPlatform.set(c.platform, c);
+  const order = ['x', 'reddit', 'instagram', 'tiktok', 'youtube', 'linkedin', 'flights', 'browser', 'compute'];
+  return [...byPlatform.values()]
+    .sort((x, y) => (order.indexOf(x.platform) + 1 || 99) - (order.indexOf(y.platform) + 1 || 99))
+    .slice(0, limit);
 }
 
 /** Required inputs the caller left out (cheap local check before we spend a network round-trip). */

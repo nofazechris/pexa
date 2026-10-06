@@ -29,6 +29,8 @@ const schema = z.object({
   AI_PROVIDER: z.enum(['openai']).default('openai'),
   AI_API_KEY: z.string().min(1).optional(),
   AI_MODEL: z.string().min(1).optional(),
+  /** Model for Buy conversations (tool-heavy; small models fumble them). Defaults to gpt-4.1-mini. */
+  AI_BUY_MODEL: z.string().min(1).optional(),
 
   // Wallet provider (Stage 5 / §11–12) — Privy embedded wallets.
   WALLET_PROVIDER: z.enum(['privy']).default('privy'),

@@ -265,18 +265,10 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
       'STATUS: Real naira funding/on-ramp is NOT live yet (beta). If the user wants to fund/buy with naira, tell them funding is coming soon — you can still show a quote, but do not imply real money moved.',
     );
   }
-  try {
-    const memories = await listMemories(ctx.userId, 20);
-    if (memories.length) dynamic.push('What you remember about this user:\n' + memories.map((m) => `- ${m}`).join('\n'));
-  } catch {
-    /* memory is best-effort */
-  }
-  try {
-    const alerts = await activeAlerts(ctx.userId);
-    if (alerts.length) dynamic.push('PROACTIVELY tell the user (a money-rule alert is active):\n' + alerts.map((a) => `- ${a} — and it currently is.`).join('\n'));
-  } catch {
-    /* alerts are best-effort */
-  }
+  // Both are best-effort and independent, so fetch them together (each DB round trip is ~1s from the cloud).
+  const [memories, alerts] = await Promise.all([listMemories(ctx.userId, 20).catch(() => [] as string[]), activeAlerts(ctx.userId).catch(() => [] as string[])]);
+  if (memories.length) dynamic.push('What you remember about this user:\n' + memories.map((m) => `- ${m}`).join('\n'));
+  if (alerts.length) dynamic.push('PROACTIVELY tell the user (a money-rule alert is active):\n' + alerts.map((a) => `- ${a} — and it currently is.`).join('\n'));
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: 'system', content: SYSTEM_PROMPT },
@@ -287,17 +279,29 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
   // Plain Buy requests (social data, flights, browser, compute, "what can I buy") open with a catalog search,
   // whatever the model feels like doing. Free and read-only; purchases still go through price + approval.
   const forceBuySearch = buyAvailable() && shouldForceBuySearch(input.messages);
-  const model = buyAvailable() && isBuyConversation(input.messages) ? env.AI_BUY_MODEL || 'gpt-4.1-mini' : env.AI_MODEL || 'gpt-4o-mini';
+  const baseModel = env.AI_MODEL || 'gpt-4o-mini';
+  // Buy conversations get a stronger model; if the account can't use it, fall back to the normal one rather than fail the turn.
+  let model = buyAvailable() && isBuyConversation(input.messages) ? env.AI_BUY_MODEL || 'gpt-4.1-mini' : baseModel;
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    const resp = await openai.chat.completions.create({
-      model,
-      messages,
-      tools,
-      tool_choice: step === 0 && forceBuySearch ? { type: 'function', function: { name: 'buy_search_catalog' } } : 'auto',
-      temperature: 0,
-      max_tokens: 800, // headroom to summarise a purchased result (e.g. Reddit posts) in one reply
-    });
+    const request = (m: string) =>
+      openai.chat.completions.create({
+        model: m,
+        messages,
+        tools,
+        tool_choice: step === 0 && forceBuySearch ? { type: 'function', function: { name: 'buy_search_catalog' } } : 'auto',
+        temperature: 0,
+        max_tokens: 800, // headroom to summarise a purchased result (e.g. Reddit posts) in one reply
+      });
+    let resp;
+    try {
+      resp = await request(model);
+    } catch (e) {
+      if (model === baseModel) throw e;
+      console.error(`[agent] model ${model} failed, falling back to ${baseModel}:`, e instanceof Error ? e.message : e);
+      model = baseModel;
+      resp = await request(model);
+    }
     const msg = resp.choices[0]?.message;
     if (!msg) return { reply: "Sorry — I couldn't process that." };
 

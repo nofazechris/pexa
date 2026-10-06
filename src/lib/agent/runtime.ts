@@ -11,6 +11,8 @@ import { getWalletByUserId } from '@/lib/wallets/service';
 import { getFiatQuoteById } from '@/lib/fiat/service';
 import { presentQuote, type QuoteView } from '@/lib/fiat/present';
 import { listMemories } from './memory';
+import { buyAvailable, getApprovalPayload } from '@/lib/buy/service';
+import type { AuthorizationTypedData } from '@/lib/buy/x402';
 import { activeAlerts } from '@/lib/rules/worker';
 
 /**
@@ -34,6 +36,13 @@ const AGENT_TOOLS = new Set([
   'list_vaults',
   'deposit_to_vault',
   'withdraw_from_vault',
+  'buy_search_catalog',
+  'buy_get_service',
+  'buy_purchase',
+  'buy_get_purchase',
+  'buy_poll_result',
+  'buy_list_purchases',
+  'buy_get_spending',
   'get_profile',
   'get_balance',
   'get_deposit_details',
@@ -51,6 +60,17 @@ const AGENT_TOOLS = new Set([
   'confirm_payment',
   'create_buy_usdt_order',
   'create_sell_usdt_order',
+]);
+
+// Buy (Celo's x402 marketplace) tools — only offered where Buy runs (Celo mainnet).
+const BUY_TOOLS = new Set([
+  'buy_search_catalog',
+  'buy_get_service',
+  'buy_purchase',
+  'buy_get_purchase',
+  'buy_poll_result',
+  'buy_list_purchases',
+  'buy_get_spending',
 ]);
 
 // EXECUTE tools — intercepted for explicit user confirmation, never auto-run by the model.
@@ -94,6 +114,15 @@ Handling anything unfamiliar (be smart, stay honest):
 Savings vaults:
 - Vaults set money aside WITHIN the user's own wallet (like Pots/Spaces) — nothing moves on-chain, so there's no gas, no confirmation, and it works immediately. create_vault (optional target/goal), list_vaults, deposit_to_vault (a fixed amount, any time), withdraw_from_vault. get_balance reports on-chain, savedInVaults, and freely-available. Be honest: vault money is earmarked in the wallet, not sent anywhere.
 
+Buying services on Celo's Buy marketplace (you can spend the user's dollar stablecoins — USDC, USDT or USAT, whichever the user prefers and holds — within THEIR limits; the app picks the token, you just state the price in dollars):
+- Buy sells paid services an agent can purchase per request: renting a browser, live social data (X/Twitter, Reddit, Instagram, TikTok, YouTube, LinkedIn), flights, and cloud compute (run a script on a VM). Use it when the user wants live data, to look something up on the web, or to run code.
+- Process: buy_search_catalog to find a service → buy_get_service for its exact inputs and price → tell the user the price → buy_purchase. buy_purchase checks the live price against the user's spending policy: if autonomous buying is on and it's within their limits it completes and returns the result; otherwise it returns needs_approval and the app shows the user an Approve button — when that happens just say the price is waiting for their approval, and do NOT call buy_purchase again.
+- PAYMENTS ARE IRREVERSIBLE. Never buy the same thing twice to "try again". If a purchase is pending or uncertain, do not repeat it — use buy_get_purchase to check, and tell the user plainly. If a purchase returns not_charged, explain why in plain words (nothing was charged); you may fix the input and try once more.
+- After a purchase succeeds, read the result and answer the user's actual question from it concisely; mention what it cost and offer the receipt. For slow jobs (cloud compute) use buy_poll_result until it's done. If asked about limits or why you asked, use buy_get_spending.
+- Be honest about cost: say the price in dollars before buying. Never exceed what the user asked for. Don't buy anything the user didn't ask for.
+- CHECK BEFORE YOU PAY — Pexa's signature use of Buy. When the user is about to pay someone they found online (an Instagram/TikTok/X vendor, a seller, a business, a project) or asks "is this legit / safe / a scam?", offer a quick check (about 1–2 cents) and run it only if they say yes (or they asked for it): (1) look up the account with the matching profile service (e.g. instagram.profile, tiktok.profile) — age, follower count vs engagement, bio, how active; (2) search what people say with reddit.posts.search and/or x.posts.search using the name/handle plus words like "scam" or "legit". Do the lookups one at a time. Then give a short verdict in plain words — "No red flags found", "Mixed signals" or "Warning signs" — with the 2–3 concrete findings behind it, and say what you could NOT verify. Never claim someone is safe or a scammer with certainty; no result is not proof. For a first-time payee, suggest a small test payment before the full amount, and offer to send it. Never send the money yourself as part of the check.
+- Summarize search results for a person, not a developer: lead with the answer, quote at most a short phrase, name sources (platform, rough date), skip IDs and URLs unless asked.
+
 Automations (programmable money rules):
 - create_money_rule "autosave_on_income" saves part of every incoming payment automatically — either a PERCENT (e.g. 10%) OR a FIXED amount (e.g. $10) per payment; the user chooses. It can go into a savings "vault" (an earmark; works now, no delegation) OR on-chain to a "destination" @username (executes later under policy + the user's delegated wallet). "balance_alert" notifies when balance drops below a threshold. If the user wants to save but hasn't said percent-or-fixed, ask which. Manage rules with list_money_rules and set_money_rule_status (pause/resume/cancel). Setting up a rule moves no money at setup.
 
@@ -110,7 +139,20 @@ export interface PendingAction {
   render:
     | { type: 'payment_preview'; recipient: string; amount: string; token: string; network: string }
     | { type: 'fiat_quote'; quote: QuoteView }
-    | { type: 'receive'; address: string; username: string; network: string; qr: string };
+    | { type: 'receive'; address: string; username: string; network: string; qr: string }
+    /** A Buy purchase waiting for the user's approval; the browser signs `typedData` with the user's wallet. */
+    | {
+        type: 'buy_quote';
+        purchaseId: string;
+        service: string;
+        price: string;
+        priceAtomic: string;
+        token: string;
+        expiresAt: string;
+        from: string;
+        typedData: AuthorizationTypedData;
+        note: string;
+      };
 }
 
 export interface AgentTurn {
@@ -148,6 +190,7 @@ function toolDefs(): OpenAI.Chat.Completions.ChatCompletionTool[] {
   for (const t of TOOLS) {
     if (!AGENT_TOOLS.has(t.name)) continue;
     if (!fiatOn && FIAT_TOOLS.has(t.name)) continue;
+    if (BUY_TOOLS.has(t.name) && !buyAvailable()) continue;
     defs.push({ type: 'function', function: { name: t.name, description: t.description, parameters: toolParams(t.schema) } });
   }
   return defs;
@@ -244,7 +287,7 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
       tools,
       tool_choice: 'auto',
       temperature: 0,
-      max_tokens: 500,
+      max_tokens: 800, // headroom to summarise a purchased result (e.g. Reddit posts) in one reply
     });
     const msg = resp.choices[0]?.message;
     if (!msg) return { reply: "Sorry — I couldn't process that." };
@@ -271,6 +314,7 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
 
     // Otherwise (or on a failed render), run the auto tools and feed results back.
     messages.push({ role: 'assistant', content: msg.content ?? '', tool_calls: msg.tool_calls });
+    let buyApproval: { purchaseId: string; message: string; args: Record<string, unknown> } | null = null;
     for (const call of calls) {
       if (call.type !== 'function') continue;
       let content: string;
@@ -282,13 +326,46 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
           content = JSON.stringify({ error: 'unknown_tool' });
         } else {
           try {
-            content = JSON.stringify(await def.handler(ctx, parseArgs(call.function.arguments)));
+            const result = await def.handler(ctx, parseArgs(call.function.arguments));
+            content = JSON.stringify(result);
+            // A Buy purchase that needs the user's approval ends the turn with an approval card.
+            if (call.function.name === 'buy_purchase' && !buyApproval) {
+              const r = result as { status?: string; message?: string; purchase?: { id?: string } };
+              if (r.status === 'needs_approval' && r.purchase?.id) {
+                buyApproval = { purchaseId: r.purchase.id, message: r.message ?? '', args: parseArgs(call.function.arguments) };
+              }
+            }
           } catch (e) {
             content = JSON.stringify({ error: e instanceof ToolError ? e.code : 'error', message: e instanceof Error ? e.message : 'Tool failed.' });
           }
         }
       }
       messages.push({ role: 'tool', tool_call_id: call.id, content });
+    }
+
+    if (buyApproval) {
+      const payload = await getApprovalPayload(ctx.userId, buyApproval.purchaseId);
+      if (payload) {
+        return {
+          reply: (msg.content ?? '').trim() || `${buyApproval.message} Approve it below and I’ll buy it.`.trim(),
+          action: {
+            tool: 'buy_purchase',
+            args: buyApproval.args,
+            render: {
+              type: 'buy_quote',
+              purchaseId: payload.purchase.id,
+              service: payload.purchase.service,
+              price: payload.purchase.price,
+              priceAtomic: payload.purchase.priceAtomic,
+              token: payload.purchase.token,
+              expiresAt: payload.purchase.expiresAt,
+              from: payload.from,
+              typedData: payload.typedData,
+              note: buyApproval.message,
+            },
+          },
+        };
+      }
     }
   }
 

@@ -13,6 +13,7 @@ import { createRequest } from '@/lib/requests/service';
 import { addMemory } from '@/lib/agent/memory';
 import { createAutosaveRule, createAutosaveToVaultRule, createBalanceAlertRule, listRules, setRuleStatus } from '@/lib/rules/service';
 import { createVault, listVaults, findVault, depositToVault, withdrawFromVault, availableBalanceRaw } from '@/lib/vaults/service';
+import { BuyError, buyAvailable, buyService, getServiceDetail, getSpending, listPurchases, outcomeFor, pollResult, searchCatalog } from '@/lib/buy/service';
 import { getFiatQuote, createFiatOrder, getFiatOrder, orderKeyForQuote, getConvertedUsdtBalanceRaw } from '@/lib/fiat/service';
 import { verifyPayoutAccount, listPayoutAccounts, createPayout } from '@/lib/fiat/payouts';
 import { presentQuote, presentOrder, presentPayoutAccount } from '@/lib/fiat/present';
@@ -47,6 +48,14 @@ export interface ToolDef {
 
 function decimals(token = 'USDC'): number {
   return getToken(token, activeNetwork.network)?.decimals ?? 6;
+}
+
+/** Turn a Buy service error into a structured tool error the model can read and relay. */
+function buyToolError(e: unknown): Error {
+  if (e instanceof ToolError) return e;
+  if (e instanceof BuyError) return new ToolError(e.code, e.message);
+  console.error('[buy tool] unexpected error:', e);
+  return new ToolError('buy_failed', 'Something went wrong talking to the Buy marketplace. Nothing was charged.');
 }
 
 /** Parse a decimal amount string into smallest-unit bigint; throws on a malformed value. */
@@ -410,6 +419,99 @@ export const TOOLS: ToolDef[] = [
       if (!res.ok) throw new ToolError('request_failed', res.error);
       return { request: res.request };
     },
+  }),
+
+  // --- Buy: Celo's x402 marketplace. Pexa's agent buys paid services (browser rental, social data,
+  //     cloud compute) with the user's dollar stablecoins (USDC, USDT or USAT) under the user's spending policy. Payments are
+  //     irreversible, so the tools are deliberately small, explicit about outcomes, and never retry.
+  tool({
+    name: 'buy_search_catalog',
+    description:
+      "Search Buy — Celo's marketplace of paid services an agent can purchase with dollar stablecoins (USDC, USDT or USAT): rent a browser, social data (X/Twitter, Reddit, Instagram, TikTok, YouTube, LinkedIn), flights, and cloud compute (run a script on a VM). Returns service ids with starting prices. Use this first when the user wants live data, web access, or computing.",
+    schema: z.object({
+      query: z.string().max(200).optional().describe('What the user wants, e.g. "reddit posts about celo" or "run a python script".'),
+      platform: z.string().max(40).optional().describe('Narrow to one category: browser, compute, x, reddit, instagram, tiktok, youtube, linkedin, flights.'),
+      limit: z.number().int().min(1).max(15).optional(),
+    }),
+    handler: async (_ctx, args) => {
+      try {
+        return await searchCatalog({ query: args.query, platform: args.platform, limit: args.limit });
+      } catch (e) {
+        throw buyToolError(e);
+      }
+    },
+  }),
+
+  tool({
+    name: 'buy_get_service',
+    description:
+      "Get one Buy service's exact input fields and price options. Call this before buy_purchase so the input you build is valid and you can tell the user the price.",
+    schema: z.object({ serviceId: z.string().min(1).max(200) }),
+    handler: async (_ctx, args) => {
+      try {
+        const detail = await getServiceDetail(args.serviceId);
+        if (!detail) throw new ToolError('not_found', `No Buy service with id "${args.serviceId}". Use buy_search_catalog to find one.`);
+        return detail;
+      } catch (e) {
+        throw buyToolError(e);
+      }
+    },
+  }),
+
+  tool({
+    name: 'buy_purchase',
+    mutating: true,
+    description:
+      "Buy a Buy service for the user. Pexa fetches the live price, checks it against the user's spending policy, then either completes the purchase (only if the user turned on autonomous buying and it's within their limits) or leaves it for the user to approve. Returns status: purchased (includes the result), needs_approval (STOP — tell the user a price is waiting for their approval; do not call again), pending, uncertain, or not_charged. PAYMENTS ARE IRREVERSIBLE: never repeat a purchase that is pending or uncertain, and never buy the same thing twice to 'try again'. `input` must match the service's input fields (see buy_get_service).",
+    schema: z.object({
+      serviceId: z.string().min(1).max(200),
+      input: z.record(z.string(), z.unknown()).default({}).describe('The service input, matching its inputSchema.'),
+    }),
+    handler: async (ctx, args) => {
+      if (!buyAvailable()) throw new ToolError('buy_unavailable', 'Buy runs on Celo mainnet only.');
+      try {
+        const out = await buyService(ctx.userId, { capabilityId: args.serviceId, input: args.input });
+        if (out.status === 'needs_approval') {
+          return { ...out, approveUrl: (env.NEXT_PUBLIC_SITE_URL ?? '') + '/app', note: 'Nothing was charged. The user must approve this price.' };
+        }
+        return out;
+      } catch (e) {
+        throw buyToolError(e);
+      }
+    },
+  }),
+
+  tool({
+    name: 'buy_get_purchase',
+    description: 'Get the status and result of a Buy purchase by id. Use it to read a finished purchase\'s result, or to check one that was pending. Never buy again to "refresh" a result.',
+    schema: z.object({ purchaseId: z.string().min(1) }),
+    handler: async (ctx, args) => outcomeFor(ctx.userId, args.purchaseId),
+  }),
+
+  tool({
+    name: 'buy_poll_result',
+    description: 'Follow up on a paid job that finishes later (for example a cloud VM script): reads its current status/output from the poll address the service returned. Free and read-only. Poll every ~15 seconds until it is done.',
+    schema: z.object({ purchaseId: z.string().min(1) }),
+    handler: async (ctx, args) => {
+      const r = await pollResult(ctx.userId, args.purchaseId);
+      if (!r.ok) throw new ToolError(r.code, r.message);
+      return { result: r.result, truncated: r.truncated };
+    },
+  }),
+
+  tool({
+    name: 'buy_list_purchases',
+    description: "List the user's recent Buy purchases (status, price, receipt link).",
+    schema: z.object({ limit: z.number().int().min(1).max(25).optional() }),
+    handler: async (ctx, args) => ({ purchases: await listPurchases(ctx.userId, args.limit ?? 10) }),
+  }),
+
+  tool({
+    name: 'buy_get_spending',
+    description:
+      "Get the user's Buy spending guardrails and usage: whether autonomous buying is on, their auto-buy limit, daily budget, how much was spent today, and their wallet balance. Use it to explain why Pexa asked for approval or to tell the user how much room is left.",
+    schema: z.object({}),
+    handler: async (ctx) => getSpending(ctx.userId),
   }),
 
   // --- Fiat / NGN↔USDT (autonomous money). Same policy + authorization model as payments: the

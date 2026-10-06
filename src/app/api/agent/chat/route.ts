@@ -9,6 +9,9 @@ import { runAgentTurn, type AgentMessage } from '@/lib/agent/runtime';
  * client to confirm. Execution happens only through /api/agent/execute after the user confirms —
  * the model never moves money itself (§11).
  */
+// An autonomous Buy purchase can run inside a chat turn (the agent waits for the paid result).
+export const maxDuration = 300;
+
 export async function POST(req: Request) {
   const auth = await withUser(req);
   if ('response' in auth) return auth.response;

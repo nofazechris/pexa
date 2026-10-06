@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, uniqueIndex, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, timestamp, uniqueIndex, index, boolean } from 'drizzle-orm/pg-core';
 
 /**
  * Database schema (§34–35).
@@ -488,6 +488,77 @@ export const referrals = pgTable(
   (t) => [uniqueIndex('referrals_referee_uq').on(t.refereeType, t.refereeId)],
 );
 
+/**
+ * Agent spending settings (§ Buy). Per-user guardrails for the Buy marketplace integration: whether
+ * Pexa may buy on its own, the largest single autonomous purchase, and a daily autonomous budget.
+ * Amounts are USDC in atomic units (6 decimals) as strings. No row = the conservative defaults
+ * (autonomy off), so nothing is autonomous until the user opts in.
+ */
+export const buySettings = pgTable('buy_settings', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  autonomous: boolean('autonomous').notNull().default(false),
+  autoLimitAtomic: text('auto_limit_atomic').notNull().default('100000'),
+  dailyBudgetAtomic: text('daily_budget_atomic').notNull().default('1000000'),
+  /** Preferred dollar stablecoin for Buy payments: USDC | USDT | USAT. */
+  payToken: text('pay_token').notNull().default('USDC'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Agent purchases from Buy (x402 on Celo) — the ledger. x402 payments are irreversible, so each
+ * purchase moves through explicit states and is claimed atomically before any payment is sent:
+ *
+ *   QUOTED      priced by the gateway, awaiting approval/signature (expires with the signed window)
+ *   SUBMITTING  claimed; the paid request is in flight (never claimable again)
+ *   PAID        settled and the service responded
+ *   UNCERTAIN   we can't prove it didn't settle — NEVER retried; tx hash / correlation id kept for follow-up
+ *   FAILED      refused before settlement (nothing charged)
+ *   CANCELLED   the user declined   |   EXPIRED  the quote lapsed unused
+ */
+export const buyPurchases = pgTable(
+  'buy_purchases',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** The wallet that pays — the user's pinned wallet at quote time. */
+    walletAddress: text('wallet_address').notNull(),
+    capabilityId: text('capability_id').notNull(),
+    title: text('title').notNull(),
+    method: text('method').notNull(),
+    url: text('url').notNull(),
+    /** The exact JSON request body that was quoted (and will be paid for). */
+    requestBody: text('request_body').notNull(),
+    priceAtomic: text('price_atomic').notNull(),
+    /** Which stablecoin this purchase is paid in: USDC | USDT | USAT (all 6 decimals, $1). */
+    payToken: text('pay_token').notNull().default('USDC'),
+    payTo: text('pay_to').notNull(),
+    status: text('status').notNull().default('QUOTED'),
+    /** autonomous | confirmed — who authorized the payment. */
+    mode: text('mode'),
+    /** The chosen x402 payment requirement + version (JSON). */
+    requirementJson: text('requirement_json').notNull(),
+    /** The EIP-3009 typed data the wallet signs (JSON). */
+    authorizationJson: text('authorization_json').notNull(),
+    txHash: text('tx_hash'),
+    correlationId: text('correlation_id'),
+    /** The service's response (JSON, size-capped). */
+    responseJson: text('response_json'),
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+  },
+  (t) => [index('buy_purchases_user_created_idx').on(t.userId, t.createdAt)],
+);
+
+export type BuySettingsRow = typeof buySettings.$inferSelect;
+export type BuyPurchaseRow = typeof buyPurchases.$inferSelect;
 export type ReferralCodeRow = typeof referralCodes.$inferSelect;
 export type ReferralRow = typeof referrals.$inferSelect;
 export type UserRow = typeof users.$inferSelect;

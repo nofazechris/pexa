@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { BuyResult, BuyTypedData } from './useBuy';
 
 /**
  * Pexa's agent chat — the primary surface. Every message goes to the server-side tool-calling agent
@@ -33,18 +34,36 @@ export interface PendingActionView {
   render:
     | { type: 'payment_preview'; recipient: string; amount: string; token: string; network: string }
     | { type: 'fiat_quote'; quote: FiatQuoteView }
-    | { type: 'receive'; address: string; username: string; network: string; qr: string };
+    | { type: 'receive'; address: string; username: string; network: string; qr: string }
+    | { type: 'buy_quote'; purchaseId: string; service: string; price: string; priceAtomic: string; token: string; expiresAt: string; from: string; typedData: BuyTypedData; note: string };
+}
+
+/** A Buy purchase waiting for approval (shown as an Approve card). */
+export interface BuyQuoteCardData {
+  purchaseId: string;
+  service: string;
+  price: string;
+  priceAtomic: string;
+  /** Stablecoin it will be paid in: USDC | USDT | USAT. */
+  token: string;
+  expiresAt: string;
+  from: string;
+  typedData: BuyTypedData;
+  note: string;
 }
 
 export interface ChatMessage {
   id: number;
   role: 'user' | 'agent';
-  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive';
+  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result';
   text?: string;
   /** Card payloads. */
   kind?: 'send' | 'buy' | 'sell';
   preview?: { recipient: string; amount: string; token: string; network: string };
   receive?: { address: string; username: string; network: string; qr: string };
+  buy?: BuyQuoteCardData;
+  /** A finished Buy purchase (the receipt card). */
+  buyResult?: BuyResult;
   quote?: FiatQuoteView;
   order?: { orderId: string; status: string };
   result?: { status: string; txHash?: string | null; explorerUrl?: string | null };
@@ -82,6 +101,10 @@ export interface AgentChatDeps {
     txHash?: string | null;
     explorerUrl?: string | null;
   }>;
+  /** Approve a Buy purchase: sign with the user's wallet, pay, and wait for the recorded result. */
+  executeBuy?: (args: { purchaseId: string; from: string; typedData: BuyTypedData }) => Promise<BuyResult>;
+  /** Decline a quoted Buy purchase (best effort). */
+  cancelBuy?: (purchaseId: string) => Promise<void>;
 }
 
 /** Plain-language error copy — no codes, no jargon. The whole point is that people understand it. */
@@ -107,6 +130,8 @@ export function useAgentChat(deps: AgentChatDeps) {
   const [draft, setDraft] = useState('');
   const idRef = useRef(1);
   const depsRef = useRef(deps);
+  /** Always-current `send`, for system-driven follow-ups scheduled from inside other callbacks. */
+  const sendRef = useRef<((text?: string, opts?: { hidden?: boolean }) => Promise<unknown>) | null>(null);
   useEffect(() => {
     depsRef.current = deps;
   });
@@ -122,12 +147,15 @@ export function useAgentChat(deps: AgentChatDeps) {
   }, []);
 
   const send = useCallback(
-    async (text?: string) => {
+    async (text?: string, opts?: { hidden?: boolean }) => {
       const raw = (typeof text === 'string' ? text : draft).trim();
       if (!raw || agentState === 'processing' || agentState === 'thinking') return;
       const d = depsRef.current;
-      push({ role: 'user', text: raw });
-      setDraft('');
+      // A hidden turn is a system-driven follow-up (e.g. "read the purchase result"): no user bubble.
+      if (!opts?.hidden) {
+        push({ role: 'user', text: raw });
+        setDraft('');
+      }
       setAgentState('thinking');
 
       // Build bounded conversational history from prior text turns.
@@ -161,6 +189,9 @@ export function useAgentChat(deps: AgentChatDeps) {
       if (action) {
         if (action.render.type === 'receive') {
           push({ role: 'agent', type: 'receive', receive: action.render });
+        } else if (action.render.type === 'buy_quote') {
+          const { purchaseId, service, price, priceAtomic, token, expiresAt, from, typedData, note } = action.render;
+          push({ role: 'agent', type: 'buy_quote', buy: { purchaseId, service, price, priceAtomic, token, expiresAt, from, typedData, note }, status: 'awaiting' });
         } else if (action.render.type === 'payment_preview') {
           push({
             role: 'agent',
@@ -208,6 +239,27 @@ export function useAgentChat(deps: AgentChatDeps) {
           push({ role: 'agent', type: 'error', title: 'Payment failed.', hint: r.error ?? 'Something went wrong settling this payment.' });
           setAgentState('error');
         }
+      } else if (m.type === 'buy_quote' && m.buy) {
+        const buy = m.buy;
+        if (!d.executeBuy) {
+          setStatus(id, 'failed');
+          push({ role: 'agent', type: 'error', title: 'Buying isn’t available here.', hint: 'Nothing was charged.' });
+          setAgentState('error');
+        } else {
+          const r = await d.executeBuy({ purchaseId: buy.purchaseId, from: buy.from, typedData: buy.typedData });
+          push({ role: 'agent', type: 'buy_result', buyResult: r });
+          if (r.ok) {
+            setAgentState('success');
+            // Let the agent read what was bought and answer the original question — no visible user bubble.
+            setTimeout(
+              () => sendRef.current?.(`I approved the purchase (${buy.purchaseId}) and it went through. Read its result and answer my original request concisely.`, { hidden: true }),
+              500,
+            );
+          } else {
+            if (!r.purchase) setStatus(id, 'failed'); // never got as far as paying
+            setAgentState('error');
+          }
+        }
       } else if (m.type === 'fiat_quote' && m.execTool) {
         const r = await d.executeAction({ tool: m.execTool, args: m.execArgs ?? {} });
         if (r.ok) {
@@ -230,12 +282,19 @@ export function useAgentChat(deps: AgentChatDeps) {
 
   const cancel = useCallback(
     (id: number) => {
+      const m = messages.find((x) => x.id === id);
+      if (m?.type === 'buy_quote' && m.buy) void depsRef.current.cancelBuy?.(m.buy.purchaseId);
       setStatus(id, 'cancelled');
-      push({ role: 'agent', type: 'text', text: 'Cancelled. Nothing was sent.' });
+      push({ role: 'agent', type: 'text', text: m?.type === 'buy_quote' ? 'Cancelled. Nothing was charged.' : 'Cancelled. Nothing was sent.' });
       setAgentState('idle');
     },
-    [push, setStatus],
+    [messages, push, setStatus],
   );
+
+  // Keep the always-current `send` available to system-driven follow-ups (see `sendRef` above).
+  useEffect(() => {
+    sendRef.current = send;
+  });
 
   return { messages, agentState, health, draft, setDraft, send, confirm, cancel };
 }

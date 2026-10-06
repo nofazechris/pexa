@@ -185,3 +185,24 @@ balance = on-chain balance − everything earmarked.
 - [ ] `PRIVY_AUTHORIZATION_KEY` set + delegated actions enabled, if you want recurring auto-pay and
       on-chain auto-save to run unattended (vaults + vault auto-save work without it)
 - [ ] Fiat stays hidden: `FIAT_PUBLIC` / `FUNDING_LIVE` unset until Quidax merchant is live
+
+## Buy (Celo x402 marketplace)
+Pexa's agent can buy live data, browser access and cloud compute from Celo's Buy marketplace,
+paid in USDC on Celo **mainnet** (`CELO_NETWORK=mainnet`; on any other network Buy switches itself
+off and the agent tools disappear).
+
+- **No new env vars.** Migrations `0014` (`buy_settings`, `buy_purchases`) and `0015` (`pay_token` columns) — apply them like the others.
+- **Pay in USDC, USDT or USA₮ (USAT).** The user's choice lives on the Buy page; the server falls back to a token the wallet holds. To pay in USAT/USDT the wallet needs a balance of it (send it on Celo to the Pexa address).
+- **Payment format** (verified against the live gateway): x402 v1, scheme `exact`, network `celo`,
+  header `X-PAYMENT`; the payment is one USDC EIP-3009 `transferWithAuthorization`. The gateway pays gas.
+- **Two ways a purchase is approved.** Default: the agent shows an Approve card with the exact price and
+  the user signs once in the browser. Optional: **Autonomous buying** (Buy page toggle) lets Pexa
+  sign small purchases itself — it needs `PRIVY_AUTHORIZATION_KEY` + the user's delegated-actions consent,
+  and is capped by the user's per-purchase limit and daily budget.
+- **Hard limits (code, not config):** $5 per purchase; only the marketplace's own hosts; the payee
+  address is pinned to the one the catalog publishes; USDC only; authorization valid ≤10 minutes.
+- **Never retried:** Buy payments are irreversible and a 5xx may mean the payment settled, so those
+  purchases are marked "Needs checking" and are never re-sent automatically.
+- **Vercel:** the agent chat and `/api/buy/pay` use `maxDuration = 300` (compute purchases can take minutes).
+  This needs a plan that allows long functions (Pro).
+- **Try it:** fund the Pexa wallet with a few cents of USDC on Celo, open **Buy**, tap "Research Reddit".

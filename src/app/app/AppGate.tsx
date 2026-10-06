@@ -11,6 +11,7 @@ import { usePayment } from '@/components/auth/usePayment';
 import { useActivity } from '@/components/auth/useActivity';
 import { useRequests } from '@/components/auth/useRequests';
 import { useRecurring } from '@/components/auth/useRecurring';
+import { useBuy, type BuyTypedData } from '@/components/auth/useBuy';
 import type { PendingActionView, AgentFailReason } from '@/components/auth/useAgentChat';
 import { Spinner, Text } from '@/components/ui';
 import { color } from '@/lib/design/tokens';
@@ -37,6 +38,7 @@ export default function AppGate() {
   const { items: activity, refresh: refreshActivity } = useActivity();
   const { items: requests, markPaid: markRequestPaid, refresh: refreshRequests, cancel: cancelRequest, decline: declineRequest } = useRequests();
   const { items: recurring, setPaused: setRecurringPaused, cancel: cancelRecurring, refresh: refreshRecurring } = useRecurring();
+  const { executeBuy, cancelBuy } = useBuy();
   const router = useRouter();
 
   // The real hooks the agent + screens drive. The chat itself is now a server-side tool-calling
@@ -65,6 +67,14 @@ export default function AppGate() {
         }
         return { ok: false as const, error: res.error ?? 'Payment failed.' };
       },
+      // Approve a Buy purchase: sign with the user's wallet, pay, and wait for the recorded result.
+      executeBuy: async (args: { purchaseId: string; from: string; typedData: BuyTypedData }) => {
+        const r = await executeBuy(args);
+        refreshBalance();
+        refreshActivity();
+        return r;
+      },
+      cancelBuy,
       setRecurringPaused: (id: string, paused: boolean) => setRecurringPaused(id, paused),
       cancelRecurring: (id: string) => cancelRecurring(id),
       // The tool-calling agent: one message + recent history in, a reply (+ optional pending action) out.
@@ -126,7 +136,7 @@ export default function AppGate() {
         }
       },
     }),
-    [pay, refreshBalance, refreshActivity, refreshRequests, refreshRecurring, markRequestPaid, setRecurringPaused, cancelRecurring, getAccessToken],
+    [pay, refreshBalance, refreshActivity, refreshRequests, refreshRecurring, markRequestPaid, setRecurringPaused, cancelRecurring, getAccessToken, executeBuy, cancelBuy],
   );
 
   useEffect(() => {
@@ -214,6 +224,8 @@ export default function AppGate() {
       sendToAgent={hooks.sendToAgent}
       executeAction={hooks.executeAction}
       executeSend={hooks.executeSend}
+      executeBuy={hooks.executeBuy}
+      cancelBuy={hooks.cancelBuy}
       payRequest={hooks.payRequest}
       cancelRequest={cancelRequest}
       declineRequest={declineRequest}

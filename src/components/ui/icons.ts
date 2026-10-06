@@ -33,5 +33,6 @@ export {
   SlidersHorizontal as SettingsNavIcon,
   DotsThreeOutline as MoreIcon,
   ChatCircle as ChatIcon,
+  Storefront as BuyNavIcon,
   type Icon,
 } from '@phosphor-icons/react';

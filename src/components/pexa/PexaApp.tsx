@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { PrivyPayLogo } from '@/components/brand/PrivyPayLogo';
-import { ChatIcon, WalletIcon, ActivityIcon, PaymentsIcon, SettingsNavIcon, type Icon } from '@/components/ui/icons';
+import { ChatIcon, WalletIcon, ActivityIcon, PaymentsIcon, SettingsNavIcon, BuyNavIcon, type Icon } from '@/components/ui/icons';
 import { color } from '@/lib/design/tokens';
 import { statusColor } from '@/lib/format';
 import { ServiceConnect } from '@/components/app/ServiceConnect';
 import { AgentPayments } from '@/components/app/AgentPayments';
 import { ShareLink } from '@/components/pexa/ShareLink';
+import { BuyPage } from '@/components/pexa/BuyPage';
+import { BuyQuoteCard, BuyResultCard } from '@/components/pexa/BuyCards';
 import { shareMessage } from '@/lib/referrals/code';
 import { Modal } from '@/components/ui';
 import type { ActivityItem } from '@/components/auth/useActivity';
@@ -22,15 +24,16 @@ import { useAgentChat, type AgentChatDeps, type ChatMessage } from '@/components
  * next slices. Rebuilt from design/Pexa.dc.html.
  */
 
-type Page = 'chat' | 'wallet' | 'activity' | 'payments' | 'settings';
+type Page = 'chat' | 'wallet' | 'activity' | 'payments' | 'buy' | 'settings';
 const NAV: Array<{ key: Page; label: string; icon: Icon }> = [
   { key: 'chat', label: 'Chat', icon: ChatIcon },
   { key: 'wallet', label: 'Wallet', icon: WalletIcon },
   { key: 'activity', label: 'Activity', icon: ActivityIcon },
   { key: 'payments', label: 'Payments', icon: PaymentsIcon },
+  { key: 'buy', label: 'Buy', icon: BuyNavIcon },
   { key: 'settings', label: 'Settings', icon: SettingsNavIcon },
 ];
-const PAGE_TITLE: Record<Page, string> = { chat: 'Chat', wallet: 'Wallet', activity: 'Activity', payments: 'Payments', settings: 'Settings' };
+const PAGE_TITLE: Record<Page, string> = { chat: 'Chat', wallet: 'Wallet', activity: 'Activity', payments: 'Payments', buy: 'Buy', settings: 'Settings' };
 
 function money(n: number): string {
   return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -60,6 +63,8 @@ export interface PexaAppProps {
   sendToAgent: AgentChatDeps['sendToAgent'];
   executeAction: AgentChatDeps['executeAction'];
   executeSend: AgentChatDeps['executeSend'];
+  executeBuy?: AgentChatDeps['executeBuy'];
+  cancelBuy?: AgentChatDeps['cancelBuy'];
   /** Pay a received request through the engine, then mark it settled. */
   payRequest: (args: { requestId: string; recipient: string; amount: string }) => Promise<{ ok: boolean; error?: string }>;
   /** Cancel a request you sent; decline a request sent to you. */
@@ -90,8 +95,10 @@ export function PexaApp(props: PexaAppProps) {
       sendToAgent: props.sendToAgent,
       executeAction: props.executeAction,
       executeSend: props.executeSend,
+      executeBuy: props.executeBuy,
+      cancelBuy: props.cancelBuy,
     }),
-    [props.sendToAgent, props.executeAction, props.executeSend],
+    [props.sendToAgent, props.executeAction, props.executeSend, props.executeBuy, props.cancelBuy],
   );
   const chat = useAgentChat(deps);
 
@@ -202,6 +209,15 @@ export function PexaApp(props: PexaAppProps) {
                 setRecurringPaused={props.setRecurringPaused}
                 cancelRecurring={props.cancelRecurring}
                 onGoChat={() => setPage('chat')}
+              />
+            ) : null}
+            {page === 'buy' ? (
+              <BuyPage
+                getAccessToken={props.getAccessToken}
+                onAsk={(text) => {
+                  setPage('chat');
+                  chat.send(text);
+                }}
               />
             ) : null}
             {page === 'settings' ? <SettingsPage username={username} address={address} onSignOut={props.onSignOut} /> : null}
@@ -339,6 +355,8 @@ function ChatRow({ m, onConfirm, onCancel, onRetry, getAccessToken }: { m: ChatM
         {m.type === 'receipt' ? <ReceiptCard m={m} /> : null}
         {m.type === 'fiat_quote' ? <FiatQuoteCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
         {m.type === 'fiat_receipt' ? <FiatReceiptCard m={m} /> : null}
+        {m.type === 'buy_quote' ? <BuyQuoteCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
+        {m.type === 'buy_result' ? <BuyResultCard m={m} /> : null}
         {m.type === 'error' ? <ErrorCard m={m} onRetry={onRetry} /> : null}
         {m.type === 'receive' ? <ReceiveCard m={m} getAccessToken={getAccessToken} /> : null}
       </div>

@@ -44,3 +44,13 @@ export async function getNativeBalance(walletAddress: string): Promise<TokenBala
   const raw = await client.getBalance({ address: getAddress(walletAddress) as Address });
   return { symbol: activeNetwork.nativeSymbol, raw: raw.toString(), decimals: 18, formatted: formatUnits(raw, 18) };
 }
+
+/** Balance of one ERC-20 for a wallet (atomic units). Used for Buy's pay-token choice. */
+export async function getErc20Balance(tokenAddress: string, walletAddress: string): Promise<bigint> {
+  return (await celoClient().readContract({
+    address: getAddress(tokenAddress),
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [getAddress(walletAddress) as Address],
+  })) as bigint;
+}

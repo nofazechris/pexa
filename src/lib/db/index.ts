@@ -3,6 +3,7 @@ import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { env } from '@/lib/config';
 import * as schema from './schema';
+import { serverlessDatabaseUrl } from './url';
 
 /**
  * Database client (§33, §89).
@@ -36,11 +37,13 @@ export function getDb(): Db {
   // Cap connections per client. Supabase's pooler has a small ceiling (session mode ~15), and each
   // serverless instance (and each dev hot-reload) makes its own client — an unbounded pool quickly
   // hits "max clients reached". A small max + short idle timeout keeps us well under the ceiling.
-  client = postgres(url, {
+  // On Vercel use Supabase's transaction-mode pooler (see ./url) — session mode runs out at 15 clients.
+  const connectUrl = serverlessDatabaseUrl(url, { onVercel: Boolean(process.env.VERCEL), forceSession: process.env.DATABASE_FORCE_SESSION === '1' });
+  client = postgres(connectUrl, {
     prepare: false,
     ssl: isLocal || urlAsksSsl ? undefined : 'require',
     max: isLocal ? 10 : 3,
-    idle_timeout: 20,
+    idle_timeout: 10,
   });
   db = drizzle(client, { schema });
   return db;

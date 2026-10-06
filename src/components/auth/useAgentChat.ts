@@ -76,6 +76,8 @@ export interface ChatMessage {
   hint?: string;
   /** When set, the error card shows a retry button that re-sends this message. */
   retryText?: string;
+  /** Set when a saved chat is reopened: a card that was waiting for a tap is now inert (ask again to redo it). */
+  restored?: boolean;
 }
 
 /** Why an agent turn failed — drives the plain-language message and the health indicator. */
@@ -105,6 +107,10 @@ export interface AgentChatDeps {
   executeBuy?: (args: { purchaseId: string; from: string; typedData: BuyTypedData }) => Promise<BuyResult>;
   /** Decline a quoted Buy purchase (best effort). */
   cancelBuy?: (purchaseId: string) => Promise<void>;
+  /** Save the chat so it survives a reload and can be continued later (best effort). */
+  saveConversation?: (id: string, messages: ChatMessage[]) => Promise<void>;
+  /** Load a saved chat; the server has already made any pending money card inert. */
+  loadConversation?: (id: string) => Promise<{ messages: ChatMessage[]; nextId: number } | null>;
 }
 
 /** Plain-language error copy — no codes, no jargon. The whole point is that people understand it. */
@@ -129,6 +135,11 @@ export function useAgentChat(deps: AgentChatDeps) {
   const [health, setHealth] = useState<'ok' | 'degraded'>('ok');
   const [draft, setDraft] = useState('');
   const idRef = useRef(1);
+  /** Which saved chat this is. Created when the first message is saved; replaced by "New chat" / opening another. */
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const conversationIdRef = useRef<string | null>(null);
+  /** Set right after opening a saved chat so loading it doesn't immediately re-save (and bump) it. */
+  const skipSaveRef = useRef(false);
   const depsRef = useRef(deps);
   /** Always-current `send`, for system-driven follow-ups scheduled from inside other callbacks. */
   const sendRef = useRef<((text?: string, opts?: { hidden?: boolean }) => Promise<unknown>) | null>(null);
@@ -296,5 +307,53 @@ export function useAgentChat(deps: AgentChatDeps) {
     sendRef.current = send;
   });
 
-  return { messages, agentState, health, draft, setDraft, send, confirm, cancel };
+  // Save the chat as it goes (once it settles), so a reload or a closed tab never loses it.
+  useEffect(() => {
+    const save = depsRef.current.saveConversation;
+    if (!save || agentState === 'thinking' || agentState === 'processing') return;
+    if (!messages.some((m) => m.role === 'user')) return;
+    if (skipSaveRef.current) {
+      skipSaveRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      let id = conversationIdRef.current;
+      if (!id) {
+        id = crypto.randomUUID();
+        conversationIdRef.current = id;
+        setConversationId(id);
+      }
+      void save(id, messages);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [messages, agentState]);
+
+  /** Start a fresh chat. The previous one stays in History. */
+  const newChat = useCallback(() => {
+    conversationIdRef.current = null;
+    setConversationId(null);
+    skipSaveRef.current = false;
+    idRef.current = 1;
+    setMessages([]);
+    setDraft('');
+    setAgentState('idle');
+  }, []);
+
+  /** Reopen a saved chat and carry on where it left off. Returns false if it couldn't be loaded. */
+  const openChat = useCallback(async (id: string): Promise<boolean> => {
+    const load = depsRef.current.loadConversation;
+    if (!load) return false;
+    const loaded = await load(id);
+    if (!loaded) return false;
+    conversationIdRef.current = id;
+    setConversationId(id);
+    skipSaveRef.current = true;
+    idRef.current = loaded.nextId;
+    setMessages(loaded.messages);
+    setDraft('');
+    setAgentState('idle');
+    return true;
+  }, []);
+
+  return { messages, agentState, health, draft, setDraft, send, confirm, cancel, conversationId, newChat, openChat };
 }

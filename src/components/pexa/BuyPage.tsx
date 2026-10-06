@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { color } from '@/lib/design/tokens';
 import type { BuyPurchaseView } from '@/components/auth/useBuy';
+import { PurchaseRow, ReceiptSheet } from '@/components/pexa/BuyReceipts';
 import { PAY_TOKENS, PAY_TOKEN_SYMBOLS, type PayTokenSymbol } from '@/lib/buy/tokens';
 
 /**
@@ -51,25 +52,6 @@ const TRY_PROMPTS: Array<{ title: string; sub: string; text: string }> = [
   { title: 'See what you can buy', sub: 'Browse the marketplace', text: 'What can I buy on Buy? Show me the categories and some example prices.' },
 ];
 
-function statusTone(status: string): { fg: string; label: string } {
-  switch (status) {
-    case 'PAID':
-      return { fg: color.success, label: 'Paid' };
-    case 'UNCERTAIN':
-      return { fg: color.warning, label: 'Needs checking' };
-    case 'SUBMITTING':
-      return { fg: color.primaryHover, label: 'Processing' };
-    case 'QUOTED':
-      return { fg: color.mutedStrong, label: 'Awaiting approval' };
-    case 'CANCELLED':
-      return { fg: color.mutedStrong, label: 'Cancelled' };
-    case 'EXPIRED':
-      return { fg: color.mutedStrong, label: 'Expired' };
-    default:
-      return { fg: '#A8352A', label: 'Not charged' };
-  }
-}
-
 function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
   return (
     <button
@@ -100,6 +82,7 @@ export function BuyPage({
 }) {
   const [spending, setSpending] = useState<Spending | null>(null);
   const [purchases, setPurchases] = useState<BuyPurchaseView[]>([]);
+  const [open, setOpen] = useState<BuyPurchaseView | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -276,33 +259,12 @@ export function BuyPage({
             {purchases.length === 0 ? (
               <div style={{ padding: '20px 18px', fontSize: '13.5px', color: color.mutedStrong }}>Nothing bought yet. Ask your agent for something above.</div>
             ) : (
-              purchases.map((p, i) => {
-                const tone = statusTone(p.status);
-                return (
-                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 16px', borderTop: i ? `1px solid ${color.borderFaint}` : 'none' }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: '14px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.service}</div>
-                      <div style={{ fontSize: '12px', color: color.mutedStrong, marginTop: '2px' }}>
-                        {new Date(p.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                        {p.mode === 'autonomous' ? ' · bought automatically' : p.mode === 'confirmed' ? ' · you approved' : ''}
-                      </div>
-                    </div>
-                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px', flex: 'none' }}>
-                      <span style={{ fontFamily: MONO, fontSize: '12.5px', fontVariantNumeric: 'tabular-nums' }}>{p.price} {p.token}</span>
-                      <span style={{ fontSize: '12.5px', fontWeight: 500, color: tone.fg, minWidth: '86px', textAlign: 'right' }}>{tone.label}</span>
-                      {p.receiptUrl ? (
-                        <a href={p.receiptUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: color.primary, textDecoration: 'underline' }}>
-                          receipt
-                        </a>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })
+              purchases.map((p, i) => <PurchaseRow key={p.id} p={p} last={i === purchases.length - 1} onOpen={() => setOpen(p)} />)
             )}
           </div>
         </section>
       </div>
+      <ReceiptSheet purchase={open} onClose={() => setOpen(null)} getAccessToken={getAccessToken} onAsk={onAsk} />
     </div>
   );
 }

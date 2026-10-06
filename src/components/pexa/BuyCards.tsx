@@ -52,6 +52,8 @@ export function BuyQuoteCard({ m, onConfirm, onCancel }: { m: ChatMessage; onCon
               <span style={{ width: 12, height: 12, border: `2px solid ${color.primarySoftBorder}`, borderTopColor: color.primary, borderRadius: '50%', animation: 'pp-spin .8s linear infinite', display: 'inline-block' }} />
               Paying and waiting for the result…
             </>
+          ) : m.status === 'cancelled' && m.restored ? (
+            'From an earlier chat — ask again to buy this'
           ) : m.status === 'cancelled' ? (
             'Cancelled — nothing was charged'
           ) : (

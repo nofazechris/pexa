@@ -59,3 +59,12 @@ describe('isBuyConversation', () => {
     expect(isBuyConversation([u('send $5 to @amy'), a('Send $5 to @amy?'), u('yes')])).toBe(false);
   });
 });
+
+describe('isBuyConversation — receipts and past results', () => {
+  it.each(['I need the receipt for that', 'show my past purchases', 'what did it find?', 'what did that find'])('yes: %s', (t) => {
+    expect(isBuyConversation([u(t)])).toBe(true);
+  });
+  it('does not treat a normal payment receipt question as a reason to force a catalog search', () => {
+    expect(shouldForceBuySearch([u('I need the receipt for that')])).toBe(false);
+  });
+});

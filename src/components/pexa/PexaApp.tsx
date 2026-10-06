@@ -10,6 +10,9 @@ import { AgentPayments } from '@/components/app/AgentPayments';
 import { ShareLink } from '@/components/pexa/ShareLink';
 import { BuyPage } from '@/components/pexa/BuyPage';
 import { BuyQuoteCard, BuyResultCard } from '@/components/pexa/BuyCards';
+import { ContinueCard, HistorySheet } from '@/components/pexa/ChatHistory';
+import { PurchasesPanel } from '@/components/pexa/BuyReceipts';
+import type { useConversations } from '@/components/auth/useConversations';
 import { shareMessage } from '@/lib/referrals/code';
 import { Modal } from '@/components/ui';
 import type { ActivityItem } from '@/components/auth/useActivity';
@@ -65,6 +68,8 @@ export interface PexaAppProps {
   executeSend: AgentChatDeps['executeSend'];
   executeBuy?: AgentChatDeps['executeBuy'];
   cancelBuy?: AgentChatDeps['cancelBuy'];
+  /** Saved chats (history). Optional: without it the chat just isn't saved. */
+  conversations?: ReturnType<typeof useConversations>;
   /** Pay a received request through the engine, then mark it settled. */
   payRequest: (args: { requestId: string; recipient: string; amount: string }) => Promise<{ ok: boolean; error?: string }>;
   /** Cancel a request you sent; decline a request sent to you. */
@@ -97,8 +102,10 @@ export function PexaApp(props: PexaAppProps) {
       executeSend: props.executeSend,
       executeBuy: props.executeBuy,
       cancelBuy: props.cancelBuy,
+      saveConversation: props.conversations?.save,
+      loadConversation: props.conversations?.load,
     }),
-    [props.sendToAgent, props.executeAction, props.executeSend, props.executeBuy, props.cancelBuy],
+    [props.sendToAgent, props.executeAction, props.executeSend, props.executeBuy, props.cancelBuy, props.conversations],
   );
   const chat = useAgentChat(deps);
 
@@ -185,7 +192,7 @@ export function PexaApp(props: PexaAppProps) {
 
         <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-            {page === 'chat' ? <ChatScreen chat={chat} getAccessToken={props.getAccessToken} balance={balance} /> : null}
+            {page === 'chat' ? <ChatScreen chat={chat} getAccessToken={props.getAccessToken} balance={balance} conversations={props.conversations} /> : null}
             {page === 'wallet' ? (
               <WalletPage
                 balance={balance}
@@ -198,7 +205,16 @@ export function PexaApp(props: PexaAppProps) {
                 }}
               />
             ) : null}
-            {page === 'activity' ? <ActivityPage activity={activity} /> : null}
+            {page === 'activity' ? (
+              <ActivityPage
+                activity={activity}
+                getAccessToken={props.getAccessToken}
+                onAsk={(text) => {
+                  setPage('chat');
+                  chat.send(text);
+                }}
+              />
+            ) : null}
             {page === 'payments' ? (
               <PaymentsPage
                 requests={props.requests}
@@ -245,8 +261,9 @@ export function PexaApp(props: PexaAppProps) {
 
 /* ----------------------------------------------------------------- Chat screen */
 
-function ChatScreen({ chat, getAccessToken, balance }: { chat: ReturnType<typeof useAgentChat>; getAccessToken?: () => Promise<string | null>; balance?: string }) {
+function ChatScreen({ chat, getAccessToken, balance, conversations }: { chat: ReturnType<typeof useAgentChat>; getAccessToken?: () => Promise<string | null>; balance?: string; conversations?: ReturnType<typeof useConversations> }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -263,6 +280,19 @@ function ChatScreen({ chat, getAccessToken, balance }: { chat: ReturnType<typeof
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      {conversations ? (
+        <div style={{ flex: 'none', display: 'flex', justifyContent: 'flex-end', gap: '8px', padding: '10px clamp(14px,2.6vw,26px) 0' }}>
+          <button onClick={() => setHistoryOpen(true)} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '13px', fontWeight: 500, padding: '7px 12px', borderRadius: '999px', cursor: 'pointer' }}>
+            History
+          </button>
+          {chat.messages.length > 0 ? (
+            <button onClick={() => chat.newChat()} style={{ border: `1px solid ${color.primarySoftBorder}`, background: color.primarySoft, color: color.primaryHover, fontSize: '13px', fontWeight: 500, padding: '7px 12px', borderRadius: '999px', cursor: 'pointer' }}>
+              New chat
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {conversations ? <HistorySheet open={historyOpen} onClose={() => setHistoryOpen(false)} api={conversations} currentId={chat.conversationId} onOpen={chat.openChat} /> : null}
       <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: 'clamp(16px,2.6vw,30px) clamp(14px,2.6vw,26px)' }}>
         <div style={{ maxWidth: '700px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {empty ? (
@@ -284,6 +314,7 @@ function ChatScreen({ chat, getAccessToken, balance }: { chat: ReturnType<typeof
                   </button>
                 ))}
               </div>
+              {conversations ? <ContinueCard api={conversations} onOpen={chat.openChat} /> : null}
             </div>
           ) : null}
 
@@ -949,11 +980,26 @@ function WalletPage({
   );
 }
 
-function ActivityPage({ activity }: { activity: ActivityItem[] }) {
+function ActivityPage({ activity, getAccessToken, onAsk }: { activity: ActivityItem[]; getAccessToken?: () => Promise<string | null>; onAsk: (text: string) => void }) {
+  const [tab, setTab] = useState<'payments' | 'purchases'>('payments');
+  const seg = (key: 'payments' | 'purchases', label: string) => (
+    <button
+      onClick={() => setTab(key)}
+      aria-pressed={tab === key}
+      style={{ flex: 1, border: 'none', background: tab === key ? color.surface : 'transparent', color: tab === key ? color.ink : color.mutedStrong, fontSize: '13.5px', fontWeight: tab === key ? 600 : 500, padding: '9px 12px', borderRadius: '9px', cursor: 'pointer', boxShadow: tab === key ? '0 1px 2px rgba(15,23,42,.08)' : 'none' }}
+    >
+      {label}
+    </button>
+  );
   return (
     <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 'clamp(16px,2.6vw,28px) clamp(14px,2.6vw,26px) 40px' }}>
       <div style={{ maxWidth: '720px', margin: '0 auto', animation: 'pp-fade .22s ease both' }}>
-        <div style={{ background: color.surface, border: `1px solid ${color.border}`, borderRadius: '16px', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', gap: '4px', background: '#EEF0F4', borderRadius: '12px', padding: '4px', marginBottom: '14px' }}>
+          {seg('payments', 'Payments')}
+          {seg('purchases', 'Purchases & receipts')}
+        </div>
+        {tab === 'purchases' ? <PurchasesPanel getAccessToken={getAccessToken} onAsk={onAsk} /> : null}
+        {tab === 'payments' ? <div style={{ background: color.surface, border: `1px solid ${color.border}`, borderRadius: '16px', overflow: 'hidden' }}>
           {activity.length === 0 ? <div style={{ padding: '34px 18px', textAlign: 'center', fontSize: '14px', color: color.mutedStrong }}>Nothing here yet.</div> : null}
           {activity.map((t) => {
             const out = t.direction === 'out';
@@ -972,7 +1018,7 @@ function ActivityPage({ activity }: { activity: ActivityItem[] }) {
               </div>
             );
           })}
-        </div>
+        </div> : null}
       </div>
     </div>
   );

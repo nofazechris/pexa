@@ -45,5 +45,6 @@ export function isBuyConversation(messages: readonly TurnMessage[]): boolean {
   const recent = messages.slice(-6);
   if (recent.some((m) => isBuyIntent(m.content))) return true;
   const last = messages[messages.length - 1]?.content ?? '';
-  return /\bapproved the purchase\b/i.test(last);
+  // Asking about past purchases ("receipt for that", "what did it find") is Buy territory too.
+  return /\bapproved the purchase\b/i.test(last) || /\b(receipts?|(?:my|past|previous|last) (?:purchases?|buys?)|what did (?:it|that|you) (?:find|buy|get))\b/i.test(last);
 }

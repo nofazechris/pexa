@@ -12,6 +12,7 @@ import { useActivity } from '@/components/auth/useActivity';
 import { useRequests } from '@/components/auth/useRequests';
 import { useRecurring } from '@/components/auth/useRecurring';
 import { useBuy, type BuyTypedData } from '@/components/auth/useBuy';
+import { useConversations } from '@/components/auth/useConversations';
 import type { PendingActionView, AgentFailReason } from '@/components/auth/useAgentChat';
 import { Spinner, Text } from '@/components/ui';
 import { color } from '@/lib/design/tokens';
@@ -39,6 +40,7 @@ export default function AppGate() {
   const { items: requests, markPaid: markRequestPaid, refresh: refreshRequests, cancel: cancelRequest, decline: declineRequest } = useRequests();
   const { items: recurring, setPaused: setRecurringPaused, cancel: cancelRecurring, refresh: refreshRecurring } = useRecurring();
   const { executeBuy, cancelBuy } = useBuy();
+  const conversations = useConversations();
   const router = useRouter();
 
   // The real hooks the agent + screens drive. The chat itself is now a server-side tool-calling
@@ -226,6 +228,7 @@ export default function AppGate() {
       executeSend={hooks.executeSend}
       executeBuy={hooks.executeBuy}
       cancelBuy={hooks.cancelBuy}
+      conversations={conversations}
       payRequest={hooks.payRequest}
       cancelRequest={cancelRequest}
       declineRequest={declineRequest}

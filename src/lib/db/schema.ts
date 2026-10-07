@@ -582,7 +582,50 @@ export const agentConversations = pgTable(
   (t) => [index('agent_conversations_user_updated_idx').on(t.userId, t.updatedAt)],
 );
 
+/**
+ * Money that arrived in a user's wallet from OUTSIDE Pexa (a deposit): found by reading the token's on-chain
+ * Transfer events to the wallet. Payments between Pexa users are not here — they are already `payments`. One
+ * row per on-chain transfer, so re-scanning can never record a deposit twice.
+ */
+export const walletDeposits = pgTable(
+  'wallet_deposits',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    walletAddress: text('wallet_address').notNull(),
+    txHash: text('tx_hash').notNull(),
+    logIndex: integer('log_index').notNull(),
+    /** USDC | USDT | USAT */
+    token: text('token').notNull(),
+    amountAtomic: text('amount_atomic').notNull(),
+    fromAddress: text('from_address').notNull(),
+    blockNumber: integer('block_number').notNull(),
+    /** When the transfer was mined. */
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('wallet_deposits_tx_log_uq').on(t.txHash, t.logIndex), index('wallet_deposits_user_time_idx').on(t.userId, t.occurredAt)],
+);
+
+/** Where the deposit scanner got to for each wallet, so each run only reads new blocks. */
+export const depositCursors = pgTable('deposit_cursors', {
+  walletAddress: text('wallet_address').primaryKey(),
+  lastBlock: integer('last_block').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** When each user last opened their notifications — everything newer is "unread". */
+export const notificationState = pgTable('notification_state', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  seenAt: timestamp('seen_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type AgentConversationRow = typeof agentConversations.$inferSelect;
+export type WalletDepositRow = typeof walletDeposits.$inferSelect;
 export type BuySettingsRow = typeof buySettings.$inferSelect;
 export type BuyPurchaseRow = typeof buyPurchases.$inferSelect;
 export type ReferralCodeRow = typeof referralCodes.$inferSelect;

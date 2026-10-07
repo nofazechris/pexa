@@ -14,7 +14,7 @@ import { useRecurring } from '@/components/auth/useRecurring';
 import { useBuy, type BuyTypedData } from '@/components/auth/useBuy';
 import { useConversations } from '@/components/auth/useConversations';
 import type { PendingActionView, AgentFailReason } from '@/components/auth/useAgentChat';
-import { Spinner, Text } from '@/components/ui';
+import { Spinner, Text, ToastProvider } from '@/components/ui';
 import { color } from '@/lib/design/tokens';
 
 /**
@@ -234,6 +234,7 @@ export default function AppGate() {
   }
 
   return (
+    <ToastProvider>
     <PexaApp
       username={profile?.username}
       uid={profile?.uid ?? undefined}
@@ -257,5 +258,6 @@ export default function AppGate() {
       cancelRecurring={hooks.cancelRecurring}
       getAccessToken={getAccessToken}
     />
+    </ToastProvider>
   );
 }

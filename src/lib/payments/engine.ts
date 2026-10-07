@@ -384,6 +384,8 @@ export interface PaymentSummary {
   explorerUrl: string | null;
   createdAt: Date;
   confirmedAt: Date | null;
+  /** Free-text note; recurring payments carry "Recurring payment". */
+  memo: string | null;
 }
 
 /**
@@ -402,6 +404,7 @@ export async function listPayments(userId: string, limit = 50): Promise<PaymentS
     txHash: schema.payments.txHash,
     createdAt: schema.payments.createdAt,
     confirmedAt: schema.payments.confirmedAt,
+    memo: schema.payments.memo,
     username: schema.profiles.username,
   };
   const [sent, received] = await Promise.all([
@@ -434,6 +437,7 @@ export async function listPayments(userId: string, limit = 50): Promise<PaymentS
     explorerUrl: r.txHash ? txExplorerUrl(r.txHash) : null,
     createdAt: r.createdAt,
     confirmedAt: r.confirmedAt,
+    memo: r.memo,
   });
   return [...sent.map((r) => map(r, 'out')), ...received.map((r) => map(r, 'in'))].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, limit);
 }

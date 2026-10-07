@@ -15,7 +15,9 @@ import { ContinueCard, HistorySheet } from '@/components/pexa/ChatHistory';
 import { PurchasesPanel } from '@/components/pexa/BuyReceipts';
 import type { useConversations } from '@/components/auth/useConversations';
 import { shareMessage } from '@/lib/referrals/code';
-import { Modal } from '@/components/ui';
+import { Modal, useToast } from '@/components/ui';
+import { NotificationBell, NotificationsPanel } from '@/components/pexa/Notifications';
+import { useNotifications } from '@/components/auth/useNotifications';
 import type { ActivityItem } from '@/components/auth/useActivity';
 import type { RequestItem } from '@/components/auth/useRequests';
 import type { RecurringItem } from '@/components/auth/useRecurring';
@@ -91,6 +93,10 @@ export function PexaApp(props: PexaAppProps) {
   const initial = (username?.[0] ?? '?').toUpperCase();
 
   const [page, setPage] = useState<Page>('chat');
+  const [bellOpen, setBellOpen] = useState(false);
+  // Pop up when money arrives while the app is open (a deposit, a payment to you, a request).
+  const toast = useToast();
+  const notif = useNotifications(props.getAccessToken, (item) => toast.show(item.title, { tone: item.kind === 'request' ? 'neutral' : 'success', duration: 5000 }));
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 820);
@@ -187,6 +193,7 @@ export function PexaApp(props: PexaAppProps) {
             </div>
           )}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <NotificationBell unread={notif.unread} onClick={() => setBellOpen(true)} />
             <div style={{ display: 'flex', alignItems: 'center', gap: '7px', border: `1px solid ${pill.border}`, background: pill.bg, borderRadius: '999px', padding: '5px 11px' }}>
               <span style={{ width: 5, height: 5, borderRadius: '50%', background: pill.dot, display: 'inline-block', animation: pill.anim }} />
               <span style={{ fontSize: '11.5px', fontWeight: 500, color: pill.color, whiteSpace: 'nowrap' }}>{pill.label}</span>
@@ -194,6 +201,8 @@ export function PexaApp(props: PexaAppProps) {
             {!isMobile ? <span style={{ fontSize: '13.5px', fontWeight: 500, color: color.muted }}>{handleDisplay}</span> : null}
           </div>
         </header>
+
+        <NotificationsPanel open={bellOpen} onClose={() => setBellOpen(false)} items={notif.items} onOpened={() => void notif.markSeen()} onGo={(tab) => setPage(tab)} />
 
         <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
@@ -668,19 +677,44 @@ function RetryIcon({ size = 14 }: { size?: number }) {
 
 function ReceiveCard({ m, getAccessToken }: { m: ChatMessage; getAccessToken?: () => Promise<string | null> }) {
   const [copied, setCopied] = useState(false);
-  const [status, setStatus] = useState<'watching' | 'reflected' | 'idle'>('watching');
-  const [received, setReceived] = useState<string | null>(null);
+  const [status, setStatus] = useState<'watching' | 'idle' | 'received'>('watching');
+  const [deposit, setDeposit] = useState<{ amount: string; token: string } | null>(null);
+  const [closed, setClosed] = useState(false);
   const [checking, setChecking] = useState(false);
   const baselineRef = useRef<bigint | null>(null);
+  const knownRef = useRef<Set<string> | null>(null);
+  const sinceRef = useRef<string>('');
   const doneRef = useRef(false);
   const r = m.receive;
 
-  // Read the wallet's on-chain USDC (smallest unit). Returns null on any transient failure.
+  const authHeaders = useCallback(async () => {
+    const token = getAccessToken ? await getAccessToken() : null;
+    return token ? { authorization: `Bearer ${token}` } : undefined;
+  }, [getAccessToken]);
+
+  // The exact deposit, read from the chain (amount + token). Returns null if none new, or on any hiccup.
+  const findDeposit = useCallback(async (): Promise<{ amount: string; token: string } | null> => {
+    try {
+      const res = await fetch('/api/deposits?since=' + encodeURIComponent(sinceRef.current), { headers: await authHeaders(), cache: 'no-store' });
+      if (!res.ok) return null;
+      const d = (await res.json()) as { deposits?: Array<{ id: string; amount: string; token: string }> };
+      const list = d.deposits ?? [];
+      if (knownRef.current === null) {
+        knownRef.current = new Set(list.map((x) => x.id)); // anything already there when the card opened isn't "new"
+        return null;
+      }
+      const fresh = list.find((x) => !knownRef.current!.has(x.id));
+      return fresh ? { amount: fresh.amount, token: fresh.token } : null;
+    } catch {
+      return null;
+    }
+  }, [authHeaders]);
+
+  // Fallback if the chain lookup is unavailable: the wallet's USDC balance going up.
   const readRaw = useCallback(async (): Promise<{ raw: bigint; decimals: number } | null> => {
     if (!r) return null;
     try {
-      const token = getAccessToken ? await getAccessToken() : null;
-      const res = await fetch('/api/balance?address=' + encodeURIComponent(r.address), { headers: token ? { authorization: `Bearer ${token}` } : undefined });
+      const res = await fetch('/api/balance?address=' + encodeURIComponent(r.address), { headers: await authHeaders() });
       if (!res.ok) return null;
       const d = (await res.json()) as { balance?: { raw: string; decimals?: number } | null };
       if (!d.balance) return { raw: 0n, decimals: 6 };
@@ -688,66 +722,102 @@ function ReceiveCard({ m, getAccessToken }: { m: ChatMessage; getAccessToken?: (
     } catch {
       return null;
     }
-  }, [r, getAccessToken]);
+  }, [r, authHeaders]);
 
-  const settleReflected = useCallback((delta: bigint, decimals: number) => {
-    setReceived(money(Number(delta) / 10 ** decimals));
-    setStatus('reflected');
+  const settle = useCallback((amount: string, token: string) => {
+    if (doneRef.current) return;
     doneRef.current = true;
+    setDeposit({ amount, token });
+    setStatus('received');
   }, []);
 
-  // Watch for a deposit: capture a baseline, then poll for the balance to go up.
+  const check = useCallback(async (): Promise<boolean> => {
+    const found = await findDeposit();
+    if (found) {
+      settle(found.amount, found.token);
+      return true;
+    }
+    const cur = await readRaw();
+    if (cur && baselineRef.current != null && cur.raw > baselineRef.current) {
+      settle(money(Number(cur.raw - baselineRef.current) / 10 ** cur.decimals), 'USDC');
+      return true;
+    }
+    return false;
+  }, [findDeposit, readRaw, settle]);
+
+  // Watch for a deposit: take a baseline, then look every few seconds.
   useEffect(() => {
     if (!r) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     let attempts = 0;
+    // Look back a few minutes so a deposit that landed just before the card opened is still recognised as "already there".
+    sinceRef.current = new Date(Date.now() - 10 * 60_000).toISOString();
     (async () => {
       const base = await readRaw();
       if (!alive) return;
       if (base) baselineRef.current = base.raw;
+      await findDeposit(); // records what was already there
       const poll = async () => {
         if (!alive || doneRef.current) return;
         attempts += 1;
-        const cur = await readRaw();
-        if (!alive || doneRef.current) return;
-        if (cur && baselineRef.current != null && cur.raw > baselineRef.current) {
-          settleReflected(cur.raw - baselineRef.current, cur.decimals);
-          return;
-        }
+        if (await check()) return;
+        if (!alive) return;
         if (attempts >= 50) {
           setStatus('idle'); // ~5 min with no deposit — stop the loop, keep a manual check
           return;
         }
         timer = setTimeout(poll, 6000);
       };
-      timer = setTimeout(poll, 6000);
+      timer = setTimeout(poll, 4000);
     })();
     return () => {
       alive = false;
       clearTimeout(timer);
     };
-  }, [r, readRaw, settleReflected]);
+  }, [r, readRaw, findDeposit, check]);
 
   const checkNow = useCallback(async () => {
     if (doneRef.current) return;
     setChecking(true);
-    const cur = await readRaw();
+    const got = await check();
     setChecking(false);
-    if (cur && baselineRef.current != null && cur.raw > baselineRef.current) {
-      settleReflected(cur.raw - baselineRef.current, cur.decimals);
-    } else {
-      setStatus('watching'); // resume watching if they were idle
-    }
-  }, [readRaw, settleReflected]);
+    if (!got) setStatus('watching'); // resume watching if they were idle
+  }, [check]);
 
   if (!r) return null;
+
+  // Money arrived: the whole card becomes a simple "You deposited $X" box.
+  if (status === 'received' && deposit) {
+    if (closed) {
+      return (
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', border: `1px solid #CDE7DA`, background: color.successSoft, borderRadius: '999px', padding: '7px 13px', fontSize: '13.5px', fontWeight: 500, color: color.success }}>
+          <span aria-hidden="true">✓</span> You deposited ${deposit.amount}
+        </div>
+      );
+    }
+    return (
+      <div style={{ maxWidth: '360px', border: `1px solid #CDE7DA`, background: color.successSoft, borderRadius: '16px', padding: '16px', animation: 'pp-pop .4s cubic-bezier(.2,.8,.3,1) both' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ width: 34, height: 34, borderRadius: '50%', background: color.success, color: '#fff', fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>✓</span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: '17px', fontWeight: 600, letterSpacing: '-.02em', color: color.ink }}>You deposited ${deposit.amount}</div>
+            <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '2px' }}>{deposit.token} · it’s in your wallet now</div>
+          </div>
+        </div>
+        <button onClick={() => setClosed(true)} style={{ marginTop: '14px', width: '100%', border: 'none', background: color.success, color: '#fff', fontSize: '14px', fontWeight: 500, padding: '11px', borderRadius: '11px', cursor: 'pointer' }}>
+          Done
+        </button>
+      </div>
+    );
+  }
+
   const copy = () => {
     navigator.clipboard?.writeText(r.address).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => {});
   };
 
   return (
-    <div style={{ border: `1px solid ${status === 'reflected' ? color.successSoft : color.border}`, background: color.surface, borderRadius: '16px', padding: '16px', maxWidth: '360px' }}>
+    <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '16px', maxWidth: '360px' }}>
       <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>ADD MONEY · {r.network.toUpperCase()}</div>
       <div style={{ fontSize: '14px', color: color.mutedStrong, marginTop: '9px', lineHeight: 1.5 }}>Send <strong style={{ color: color.ink }}>USDC on Celo</strong> to your wallet. Scan the code or copy the address.</div>
       {r.qr ? (
@@ -762,15 +832,10 @@ function ReceiveCard({ m, getAccessToken }: { m: ChatMessage; getAccessToken?: (
 
       {/* Live deposit watcher */}
       <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${color.borderFaint}` }}>
-        {status === 'reflected' ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '9px', animation: 'pp-pop .4s cubic-bezier(.2,.8,.3,1) both' }}>
-            <span style={{ width: 20, height: 20, borderRadius: '50%', background: color.successSoft, color: color.success, fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>✓</span>
-            <span style={{ fontSize: '14px', fontWeight: 500, color: color.success }}>Received ${received} — it’s in your wallet.</span>
-          </div>
-        ) : status === 'watching' ? (
+        {status === 'watching' ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
             <span style={{ width: 14, height: 14, border: `2px solid ${color.primarySoftBorder}`, borderTopColor: color.primary, borderRadius: '50%', animation: 'pp-spin .8s linear infinite', display: 'inline-block', flex: 'none' }} />
-            <span style={{ fontSize: '13px', color: color.mutedStrong }}>Watching for your deposit…</span>
+            <span style={{ fontSize: '13px', color: color.mutedStrong }}>Waiting for your deposit…</span>
             <button onClick={checkNow} disabled={checking} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', color: color.primary, fontSize: '13px', fontWeight: 500, cursor: 'pointer', padding: 0 }}>{checking ? 'Checking…' : 'Check now'}</button>
           </div>
         ) : (

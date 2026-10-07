@@ -35,7 +35,7 @@ export interface PendingActionView {
     | { type: 'payment_preview'; recipient: string; amount: string; token: string; network: string }
     | { type: 'fiat_quote'; quote: FiatQuoteView }
     | { type: 'receive'; address: string; username: string; network: string; qr: string }
-    | { type: 'buy_quote'; purchaseId: string; service: string; price: string; priceAtomic: string; token: string; expiresAt: string; from: string; typedData: BuyTypedData; note: string };
+    | { type: 'buy_quote'; purchaseId: string; service: string; price: string; priceAtomic: string; token: string; detail: string; expiresAt: string; from: string; typedData: BuyTypedData; note: string };
 }
 
 /** A Buy purchase waiting for approval (shown as an Approve card). */
@@ -46,6 +46,8 @@ export interface BuyQuoteCardData {
   priceAtomic: string;
   /** Stablecoin it will be paid in: USDC | USDT | USAT. */
   token: string;
+  /** What the request will run, e.g. "query: celo · type: latest". */
+  detail?: string;
   expiresAt: string;
   from: string;
   typedData: BuyTypedData;
@@ -201,8 +203,8 @@ export function useAgentChat(deps: AgentChatDeps) {
         if (action.render.type === 'receive') {
           push({ role: 'agent', type: 'receive', receive: action.render });
         } else if (action.render.type === 'buy_quote') {
-          const { purchaseId, service, price, priceAtomic, token, expiresAt, from, typedData, note } = action.render;
-          push({ role: 'agent', type: 'buy_quote', buy: { purchaseId, service, price, priceAtomic, token, expiresAt, from, typedData, note }, status: 'awaiting' });
+          const { purchaseId, service, price, priceAtomic, token, detail, expiresAt, from, typedData, note } = action.render;
+          push({ role: 'agent', type: 'buy_quote', buy: { purchaseId, service, price, priceAtomic, token, detail, expiresAt, from, typedData, note }, status: 'awaiting' });
         } else if (action.render.type === 'payment_preview') {
           push({
             role: 'agent',

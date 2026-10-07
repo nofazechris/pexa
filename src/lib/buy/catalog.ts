@@ -248,6 +248,24 @@ export function missingRequiredFields(schema: Record<string, unknown>, input: Re
   return required.filter((f) => input[f] === undefined || input[f] === null || input[f] === '');
 }
 
+/**
+ * What a request will actually run, in one short line for the Approve card ("query: celo · type: latest"), so
+ * the user sees what they are paying for, not just the price. Flattens one level of nesting; skips non-text.
+ */
+export function describeRequest(input: unknown, max = 140): string {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return '';
+  const parts: string[] = [];
+  const add = (k: string, v: unknown) => {
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') parts.push(`${k}: ${String(v)}`);
+  };
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) for (const [k2, v2] of Object.entries(v as Record<string, unknown>)) add(`${k}.${k2}`, v2);
+    else add(k, v);
+  }
+  const s = parts.join(' · ').replace(/\s+/g, ' ').trim();
+  return s.length > max ? s.slice(0, max - 1).trimEnd() + '…' : s;
+}
+
 /** Compact form for the agent's search results (keeps the LLM context small). */
 export function toAgentSummary(cap: BuyCapability) {
   const from = priceFrom(cap);

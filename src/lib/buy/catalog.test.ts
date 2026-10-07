@@ -277,3 +277,20 @@ describe('search resilience (weak-model inputs)', () => {
     expect(r[0].id).toBe('instagram.profile');
   });
 });
+
+import { describeRequest } from './catalog';
+
+describe('describeRequest — what the Approve card says it will run', () => {
+  it('lists the request fields on one short line', () => {
+    expect(describeRequest({ query: 'stablecoins within_time:1d', type: 'latest' })).toBe('query: stablecoins within_time:1d · type: latest');
+  });
+  it('flattens one level of nesting and skips non-text values', () => {
+    expect(describeRequest({ queryParams: { username: 'sneakerplug_ng' }, list: [1, 2], nothing: null })).toBe('queryParams.username: sneakerplug_ng');
+  });
+  it('shortens very long input and tolerates junk', () => {
+    expect(describeRequest({ script: 'x'.repeat(500) }, 60).length).toBeLessThanOrEqual(60);
+    expect(describeRequest(null)).toBe('');
+    expect(describeRequest('hello')).toBe('');
+    expect(describeRequest([1, 2])).toBe('');
+  });
+});

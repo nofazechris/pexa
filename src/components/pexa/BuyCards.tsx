@@ -29,6 +29,9 @@ export function BuyQuoteCard({ m, onConfirm, onCancel }: { m: ChatMessage; onCon
         <span style={{ fontSize: '30px', fontWeight: 600, letterSpacing: '-.04em', fontVariantNumeric: 'tabular-nums' }}>{buy.price}</span>
         <span style={{ fontFamily: MONO, fontSize: '12.5px', color: color.mutedStrong }}>{buy.token}</span>
       </div>
+      {buy.detail ? (
+        <div style={{ fontFamily: MONO, fontSize: '12px', color: color.mutedStrong, background: color.surfaceMuted, border: `1px solid ${color.borderFaint}`, borderRadius: '9px', padding: '7px 9px', marginTop: '8px', wordBreak: 'break-word', lineHeight: 1.45 }}>{buy.detail}</div>
+      ) : null}
       {buy.note ? <div style={{ fontSize: '13px', color: color.mutedStrong, lineHeight: 1.5, marginTop: '8px' }}>{buy.note}</div> : null}
 
       {awaiting ? (

@@ -2,7 +2,7 @@ import 'server-only';
 import { isBuyConversation, shouldForceBuySearch } from './buy-intent';
 import OpenAI from 'openai';
 import { z } from 'zod';
-import { formatUnits } from 'viem';
+import { formatUnits, parseUnits } from 'viem';
 import { env, activeNetwork, getToken, features } from '@/lib/config';
 import { TOOLS, TOOLS_BY_NAME, ToolError, type ToolContext } from '@/lib/mcp/tools';
 import QRCode from 'qrcode';
@@ -16,7 +16,7 @@ import { buyAvailable, getApprovalPayload } from '@/lib/buy/service';
 import { describeRequest } from '@/lib/buy/catalog';
 import type { AuthorizationTypedData } from '@/lib/buy/x402';
 import { activeAlerts } from '@/lib/rules/worker';
-import { askHowMuch, askWho, isMoneyConversation, parseSendSlots, type SendSlots } from './send-intent';
+import { askHowMuch, askWho, isMoneyConversation, parseSendSlots, replyToTypedAnswer, type SendSlots } from './send-intent';
 import { listRecentPeople, resolveRecipient } from '@/lib/contacts/people';
 import { label, lastSeen } from '@/lib/contacts/match';
 
@@ -110,6 +110,7 @@ How you work:
 - You may freely call read tools (balance, profile, contacts, transactions, quotes, limits, compliance, list payout accounts), preparation tools (create_payment_preview, get_ngn_usdt_quote), and verify_payout_account to link a bank account.
 - To move money — send a payment, buy/sell/convert, or withdraw — FIRST prepare it (create_payment_preview for a send; get_ngn_usdt_quote for buy/sell/withdraw), then in the SAME turn call the matching execute tool (confirm_payment / create_buy_usdt_order / create_sell_usdt_order). Calling the execute tool does NOT run it — it makes the app show the user a Confirm button. So when the user wants to DO the action, you MUST call the execute tool; do NOT stop and ask "would you like to proceed?" in text. Only skip the execute tool when the user explicitly asked for just a rate/quote or preview.
 - NEVER guess an amount or a recipient — but DO use what the user already told you in this conversation. If they said "send 1 USDC" and later "joyful", the amount is 1 USDC and the person is joyful: don't ask again. Ask ONE short question only for what is truly missing. Use an amount or person only from this same request, not from an old unrelated one.
+- RECURRING / SCHEDULED payments ("every Friday", "monthly", "each week") cannot be created from chat yet — say so plainly and offer a one-off payment instead. NEVER use create_money_rule for this: money rules are only autosave_on_income and balance_alert, and must never be described as scheduled payments.
 - PEOPLE: for any name the user gives, call find_people (it searches their saved beneficiaries and everyone they've paid or been paid by, then all Pexa users). One clear match → use it and say who (include their UID if similar names exist). More than one → list them with their UIDs and ask which; never pick between two people. If the user says "I sent money to chris" or "the guy I paid yesterday", look in recents. To save someone for later call save_beneficiary; after a successful payment you may offer "Want me to save @x as a beneficiary?" once.
 - Adding money (deposit / fund / top up / "add money" / "put money in"): this means the user wants to RECEIVE, not send. Call get_deposit_details to show their wallet address + QR to receive USDC on Celo. Never turn "fund/deposit" into a payment to someone. (Funding with naira is separate and coming soon.)
 - Withdraw to a bank = a sell: call get_ngn_usdt_quote with side "sell" and amountCurrency "NGN" for a naira amount, then create_sell_usdt_order (the user's linked account is used automatically). If they have no linked account, ask for their account number and bank, then verify_payout_account.
@@ -266,6 +267,9 @@ async function buildRender(ctx: ToolContext, tool: string, args: Record<string, 
 async function handleSend(ctx: ToolContext, slots: SendSlots): Promise<AgentTurn | null> {
   const recents = (await listRecentPeople(ctx.userId, 4).catch(() => [])).map((p) => p.username);
 
+  if (slots.multiple) {
+    return { reply: 'I can set up one payment at a time so nothing gets mixed up. Which one should I send first? Tell me the person and the amount.' };
+  }
   if (!slots.recipient && !slots.amount) {
     return { reply: `Sure — who should I send to, and how much? Give me their @username and the amount.${recents.length ? ` Your recent: ${recents.slice(0, 3).map((u) => '@' + u).join(', ')}.` : ''}` };
   }
@@ -287,11 +291,11 @@ async function handleSend(ctx: ToolContext, slots: SendSlots): Promise<AgentTurn
     const res = await resolveRecipient(ctx.userId, slots.recipient);
     if (res.kind === 'many') {
       const list = res.people.map((p) => `${label(p)}${lastSeen(p) ? ' — ' + lastSeen(p) : ''}`).join('\n• ');
-      return { reply: `A few of your people match "${slots.recipient}" — which one do you mean?\n• ${list}\nReply with the @username or UID.` };
+      return { reply: `A few of your people match "${slots.recipient}" — which one should I send to?\n• ${list}\nReply with the @username or UID.` };
     }
     if (res.kind === 'none') {
       const maybe = res.similar.length ? ` Did you mean ${res.similar.map((p) => label(p)).join(' or ')}?` : '';
-      return { reply: `I couldn't find anyone called "${slots.recipient}" on Pexa.${maybe} Check the spelling or give me their @username.` };
+      return { reply: `I couldn't find anyone called "${slots.recipient}" on Pexa.${maybe} Who should I send to instead? Check the spelling or give me their @username.` };
     }
     recipientArg = '@' + res.person.username;
     shown = label(res.person);
@@ -299,6 +303,20 @@ async function handleSend(ctx: ToolContext, slots: SendSlots): Promise<AgentTurn
   }
 
   if (!slots.amount) return { reply: askHowMuch(recipientArg.startsWith('@') ? recipientArg.slice(1) : recipientArg) };
+
+  // Don't show a Confirm button for money you don't have.
+  const balanceTool = TOOLS_BY_NAME.get('get_balance');
+  if (balanceTool) {
+    try {
+      const b = (await balanceTool.handler(ctx, {})) as { available?: string; savedInVaults?: string };
+      if (b.available !== undefined && parseUnits(slots.amount, 6) > parseUnits(b.available, 6)) {
+        const saved = b.savedInVaults && Number(b.savedInVaults) > 0 ? ` (${b.savedInVaults} more is set aside in your vaults)` : '';
+        return { reply: `You have ${b.available} USDC available to send${saved}, which isn’t enough for ${slots.amount} USDC. How much would you like to send to ${shown} instead?` };
+      }
+    } catch {
+      /* if the balance can't be read, let the normal preview checks decide */
+    }
+  }
 
   const create = TOOLS_BY_NAME.get('create_payment_preview');
   if (!create) return null;
@@ -328,6 +346,10 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
 
   // A plain "send N USDC to someone" is read by the app itself, not left to the model: it takes the amount and
   // the person from the conversation, asks only for what is missing (once), and shows the Confirm card.
+  // Typing "yes" under a Confirm card must not build another card — money only moves on the tap.
+  const typed = replyToTypedAnswer(input.messages);
+  if (typed) return { reply: typed };
+
   const sendSlots = parseSendSlots(input.messages);
   if (sendSlots.wantsSend) {
     try {

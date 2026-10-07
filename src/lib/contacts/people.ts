@@ -10,8 +10,9 @@ import { resolvePerson, sortPeople, type Person, type Resolution } from './match
  * direction counts, so the person who sends you money back shows up too.
  */
 
-// Payments that really moved (or are moving) money; drafts and cancelled previews are not "dealings".
-const REAL = ['AUTHORIZED', 'PREPARING', 'SIGNING', 'BROADCASTING', 'PENDING', 'CONFIRMED'];
+// Payments that really went out. Drafts, previews and ones stuck before signing are not "dealings" — an
+// abandoned attempt must not make someone look like a person you pay.
+const REAL = ['BROADCASTING', 'PENDING', 'CONFIRMED'];
 
 interface Profileish {
   userId: string;

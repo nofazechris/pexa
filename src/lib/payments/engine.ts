@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import { formatUnits, parseUnits } from 'viem';
 import { getDb, schema } from '@/lib/db';
 import { activeNetwork, env, features, getToken, txExplorerUrl } from '@/lib/config';
@@ -12,6 +12,7 @@ import { buildTransferAuthorization, relayTransfer } from '@/lib/relayer/service
 import { celoClient } from '@/lib/celo/client';
 import { assertTransition, type PaymentStatus } from './state';
 import { evaluatePaymentPolicy } from './policy';
+import { INCOMING_VISIBLE, OUTGOING_VISIBLE } from './visibility';
 import { issueAuthorization, consumeAuthorization } from './authorization';
 import type { PaymentRow } from '@/lib/db/schema';
 
@@ -352,41 +353,54 @@ export interface PaymentSummary {
   confirmedAt: Date | null;
 }
 
-/** The user's payments, newest first, mapped for the activity view (§75). */
+/**
+ * The user's payments — sent AND received — newest first, mapped for the activity view (§75). Unsent drafts and
+ * cancelled previews are left out (see ./visibility). Both directions are read newest-first and merged, so the
+ * limit always keeps the most recent items.
+ */
 export async function listPayments(userId: string, limit = 50): Promise<PaymentSummary[]> {
   const db = getDb();
-  const rows = await db
-    .select({
-      id: schema.payments.id,
-      recipientUserId: schema.payments.recipientUserId,
-      recipientAddress: schema.payments.recipientAddress,
-      amount: schema.payments.amount,
-      token: schema.payments.token,
-      status: schema.payments.status,
-      txHash: schema.payments.txHash,
-      createdAt: schema.payments.createdAt,
-      confirmedAt: schema.payments.confirmedAt,
-      username: schema.profiles.username,
-    })
-    .from(schema.payments)
-    .leftJoin(schema.profiles, eq(schema.profiles.userId, schema.payments.recipientUserId))
-    .where(eq(schema.payments.senderUserId, userId))
-    .orderBy(schema.payments.createdAt)
-    .limit(limit);
+  const cols = {
+    id: schema.payments.id,
+    recipientAddress: schema.payments.recipientAddress,
+    amount: schema.payments.amount,
+    token: schema.payments.token,
+    status: schema.payments.status,
+    txHash: schema.payments.txHash,
+    createdAt: schema.payments.createdAt,
+    confirmedAt: schema.payments.confirmedAt,
+    username: schema.profiles.username,
+  };
+  const [sent, received] = await Promise.all([
+    db
+      .select(cols)
+      .from(schema.payments)
+      .leftJoin(schema.profiles, eq(schema.profiles.userId, schema.payments.recipientUserId))
+      .where(and(eq(schema.payments.senderUserId, userId), inArray(schema.payments.status, [...OUTGOING_VISIBLE])))
+      .orderBy(desc(schema.payments.createdAt))
+      .limit(limit),
+    // Money sent to you: the other person is the SENDER, so their username comes from the sender's profile.
+    db
+      .select(cols)
+      .from(schema.payments)
+      .leftJoin(schema.profiles, eq(schema.profiles.userId, schema.payments.senderUserId))
+      .where(and(eq(schema.payments.recipientUserId, userId), ne(schema.payments.senderUserId, userId), inArray(schema.payments.status, [...INCOMING_VISIBLE])))
+      .orderBy(desc(schema.payments.createdAt))
+      .limit(limit),
+  ]);
 
   const decimals = getToken('USDC', activeNetwork.network)?.decimals ?? 6;
-  return rows
-    .map((r) => ({
-      id: r.id,
-      direction: 'out' as const,
-      counterparty: r.username ? '@' + r.username : `${r.recipientAddress.slice(0, 6)}…${r.recipientAddress.slice(-4)}`,
-      amount: formatUnits(BigInt(r.amount), decimals),
-      token: r.token,
-      status: r.status as PaymentStatus,
-      txHash: r.txHash,
-      explorerUrl: r.txHash ? txExplorerUrl(r.txHash) : null,
-      createdAt: r.createdAt,
-      confirmedAt: r.confirmedAt,
-    }))
-    .reverse(); // newest first (orderBy is ascending by default)
+  const map = (r: (typeof sent)[number], direction: 'out' | 'in'): PaymentSummary => ({
+    id: r.id,
+    direction,
+    counterparty: r.username ? '@' + r.username : direction === 'out' ? `${r.recipientAddress.slice(0, 6)}…${r.recipientAddress.slice(-4)}` : 'Someone',
+    amount: formatUnits(BigInt(r.amount), decimals),
+    token: r.token,
+    status: r.status as PaymentStatus,
+    txHash: r.txHash,
+    explorerUrl: r.txHash ? txExplorerUrl(r.txHash) : null,
+    createdAt: r.createdAt,
+    confirmedAt: r.confirmedAt,
+  });
+  return [...sent.map((r) => map(r, 'out')), ...received.map((r) => map(r, 'in'))].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, limit);
 }

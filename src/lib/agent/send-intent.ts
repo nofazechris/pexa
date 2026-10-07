@@ -16,9 +16,10 @@ export interface SendSlots {
   amount: string | null;
   /** A username (no @), a UID, or a 0x address; null if none was given. */
   recipient: string | null;
+  /** The message asks for several payments at once (two people, or two amounts). Only ever set when true. */
+  multiple?: boolean;
 }
 
-const WINDOW = 6;
 const SEND_VERB = /\b(send|pay|transfer|give|wire|remit)\b/i;
 // Things that look like a send but are something else (other tools handle them).
 const NOT_A_PLAIN_SEND = /\b(request|invoice|bill|naira|ngn|bank|withdraw|usdt|swap|convert|vault|save|saving|deposit|fund|buy|sell|recurring|every|schedule|monthly|weekly|daily|each|rule)\b|₦/i;
@@ -100,39 +101,106 @@ function isPlainSend(text: string): boolean {
   return SEND_VERB.test(text) && !NOT_A_PLAIN_SEND.test(text) && !LOOKUP_WORDS.test(text) && !QUESTION_START.test(text);
 }
 
+/**
+ * Is this assistant message one of OUR send questions ("Who should I send 1 USDC to?", "How much would you
+ * like to send to @joyful?")? It must be a question, be about sending, and ask for a person or an amount.
+ * A "how much?" about a savings vault or anything else is NOT a send question — that distinction is what
+ * keeps an old "send 1 USDC to joyful" from being revived when the user is answering something unrelated.
+ */
+function isSendQuestion(text: string): boolean {
+  return /\?/.test(text) && /\bsend\b/i.test(text) && (ASKED_WHO.test(text) || ASKED_HOW_MUCH.test(text));
+}
+
+/** Words that mean "forget it" — they end a send exchange rather than answer it. */
+const CANCEL_WORDS = /^\s*(cancel|stop|never ?mind|forget it|no|nope|nah|don'?t|abort)\b/i;
+
+/**
+ * The messages that belong to the CURRENT send exchange: the latest user message, plus — only while each
+ * assistant message in between is one of our send questions — the earlier user messages it was answering.
+ * Anything older, or separated by any other kind of reply, is a different conversation and is never read.
+ */
+function currentExchange(messages: readonly TurnMessage[]): TurnMessage[] {
+  let start = messages.length - 1;
+  while (start >= 2 && messages[start - 1].role === 'assistant' && isSendQuestion(messages[start - 1].content) && messages[start - 2].role === 'user') start -= 2;
+  return messages.slice(start);
+}
+
 export function parseSendSlots(messages: readonly TurnMessage[]): SendSlots {
   const none: SendSlots = { wantsSend: false, amount: null, recipient: null };
-  const window = messages.slice(-WINDOW);
-  const lastIdx = window.length - 1;
-  if (lastIdx < 0 || window[lastIdx].role !== 'user') return none;
+  const lastIdx = messages.length - 1;
+  if (lastIdx < 0 || messages[lastIdx].role !== 'user') return none;
 
-  const last = window[lastIdx].content.trim();
-  if (!last) return none;
+  const last = messages[lastIdx].content.trim();
+  if (!last || CANCEL_WORDS.test(last)) return none;
 
-  // Is the latest message a send request, or the answer to a question we asked about one?
-  const prevAssistant = lastIdx >= 1 && window[lastIdx - 1].role === 'assistant' ? window[lastIdx - 1].content : '';
-  const answeringWho = ASKED_WHO.test(prevAssistant);
-  const answeringHowMuch = ASKED_HOW_MUCH.test(prevAssistant);
-  const earlierSendRequest = window.slice(0, lastIdx).some((m) => m.role === 'user' && isPlainSend(m.content));
-  const answering = (answeringWho || answeringHowMuch) && (earlierSendRequest || /\bsend\b/i.test(prevAssistant));
+  const exchange = currentExchange(messages);
+  const lastInExchange = exchange.length - 1;
+  const prevAssistant = lastInExchange >= 1 && exchange[lastInExchange - 1].role === 'assistant' ? exchange[lastInExchange - 1].content : '';
+  const answering = lastInExchange >= 2 && isSendQuestion(prevAssistant);
   const requestingNow = isPlainSend(last);
   if (!requestingNow && !answering) return none;
   // A fresh message that clearly isn't a plain send (naira, request, savings…) belongs to the other tools.
   if (!answering && NOT_A_PLAIN_SEND.test(last)) return none;
+  // And a reply that is plainly about something else — savings, a question, a lookup — is not an answer either.
+  if (answering && !requestingNow && (NOT_A_PLAIN_SEND.test(last) || LOOKUP_WORDS.test(last) || QUESTION_START.test(last))) return none;
 
-  // Newest first: the latest thing the user said wins ("make it 5" after "send 1").
+  // Newest first within this exchange: the latest thing the user said wins ("make it 5" after "send 1").
   let amount: string | null = null;
   let recipient: string | null = null;
-  for (let i = lastIdx; i >= 0 && (amount === null || recipient === null); i--) {
-    const m = window[i];
+  let fromLast = false; // did the latest message itself supply something?
+  for (let i = lastInExchange; i >= 0 && (amount === null || recipient === null); i--) {
+    const m = exchange[i];
     if (m.role !== 'user') continue;
-    const before = i >= 1 && window[i - 1].role === 'assistant' ? window[i - 1].content : '';
-    if (amount === null) amount = (ASKED_HOW_MUCH.test(before) ? bareAmount(m.content) : null) ?? extractAmount(m.content);
-    if (recipient === null) recipient = (ASKED_WHO.test(before) ? bareRecipient(m.content) : null) ?? extractRecipient(m.content);
+    const before = i >= 1 && exchange[i - 1].role === 'assistant' ? exchange[i - 1].content : '';
+    const askedFor = isSendQuestion(before);
+    if (amount === null) {
+      amount = (askedFor && ASKED_HOW_MUCH.test(before) ? bareAmount(m.content) : null) ?? extractAmount(m.content);
+      if (amount !== null && i === lastInExchange) fromLast = true;
+    }
+    if (recipient === null) {
+      recipient = (askedFor && ASKED_WHO.test(before) ? bareRecipient(m.content) : null) ?? extractRecipient(m.content);
+      if (recipient !== null && i === lastInExchange) fromLast = true;
+    }
   }
-  // A bare number must not be read as a name or vice versa; and the amount can't also be the recipient.
+  // A bare number must not be read as a name, and the amount can't also be the recipient.
   if (recipient && /^\d+$/.test(recipient)) recipient = null;
+  // Answering a question must actually answer it. "what's my balance?" in reply to "how much to send?" is a
+  // change of subject, not an answer — hand it back instead of looping the question.
+  if (!requestingNow && !fromLast) return none;
+  // "1 to @joyful and 2 to @omoefe" is two payments; we do one at a time rather than quietly doing a wrong one.
+  if (requestingNow && (distinctRecipients(last).length > 1 || distinctAmounts(last).length > 1)) return { wantsSend: true, amount, recipient, multiple: true };
   return { wantsSend: true, amount, recipient };
+}
+
+function distinctRecipients(text: string): string[] {
+  const names = new Set<string>();
+  for (const m of text.matchAll(/@([a-z0-9_]{3,20})\b/gi)) {
+    const n = cleanName(m[1]);
+    if (n) names.add(n);
+  }
+  for (const m of text.matchAll(/\bto\s+([a-z0-9_]{3,20})\b/gi)) {
+    const n = cleanName(m[1]);
+    if (n) names.add(n);
+  }
+  // "to joyful and omoefe" / "to joyful, omoefe": a list of people after one "to".
+  for (const m of text.matchAll(/\bto\s+@?[a-z0-9_]{3,20}((?:\s*(?:,|and|&)\s*@?[a-z0-9_]{3,20})+)/gi)) {
+    for (const part of m[1].split(/\s*(?:,|and|&)\s*/i)) {
+      const n = cleanName(part.trim());
+      if (n) names.add(n);
+    }
+  }
+  return [...names];
+}
+
+/** Amounts that are clearly money ("$5", "2 USDC") — a bare "2 days" in a note is not counted. */
+function distinctAmounts(text: string): string[] {
+  const found = new Set<string>();
+  const clean = text.replace(ADDRESS, ' ');
+  for (const m of clean.matchAll(/(?<![\w@.#-])(?:\$\s?(\d{1,9}(?:\.\d{1,6})?)|(\d{1,9}(?:\.\d{1,6})?)\s*(?:usdc|usd|dollars?|bucks?)\b)/gi)) {
+    const n = Number(m[1] ?? m[2]);
+    if (n > 0) found.add(String(n));
+  }
+  return [...found];
 }
 
 /**
@@ -141,6 +209,29 @@ export function parseSendSlots(messages: readonly TurnMessage[]): SendSlots {
  */
 export function isMoneyConversation(messages: readonly TurnMessage[]): boolean {
   return messages.slice(-4).some((m) => /\b(send|sending|sent|pay|paid|transfer|request|beneficiar\w*|recents?|contacts?|who did i|usernames?)\b/i.test(m.content));
+}
+
+const TYPED_YES = /^\s*(yes|yeah|yep|yup|ok|okay|sure|confirm|do it|go ahead|send it|proceed|approve|please do|yes please)\W*$/i;
+const TYPED_NO = /^\s*(no|nope|nah|cancel|cancel that|cancel it|stop|never ?mind|don'?t|abort|forget it)\W*$/i;
+
+/**
+ * Money moves only when the user TAPS the card — never because they typed "yes". If a card is waiting
+ * ("confirm below" / "approve it below") and the user types a bare yes or no, say what to tap instead of
+ * building a second card. Returns the reply, or null when this isn't that situation.
+ */
+export function replyToTypedAnswer(messages: readonly TurnMessage[]): string | null {
+  const n = messages.length;
+  if (n < 2 || messages[n - 1].role !== 'user' || messages[n - 2].role !== 'assistant') return null;
+  const card = messages[n - 2].content;
+  const text = messages[n - 1].content;
+  const isPayment = /confirm below/i.test(card);
+  const isPurchase = /approve it below/i.test(card);
+  if (!isPayment && !isPurchase) return null;
+  if (TYPED_YES.test(text)) {
+    return isPayment ? 'To send it, tap “Confirm payment” on the card above — I can’t send money from a typed message.' : 'To buy it, tap “Approve & pay” on the card above — I can’t spend from a typed message.';
+  }
+  if (TYPED_NO.test(text)) return 'Okay — nothing was sent or charged. Tap Cancel on the card to clear it, or tell me what you’d like instead.';
+  return null;
 }
 
 /** Questions the app asks itself; worded so parseSendSlots recognises the next reply as an answer. */

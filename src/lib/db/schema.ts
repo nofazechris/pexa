@@ -34,10 +34,12 @@ export const profiles = pgTable(
     username: text('username').notNull(),
     displayName: text('display_name'),
     avatarUrl: text('avatar_url'),
+    /** Permanent human-friendly ID ("PX7K2M9Q"); unique. Null only for accounts not yet backfilled. */
+    uid: text('uid'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('profiles_username_uq').on(t.username)],
+  (t) => [uniqueIndex('profiles_username_uq').on(t.username), uniqueIndex('profiles_uid_uq').on(t.uid)],
 );
 
 export const wallets = pgTable(

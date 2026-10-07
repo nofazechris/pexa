@@ -55,6 +55,8 @@ function BetaChip() {
 
 export interface PexaAppProps {
   username?: string;
+  /** Permanent Pexa ID ("PXAY2KWJ") that tells similar usernames apart. */
+  uid?: string;
   address?: string;
   /** Decimal USDC balance string, e.g. "20.00". */
   balance: string;
@@ -236,7 +238,7 @@ export function PexaApp(props: PexaAppProps) {
                 }}
               />
             ) : null}
-            {page === 'settings' ? <SettingsPage username={username} address={address} onSignOut={props.onSignOut} /> : null}
+            {page === 'settings' ? <SettingsPage username={username} uid={props.uid} address={address} onSignOut={props.onSignOut} /> : null}
           </div>
         </div>
 
@@ -264,6 +266,26 @@ export function PexaApp(props: PexaAppProps) {
 function ChatScreen({ chat, getAccessToken, balance, conversations }: { chat: ReturnType<typeof useAgentChat>; getAccessToken?: () => Promise<string | null>; balance?: string; conversations?: ReturnType<typeof useConversations> }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Quick picks: people you've paid or been paid by (and saved beneficiaries), for one-tap "send to…".
+  const [people, setPeople] = useState<Array<{ username: string; uid: string | null; saved: boolean; lastSeen: string | null }>>([]);
+  const emptyChat = chat.messages.length === 0;
+  useEffect(() => {
+    if (!emptyChat || !getAccessToken) return;
+    let alive = true;
+    const t = setTimeout(async () => {
+      try {
+        const token = await getAccessToken();
+        const res = await fetch('/api/people', { cache: 'no-store', headers: token ? { authorization: `Bearer ${token}` } : {} });
+        if (res.ok && alive) setPeople(((await res.json()) as { people?: typeof people }).people ?? []);
+      } catch {
+        /* quick picks are a nicety — the chat works without them */
+      }
+    }, 0);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [emptyChat, getAccessToken]);
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -307,6 +329,23 @@ function ChatScreen({ chat, getAccessToken, balance, conversations }: { chat: Re
                 <span style={{ width: 5, height: 5, borderRadius: '50%', background: color.primary, display: 'inline-block', animation: 'pp-pulse 1.8s ease-in-out infinite' }} />
                 <span style={{ fontSize: '11.5px', fontWeight: 500, color: color.primaryHover }}>Beta · being deployed</span>
               </div>
+              {people.length > 0 ? (
+                <div style={{ marginTop: '24px', maxWidth: '430px' }}>
+                  <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>SEND TO</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '9px' }}>
+                    {people.map((p) => (
+                      <button
+                        key={p.username}
+                        onClick={() => chat.send(`Send to @${p.username}`)}
+                        title={[p.uid, p.lastSeen].filter(Boolean).join(' · ')}
+                        style={{ border: `1px solid ${p.saved ? color.primarySoftBorder : color.borderStrong}`, background: p.saved ? color.primarySoft : color.surface, color: p.saved ? color.primaryHover : color.ink, fontSize: '13.5px', fontWeight: 500, padding: '8px 13px', borderRadius: '999px', cursor: 'pointer' }}
+                      >
+                        @{p.username}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '26px', maxWidth: '430px' }}>
                 {suggestions.map((sg) => (
                   <button key={sg} onClick={() => chat.send(sg)} style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '11px', padding: '12px 14px', fontSize: '14.5px', color: color.ink, cursor: 'pointer', textAlign: 'left' }}>
@@ -383,7 +422,7 @@ function ChatRow({ m, onConfirm, onCancel, onRetry, getAccessToken }: { m: ChatM
       <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: '9px' }}>
         {m.text && m.type === 'text' ? <div style={{ fontSize: '15px', lineHeight: 1.5, color: color.ink, paddingTop: '3px', whiteSpace: 'pre-wrap' }}>{m.text}</div> : null}
         {m.type === 'preview' ? <PreviewCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
-        {m.type === 'receipt' ? <ReceiptCard m={m} /> : null}
+        {m.type === 'receipt' ? <ReceiptCard m={m} getAccessToken={getAccessToken} /> : null}
         {m.type === 'fiat_quote' ? <FiatQuoteCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
         {m.type === 'fiat_receipt' ? <FiatReceiptCard m={m} /> : null}
         {m.type === 'buy_quote' ? <BuyQuoteCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
@@ -438,9 +477,22 @@ function PreviewCard({ m, onConfirm, onCancel }: { m: ChatMessage; onConfirm: ()
   );
 }
 
-function ReceiptCard({ m }: { m: ChatMessage }) {
+function ReceiptCard({ m, getAccessToken }: { m: ChatMessage; getAccessToken?: () => Promise<string | null> }) {
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const p = m.preview;
   if (!p) return null;
+  const canSave = p.recipient.startsWith('@') && m.result?.status !== 'failed';
+  const saveBeneficiary = async () => {
+    setSaveState('saving');
+    try {
+      const token = getAccessToken ? await getAccessToken() : null;
+      const res = await fetch('/api/contacts', { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ username: p.recipient }) });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      setSaveState(res.ok || data.error === 'already_added' ? 'saved' : 'error');
+    } catch {
+      setSaveState('error');
+    }
+  };
   const statusVal = m.result?.status === 'pending' ? 'Pending' : m.result?.status === 'failed' ? 'Failed' : 'Completed';
   const rows: Array<{ label: string; value: string; color?: string }> = [
     { label: 'To', value: p.recipient },
@@ -464,6 +516,15 @@ function ReceiptCard({ m }: { m: ChatMessage }) {
           </div>
         ))}
       </div>
+      {canSave ? (
+        <button
+          onClick={() => void saveBeneficiary()}
+          disabled={saveState === 'saving' || saveState === 'saved'}
+          style={{ border: `1px solid ${color.primarySoftBorder}`, background: color.primarySoft, color: color.primaryHover, fontSize: '13.5px', fontWeight: 500, padding: '10px 14px', borderRadius: '11px', cursor: saveState === 'saved' ? 'default' : 'pointer', marginTop: '14px', marginRight: '8px' }}
+        >
+          {saveState === 'saved' ? `${p.recipient} saved` : saveState === 'error' ? 'Couldn’t save — try again' : `Save ${p.recipient} as beneficiary`}
+        </button>
+      ) : null}
       {m.result?.explorerUrl ? (
         <button onClick={() => window.open(m.result!.explorerUrl!, '_blank', 'noopener')} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '14px', fontWeight: 500, padding: '11px 16px', borderRadius: '11px', cursor: 'pointer', marginTop: '15px' }}>View on explorer</button>
       ) : null}
@@ -1236,8 +1297,9 @@ function StatusPill({ label }: { label: string }) {
   return <span style={{ fontSize: '12.5px', color: statusColor(pretty), fontWeight: 500 }}>{pretty}</span>;
 }
 
-function SettingsPage({ username, address, onSignOut }: { username?: string; address?: string; onSignOut: () => void }) {
+function SettingsPage({ username, uid, address, onSignOut }: { username?: string; uid?: string; address?: string; onSignOut: () => void }) {
   const [copied, setCopied] = useState(false);
+  const [uidCopied, setUidCopied] = useState(false);
   const short = address ? address.slice(0, 10) + '…' + address.slice(-6) : '—';
   return (
     <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 'clamp(16px,2.6vw,28px) clamp(14px,2.6vw,26px) 48px' }}>
@@ -1254,6 +1316,21 @@ function SettingsPage({ username, address, onSignOut }: { username?: string; add
               </div>
               <button onClick={onSignOut} style={{ marginLeft: 'auto', border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.danger, fontSize: '13.5px', fontWeight: 500, padding: '9px 15px', borderRadius: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Sign out</button>
             </div>
+            {uid ? (
+              <div style={{ marginTop: '17px', paddingTop: '15px', borderTop: `1px solid ${color.borderFaint}`, display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '12.5px', color: color.mutedStrong }}>Pexa ID</div>
+                  <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '14px', marginTop: '4px', letterSpacing: '.04em' }}>{uid}</div>
+                  <div style={{ fontSize: '12px', color: color.faint, marginTop: '4px' }}>Yours alone and it never changes — it tells you apart from people with a similar username.</div>
+                </div>
+                <button
+                  onClick={() => navigator.clipboard?.writeText(uid).then(() => { setUidCopied(true); setTimeout(() => setUidCopied(false), 1500); }, () => {})}
+                  style={{ marginLeft: 'auto', border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '13px', fontWeight: 500, padding: '8px 13px', borderRadius: '10px', cursor: 'pointer' }}
+                >
+                  {uidCopied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+            ) : null}
             <div style={{ marginTop: '17px', paddingTop: '15px', borderTop: `1px solid ${color.borderFaint}`, display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: '12.5px', color: color.mutedStrong }}>Celo wallet</div>

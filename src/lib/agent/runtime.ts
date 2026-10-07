@@ -16,6 +16,9 @@ import { buyAvailable, getApprovalPayload } from '@/lib/buy/service';
 import { describeRequest } from '@/lib/buy/catalog';
 import type { AuthorizationTypedData } from '@/lib/buy/x402';
 import { activeAlerts } from '@/lib/rules/worker';
+import { askHowMuch, askWho, isMoneyConversation, parseSendSlots, type SendSlots } from './send-intent';
+import { listRecentPeople, resolveRecipient } from '@/lib/contacts/people';
+import { label, lastSeen } from '@/lib/contacts/match';
 
 /**
  * Pexa agent runtime (§10, §13, §28) — the in-app bot as a real tool-calling agent.
@@ -49,6 +52,10 @@ const AGENT_TOOLS = new Set([
   'get_balance',
   'get_deposit_details',
   'find_contact',
+  'find_people',
+  'list_recent_people',
+  'save_beneficiary',
+  'remove_beneficiary',
   'get_recent_transactions',
   'get_payment_status',
   'create_payment_preview',
@@ -102,7 +109,8 @@ How you work:
 - Use tools for every fact. NEVER invent balances, rates, contacts, statuses, or that something succeeded — read it from a tool result.
 - You may freely call read tools (balance, profile, contacts, transactions, quotes, limits, compliance, list payout accounts), preparation tools (create_payment_preview, get_ngn_usdt_quote), and verify_payout_account to link a bank account.
 - To move money — send a payment, buy/sell/convert, or withdraw — FIRST prepare it (create_payment_preview for a send; get_ngn_usdt_quote for buy/sell/withdraw), then in the SAME turn call the matching execute tool (confirm_payment / create_buy_usdt_order / create_sell_usdt_order). Calling the execute tool does NOT run it — it makes the app show the user a Confirm button. So when the user wants to DO the action, you MUST call the execute tool; do NOT stop and ask "would you like to proceed?" in text. Only skip the execute tool when the user explicitly asked for just a rate/quote or preview.
-- NEVER guess or assume an amount or a recipient. If either is missing or unclear, ask one short question first ("How much?" / "Who should it go to — a @username?"). Only prepare a send once you have BOTH a resolved recipient AND an explicit amount the user gave. Do not reuse an amount or person from an earlier, unrelated message.
+- NEVER guess an amount or a recipient — but DO use what the user already told you in this conversation. If they said "send 1 USDC" and later "joyful", the amount is 1 USDC and the person is joyful: don't ask again. Ask ONE short question only for what is truly missing. Use an amount or person only from this same request, not from an old unrelated one.
+- PEOPLE: for any name the user gives, call find_people (it searches their saved beneficiaries and everyone they've paid or been paid by, then all Pexa users). One clear match → use it and say who (include their UID if similar names exist). More than one → list them with their UIDs and ask which; never pick between two people. If the user says "I sent money to chris" or "the guy I paid yesterday", look in recents. To save someone for later call save_beneficiary; after a successful payment you may offer "Want me to save @x as a beneficiary?" once.
 - Adding money (deposit / fund / top up / "add money" / "put money in"): this means the user wants to RECEIVE, not send. Call get_deposit_details to show their wallet address + QR to receive USDC on Celo. Never turn "fund/deposit" into a payment to someone. (Funding with naira is separate and coming soon.)
 - Withdraw to a bank = a sell: call get_ngn_usdt_quote with side "sell" and amountCurrency "NGN" for a naira amount, then create_sell_usdt_order (the user's linked account is used automatically). If they have no linked account, ask for their account number and bank, then verify_payout_account.
 - You can chain steps yourself to fulfil a request (e.g. link the account, then quote, then prepare the withdrawal).
@@ -251,6 +259,64 @@ async function buildRender(ctx: ToolContext, tool: string, args: Record<string, 
 }
 
 /**
+ * The deterministic "send money" flow. Returns a turn when it handled the request (a question, or the Confirm
+ * card) and null to let the model take over (anything unusual). It only ever PREPARES a payment — the user's tap
+ * on Confirm is still what sends it.
+ */
+async function handleSend(ctx: ToolContext, slots: SendSlots): Promise<AgentTurn | null> {
+  const recents = (await listRecentPeople(ctx.userId, 4).catch(() => [])).map((p) => p.username);
+
+  if (!slots.recipient && !slots.amount) {
+    return { reply: `Sure — who should I send to, and how much? Give me their @username and the amount.${recents.length ? ` Your recent: ${recents.slice(0, 3).map((u) => '@' + u).join(', ')}.` : ''}` };
+  }
+  if (!slots.recipient) return { reply: askWho(slots.amount, recents) };
+
+  // Who is it? (A 0x address is used as given; a name, @username or UID is looked up.)
+  let recipientArg: string;
+  let shown: string;
+  let note = '';
+  if (/^0x[a-fA-F0-9]{40}$/.test(slots.recipient)) {
+    recipientArg = slots.recipient;
+    shown = slots.recipient.slice(0, 6) + '…' + slots.recipient.slice(-4);
+  } else {
+    const me = await getProfileByUserId(ctx.userId);
+    const mine = slots.recipient.toLowerCase();
+    if (me && (me.username === mine || me.uid?.toLowerCase() === mine)) {
+      return { reply: slots.amount ? `That's your own account. Who should I send ${slots.amount} USDC to instead? Give me their @username.` : `That's your own account. Who should I send to instead? Give me their @username.` };
+    }
+    const res = await resolveRecipient(ctx.userId, slots.recipient);
+    if (res.kind === 'many') {
+      const list = res.people.map((p) => `${label(p)}${lastSeen(p) ? ' — ' + lastSeen(p) : ''}`).join('\n• ');
+      return { reply: `A few of your people match "${slots.recipient}" — which one do you mean?\n• ${list}\nReply with the @username or UID.` };
+    }
+    if (res.kind === 'none') {
+      const maybe = res.similar.length ? ` Did you mean ${res.similar.map((p) => label(p)).join(' or ')}?` : '';
+      return { reply: `I couldn't find anyone called "${slots.recipient}" on Pexa.${maybe} Check the spelling or give me their @username.` };
+    }
+    recipientArg = '@' + res.person.username;
+    shown = label(res.person);
+    if (res.how === 'known') note = ` I matched "${slots.recipient}" to ${shown} from your ${res.person.saved ? 'saved people' : 'recents'} — check it's who you meant.`;
+  }
+
+  if (!slots.amount) return { reply: askHowMuch(recipientArg.startsWith('@') ? recipientArg.slice(1) : recipientArg) };
+
+  const create = TOOLS_BY_NAME.get('create_payment_preview');
+  if (!create) return null;
+  let paymentId: string;
+  try {
+    const out = (await create.handler(ctx, { recipient: recipientArg, amount: slots.amount })) as { paymentId?: string };
+    if (!out.paymentId) return null;
+    paymentId = out.paymentId;
+  } catch (e) {
+    if (e instanceof ToolError) return { reply: `I couldn't set that payment up: ${e.message}` };
+    throw e;
+  }
+  const render = await buildRender(ctx, 'confirm_payment', { paymentId });
+  if (!render) return null;
+  return { reply: `Sending ${slots.amount} USDC to ${shown} — confirm below.${note}`, action: { tool: 'confirm_payment', args: { paymentId }, render } };
+}
+
+/**
  * Run one agent turn: auto-executes read/prepare tools and stops when the model wants to move
  * money, returning a pending action for the user to confirm. Returns null only when no AI key is
  * configured (the caller then falls back to the simple parser path).
@@ -259,6 +325,18 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
   const openai = getClient();
   if (!openai) return null;
   const ctx: ToolContext = { userId: input.userId };
+
+  // A plain "send N USDC to someone" is read by the app itself, not left to the model: it takes the amount and
+  // the person from the conversation, asks only for what is missing (once), and shows the Confirm card.
+  const sendSlots = parseSendSlots(input.messages);
+  if (sendSlots.wantsSend) {
+    try {
+      const turn = await handleSend(ctx, sendSlots);
+      if (turn) return turn;
+    } catch (e) {
+      console.error('[agent] send handler failed, falling back to the model:', e);
+    }
+  }
 
   // Dynamic per-turn context: naira/funding status + what we remember about this user.
   const dynamic: string[] = [];
@@ -287,7 +365,8 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
   const forceBuySearch = buyAvailable() && shouldForceBuySearch(input.messages);
   const baseModel = env.AI_MODEL || 'gpt-4o-mini';
   // Buy conversations get a stronger model; if the account can't use it, fall back to the normal one rather than fail the turn.
-  let model = buyAvailable() && isBuyConversation(input.messages) ? env.AI_BUY_MODEL || 'gpt-4.1-mini' : baseModel;
+  const needsStrongModel = (buyAvailable() && isBuyConversation(input.messages)) || isMoneyConversation(input.messages);
+  let model = needsStrongModel ? env.AI_BUY_MODEL || 'gpt-4.1-mini' : baseModel;
 
   for (let step = 0; step < MAX_STEPS; step++) {
     const request = (m: string) =>

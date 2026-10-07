@@ -3,6 +3,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db';
 import { isUniqueViolation } from '@/lib/db/errors';
 import { normalizeUsername, validateUsername, generateUsernameCandidates, type UsernameError } from './username';
+import { generateUid } from './uid';
 
 /**
  * User + profile service (§9, §23, §35).
@@ -24,6 +25,8 @@ export interface Profile {
   userId: string;
   username: string;
   displayName: string | null;
+  /** Permanent short ID ("PX7K2M9Q") that tells two similar usernames apart. */
+  uid: string | null;
 }
 
 /** Get the internal user for a Privy DID, creating it on first sight (§35). */
@@ -63,7 +66,7 @@ export async function getProfileByUserId(userId: string): Promise<Profile | null
   const rows = await db.select().from(schema.profiles).where(eq(schema.profiles.userId, userId)).limit(1);
   if (rows.length === 0) return null;
   const p = rows[0];
-  return { userId: p.userId, username: p.username, displayName: p.displayName };
+  return { userId: p.userId, username: p.username, displayName: p.displayName, uid: p.uid };
 }
 
 /** True if a username is already claimed (case-insensitive, via normalization). */
@@ -99,20 +102,23 @@ export async function createProfile(userId: string, rawUsername: string): Promis
   const existingProfile = await getProfileByUserId(userId);
   if (existingProfile) return { ok: false, error: 'already_has_profile' };
 
-  try {
-    const inserted = await db.insert(schema.profiles).values({ userId, username }).returning();
-    const p = inserted[0];
-    return { ok: true, profile: { userId: p.userId, username: p.username, displayName: p.displayName } };
-  } catch (e) {
-    if (isUniqueViolation(e)) {
-      // Two different unique constraints can fire here: the username index (someone else has the
-      // name → "taken") or the user's own primary key (a concurrent/retried claim already created
-      // their profile → "already has one"). Re-read to tell them apart, so a user is never told
-      // their OWN just-claimed name is taken.
-      return (await getProfileByUserId(userId)) ? { ok: false, error: 'already_has_profile' } : { ok: false, error: 'taken' };
+  // Every profile gets a permanent UID. A collision (1 in a billion) is retried with a fresh one.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const inserted = await db.insert(schema.profiles).values({ userId, username, uid: generateUid() }).returning();
+      const p = inserted[0];
+      return { ok: true, profile: { userId: p.userId, username: p.username, displayName: p.displayName, uid: p.uid } };
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e;
+      // Three different unique constraints can fire here: the user's own primary key (a concurrent/retried
+      // claim already created their profile → "already has one"), the username index (someone else has the
+      // name → "taken"), or the UID index (bad luck → try another). Re-read to tell them apart, so a user is
+      // never told their OWN just-claimed name is taken.
+      if (await getProfileByUserId(userId)) return { ok: false, error: 'already_has_profile' };
+      if (await isUsernameTaken(username)) return { ok: false, error: 'taken' };
     }
-    throw e;
   }
+  return { ok: false, error: 'taken' };
 }
 
 /** Resolve @username → user + profile, for payment recipient resolution (§23). */
@@ -126,6 +132,7 @@ export async function resolveUsername(rawUsername: string): Promise<{ user: AppU
       email: schema.users.email,
       username: schema.profiles.username,
       displayName: schema.profiles.displayName,
+      uid: schema.profiles.uid,
     })
     .from(schema.profiles)
     .innerJoin(schema.users, eq(schema.users.id, schema.profiles.userId))
@@ -135,6 +142,6 @@ export async function resolveUsername(rawUsername: string): Promise<{ user: AppU
   const r = rows[0];
   return {
     user: { id: r.id, privyDid: r.privyDid, email: r.email },
-    profile: { userId: r.id, username: r.username, displayName: r.displayName },
+    profile: { userId: r.id, username: r.username, displayName: r.displayName, uid: r.uid },
   };
 }

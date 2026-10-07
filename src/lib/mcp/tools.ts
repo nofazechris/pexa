@@ -8,7 +8,9 @@ import { normalizeUsername } from '@/lib/users/username';
 import { getWalletByUserId } from '@/lib/wallets/service';
 import { getUsdcBalance } from '@/lib/celo/balance';
 import { previewPayment, authorizePayment, confirmPayment, executeAuthorizedPayment, listPayments } from '@/lib/payments/engine';
-import { listContacts } from '@/lib/contacts/service';
+import { addContact, listContacts, removeContact } from '@/lib/contacts/service';
+import { findPeople, listRecentPeople, listSavedPeople } from '@/lib/contacts/people';
+import { label, lastSeen, type Person } from '@/lib/contacts/match';
 import { createRequest } from '@/lib/requests/service';
 import { addMemory } from '@/lib/agent/memory';
 import { createAutosaveRule, createAutosaveToVaultRule, createBalanceAlertRule, listRules, setRuleStatus } from '@/lib/rules/service';
@@ -51,6 +53,11 @@ function decimals(token = 'USDC'): number {
 }
 
 /** Turn a Buy service error into a structured tool error the model can read and relay. */
+/** A person as the agent sees them: who, their UID, how they're connected, and when you last dealt. */
+function describePerson(p: Person) {
+  return { username: '@' + p.username, uid: p.uid, label: label(p), displayName: p.displayName, connection: p.saved ? 'saved beneficiary' : p.relation === 'recent' ? 'recent' : 'Pexa user', lastDealt: lastSeen(p) || undefined };
+}
+
 function buyToolError(e: unknown): Error {
   if (e instanceof ToolError) return e;
   if (e instanceof BuyError) return new ToolError(e.code, e.message);
@@ -299,6 +306,51 @@ export const TOOLS: ToolDef[] = [
       const contacts = await listContacts(ctx.userId);
       const inContacts = contacts.some((c) => c.username === resolved.profile.username);
       return { username: '@' + resolved.profile.username, displayName: resolved.profile.displayName, exists: true, inContacts };
+    },
+  }),
+
+  tool({
+    name: 'find_people',
+    description:
+      'Find a Pexa person by name, @username or UID — searching the user’s saved beneficiaries and everyone they have paid or been paid by first, then all Pexa users. Use this for ANY name the user gives ("chris", "the guy I paid yesterday", "PX3STC3A"). Returns the best matches with their UID (which tells similar usernames apart), how they are connected to the user, and when they last dealt. If there is more than one match, ask the user which — never guess between two people.',
+    schema: z.object({ query: z.string().min(1).max(64).describe('A name, @username, or UID (e.g. "chris", "@chris", "PXAY2KWJ").') }),
+    handler: async (ctx, args) => {
+      const people = await findPeople(ctx.userId, args.query, 5);
+      return { query: args.query, count: people.length, people: people.map(describePerson), note: people.length > 1 ? 'More than one match — ask the user which one (show their UIDs).' : undefined };
+    },
+  }),
+
+  tool({
+    name: 'list_recent_people',
+    description: 'The people the user has recently paid or been paid by (newest first), plus their saved beneficiaries. Use for "who did I pay recently", "send it to the same person", or to suggest who to send to.',
+    schema: z.object({ limit: z.number().int().min(1).max(20).optional() }),
+    handler: async (ctx, args) => {
+      const [recent, saved] = await Promise.all([listRecentPeople(ctx.userId, args.limit ?? 8), listSavedPeople(ctx.userId)]);
+      return { recent: recent.map(describePerson), saved: saved.map(describePerson) };
+    },
+  }),
+
+  tool({
+    name: 'save_beneficiary',
+    description: 'Save a Pexa user to the user’s beneficiaries (their saved list) so they are easy to pay again. Not a money move.',
+    mutating: true,
+    schema: z.object({ username: z.string().min(1).describe('The @username to save.') }),
+    handler: async (ctx, args) => {
+      const res = await addContact(ctx.userId, args.username);
+      if (res.ok) return { saved: true, username: '@' + res.contact.username };
+      if (res.error === 'already_added') return { saved: true, alreadySaved: true, username: '@' + normalizeUsername(args.username) };
+      throw new ToolError('save_failed', res.error === 'no_such_user' ? 'There is no Pexa user with that username.' : res.error === 'cannot_add_self' ? 'You can’t save yourself.' : 'That isn’t a valid username.');
+    },
+  }),
+
+  tool({
+    name: 'remove_beneficiary',
+    description: 'Remove someone from the user’s saved beneficiaries. They still appear in recents if there are past payments.',
+    mutating: true,
+    schema: z.object({ username: z.string().min(1) }),
+    handler: async (ctx, args) => {
+      await removeContact(ctx.userId, args.username);
+      return { removed: true, username: '@' + normalizeUsername(args.username) };
     },
   }),
 

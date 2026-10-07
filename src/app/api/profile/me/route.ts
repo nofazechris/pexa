@@ -30,7 +30,7 @@ export async function GET(req: Request) {
     }
     return NextResponse.json({
       userId: user.id,
-      profile: profile ? { username: profile.username, displayName: profile.displayName } : null,
+      profile: profile ? { username: profile.username, displayName: profile.displayName, uid: profile.uid } : null,
       wallet: wallet ? { address: wallet.address, chainId: wallet.chainId } : null,
     });
   } catch (e) {

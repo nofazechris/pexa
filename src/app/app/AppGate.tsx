@@ -217,6 +217,7 @@ export default function AppGate() {
   return (
     <PexaApp
       username={profile?.username}
+      uid={profile?.uid ?? undefined}
       address={canonicalAddress ?? undefined}
       balance={balance ?? '0'}
       activity={activity}

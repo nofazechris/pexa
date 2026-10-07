@@ -6,7 +6,7 @@ import { useAuth } from './AuthProvider';
 export interface ProfileState {
   loading: boolean;
   /** The user's claimed username, or null if they have none yet (→ onboarding). */
-  profile: { username: string } | null;
+  profile: { username: string; uid?: string | null } | null;
   /** The provisioned Celo wallet address, or null if not synced yet. */
   wallet: { address: string } | null;
   /**
@@ -27,7 +27,7 @@ export interface ProfileState {
 export function useProfile(): ProfileState {
   const { ready, authenticated, getAccessToken } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [profile, setProfile] = useState<{ username: string } | null>(null);
+  const [profile, setProfile] = useState<{ username: string; uid?: string | null } | null>(null);
   const [wallet, setWallet] = useState<{ address: string } | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [error, setError] = useState(false);
@@ -69,7 +69,7 @@ export function useProfile(): ProfileState {
 
           if (res && res.ok) {
             const data = (await res.json()) as {
-              profile: { username: string } | null;
+              profile: { username: string; uid?: string | null } | null;
               wallet: { address: string } | null;
             };
             setProfile(data.profile ?? null);

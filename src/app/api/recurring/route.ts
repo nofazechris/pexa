@@ -17,6 +17,10 @@ function createErrorMessage(error: string): string {
       return 'No PrivyPay user with that username.';
     case 'cannot_pay_self':
       return "You can't schedule a payment to yourself.";
+    case 'too_many':
+      return 'You already have the maximum number of recurring payments. Cancel one first.';
+    case 'duplicate':
+      return 'That exact recurring payment is already set up.';
     default:
       return 'Could not create recurring payment.';
   }

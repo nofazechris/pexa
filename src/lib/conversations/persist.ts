@@ -14,7 +14,7 @@ const MAX_TEXT = 4000;
 const MAX_RESULT_CHARS = 4000;
 const MAX_TITLE = 60;
 
-const KEEP = new Set(['id', 'role', 'type', 'text', 'kind', 'preview', 'receive', 'buy', 'buyResult', 'quote', 'order', 'result', 'status', 'execTool', 'execArgs', 'title', 'hint', 'retryText', 'restored']);
+const KEEP = new Set(['id', 'role', 'type', 'text', 'kind', 'preview', 'receive', 'buy', 'buyResult', 'recurring', 'recurringResult', 'quote', 'order', 'result', 'status', 'execTool', 'execArgs', 'title', 'hint', 'retryText', 'restored']);
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 

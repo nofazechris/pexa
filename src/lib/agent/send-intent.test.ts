@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { askHowMuch, askWho, extractAmount, extractRecipient, parseSendSlots, replyToTypedAnswer, type TurnMessage } from './send-intent';
+import { askHowMuch, askHowOften, askWho, extractAmount, extractRecipient, parseSendSlots, replyToTypedAnswer, type TurnMessage } from './send-intent';
 
 const u = (content: string): TurnMessage => ({ role: 'user', content });
 const a = (content: string): TurnMessage => ({ role: 'assistant', content });
@@ -65,7 +65,7 @@ describe('recipients', () => {
 
 describe('knowing when it is NOT a plain send', () => {
   it.each([
-    "What's my balance?", 'Request $20 from @mike', 'send naira to my bank', 'withdraw 50 usdc', 'pay @sarah $20 every Friday', 'swap usdc for usdt', 'I sent money to chris', 'Save 10% of what I receive',
+    "What's my balance?", 'Request $20 from @mike', 'send naira to my bank', 'withdraw 50 usdc', 'swap usdc for usdt', 'I sent money to chris', 'Save 10% of what I receive',
     'What is Reddit saying about Celo today?', 'yes', 'thanks',
     'Who did I pay or receive from recently?', 'who did I send money to last week', 'have I paid chris before?', 'show me my recent payments', 'did I send joyful anything',
     'What is the last time I paid amy',
@@ -136,6 +136,64 @@ describe('an old send must never leak into a new request (the "add to vault" →
       'That’s your own account. Who should I send 1 USDC to instead? Give me their @username.',
     ];
     for (const q of qs) expect(parseSendSlots([u('send 1 USDC'), a(q), u('joyful')]).wantsSend, q).toBe(true);
+  });
+});
+
+describe('recurring payments', () => {
+  it('everything in one message', () => {
+    expect(parseSendSlots([u('Pay @joyful $5 every Friday')])).toEqual({ wantsSend: true, amount: '5', recipient: 'joyful', recurring: true, cadence: 'Every Friday' });
+    expect(parseSendSlots([u('send 10 USDC to amy monthly')])).toEqual({ wantsSend: true, amount: '10', recipient: 'amy', recurring: true, cadence: 'Monthly' });
+    expect(parseSendSlots([u('send $2 to @bob daily')])).toMatchObject({ recurring: true, cadence: 'Daily', amount: '2', recipient: 'bob' });
+  });
+
+  it('asks only for what is missing, remembering the schedule across the answers', () => {
+    expect(parseSendSlots([u('Pay joyful every Friday')])).toEqual({ wantsSend: true, amount: null, recipient: 'joyful', recurring: true, cadence: 'Every Friday' });
+    expect(parseSendSlots([u('Pay joyful every Friday'), a(askHowMuch('joyful')), u('5')])).toEqual({ wantsSend: true, amount: '5', recipient: 'joyful', recurring: true, cadence: 'Every Friday' });
+    expect(parseSendSlots([u('set up a recurring payment'), a('Sure — who should I send to, and how much? Give me their @username and the amount.'), u('joyful 5 usdc')])).toMatchObject({ recurring: true, amount: '5', recipient: 'joyful' });
+  });
+
+  it('a recurring request with no schedule asks "how often" and reads the bare answer', () => {
+    const first = parseSendSlots([u('set up a recurring payment of $5 to joyful')]);
+    expect(first).toMatchObject({ recurring: true, amount: '5', recipient: 'joyful' });
+    expect(first.cadence).toBeUndefined();
+    const q = askHowOften('joyful', '5');
+    expect(q).toMatch(/how often/i);
+    expect(parseSendSlots([u('set up a recurring payment of $5 to joyful'), a(q), u('weekly')])).toMatchObject({ recurring: true, cadence: 'Weekly', amount: '5', recipient: 'joyful' });
+    expect(parseSendSlots([u('set up a recurring payment of $5 to joyful'), a(q), u('every Friday')])).toMatchObject({ cadence: 'Every Friday' });
+  });
+
+  it('flags a schedule it cannot run faithfully instead of guessing', () => {
+    for (const t of ['pay joyful $5 every other week', 'send 5 to joyful on the 15th of every month', 'send $5 to joyful twice a month', 'pay joyful $5 every weekday']) {
+      const s = parseSendSlots([u(t)]);
+      expect(s.recurring, t).toBe(true);
+      expect(s.cadenceUnsupported, t).toBe(true);
+      expect(s.cadence, t).toBeUndefined();
+    }
+  });
+
+  it('schedule words are never read as the person', () => {
+    expect(parseSendSlots([u('pay weekly 5 to joyful')])).toMatchObject({ recipient: 'joyful', cadence: 'Weekly' });
+    expect(parseSendSlots([u('send monthly 10 usdc to amy')])).toMatchObject({ recipient: 'amy', cadence: 'Monthly' });
+  });
+
+  it('"each of them" is not a schedule; a plain send stays plain', () => {
+    expect(parseSendSlots([u('send 5 usdc to each of them')]).recurring).toBeUndefined();
+    expect(parseSendSlots([u('Send 1 USDC to joyful')]).recurring).toBeUndefined();
+  });
+
+  it('a recurring request from earlier never leaks into an unrelated answer', () => {
+    const card = a('Setting up 5 USDC to @joyful every Friday — confirm below.');
+    expect(parseSendSlots([u('Pay joyful $5 every Friday'), card, u('Add money to my vault'), a('How much USDC would you like to add to your vault?'), u('1')]).wantsSend).toBe(false);
+  });
+
+  it('a later plain send is not turned recurring by an older recurring one', () => {
+    const card = a('Setting up 5 USDC to @joyful every Friday — confirm below.');
+    expect(parseSendSlots([u('Pay joyful $5 every Friday'), card, u('send 2 to omoefe')])).toEqual({ wantsSend: true, amount: '2', recipient: 'omoefe' });
+  });
+
+  it('typing "yes" under a recurring card says which button to tap', () => {
+    const card = a('Setting up 5 USDC to @joyful every Friday — confirm below.');
+    expect(replyToTypedAnswer([u('Pay joyful $5 every Friday'), card, u('yes')])).toMatch(/Start recurring payment/);
   });
 });
 

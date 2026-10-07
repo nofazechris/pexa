@@ -7,6 +7,8 @@
  * Pure and fully tested. It only EXTRACTS; it never moves money — the Confirm card is still the user's tap.
  */
 
+import { CADENCE_OPTIONS, bareCadence, mentionsRecurrence, parseCadence, type Cadence } from './cadence';
+
 export type TurnMessage = { role: 'user' | 'assistant'; content: string };
 
 export interface SendSlots {
@@ -18,19 +20,30 @@ export interface SendSlots {
   recipient: string | null;
   /** The message asks for several payments at once (two people, or two amounts). Only ever set when true. */
   multiple?: boolean;
+  /** A repeating payment ("every Friday", "monthly"). Only ever set when true. */
+  recurring?: boolean;
+  /** The schedule label the scheduler understands ("Every Friday", "Weekly", "Monthly", "Daily"), if one was given. */
+  cadence?: string;
+  /** They named a schedule we can't run faithfully ("every other week", "on the 15th"). */
+  cadenceUnsupported?: boolean;
 }
 
 const SEND_VERB = /\b(send|pay|transfer|give|wire|remit)\b/i;
+// A repeating payment can be asked for without a send verb: "set up a recurring payment", "autopay joyful $5".
+const RECURRING_REQUEST = /\b(recurring payment|standing order|auto-?pay|subscription|set up (?:a )?recurring)\b/i;
 // Things that look like a send but are something else (other tools handle them).
-const NOT_A_PLAIN_SEND = /\b(request|invoice|bill|naira|ngn|bank|withdraw|usdt|swap|convert|vault|save|saving|deposit|fund|buy|sell|recurring|every|schedule|monthly|weekly|daily|each|rule)\b|₦/i;
+const NOT_A_PLAIN_SEND = /\b(request|invoice|bill|naira|ngn|bank|withdraw|usdt|swap|convert|vault|save|saving|deposit|fund|buy|sell|schedule|rule)\b|₦/i;
 
 const ASKED_WHO = /\b(who|which|whom|username|recipient|send (?:it )?to)\b[^?]*\?/i;
 const ASKED_HOW_MUCH = /\bhow much\b[^?]*\?|\bwhat amount\b[^?]*\?/i;
+const ASKED_HOW_OFTEN = /\bhow often\b[^?]*\?/i;
 
 const STOPWORDS = new Set([
   'money', 'funds', 'fund', 'usdc', 'usd', 'dollar', 'dollars', 'buck', 'bucks', 'cash', 'payment', 'some', 'the', 'him', 'her', 'them', 'me', 'myself',
   'my', 'it', 'this', 'that', 'someone', 'somebody', 'anyone', 'friend', 'back', 'now', 'today', 'please', 'again', 'same', 'more', 'out', 'over', 'there',
   'first', 'then', 'also', 'just', 'and', 'for', 'from', 'with', 'you', 'yes', 'yeah', 'yep', 'sure', 'okay', 'ok', 'confirm', 'cancel', 'send', 'pay',
+  // schedule words must never be read as a person ("pay weekly 5 to joyful")
+  'every', 'each', 'weekly', 'monthly', 'daily', 'week', 'month', 'day', 'recurring', 'autopay', 'subscription', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
 ]);
 
 const WORD_NUMBERS: Record<string, number> = {
@@ -85,6 +98,18 @@ function bareRecipient(text: string): string | null {
   return cleanName(m?.[1]);
 }
 
+/**
+ * A reply that gives the person AND the amount together, with nothing else: "joyful 5", "joyful 5 usdc",
+ * "5 usdc joyful", "$5 to joyful". Only used when we just asked who to send to.
+ */
+function nameWithAmount(text: string): string | null {
+  const t = text.trim().replace(/[.!]$/, '');
+  const amt = String.raw`\$?\s?\d{1,9}(?:\.\d{1,6})?\s*(?:usdc|usd|dollars?|bucks?)?`;
+  const nameThenAmount = new RegExp(String.raw`^@?([a-z0-9_]{3,20})\s+${amt}$`, 'i').exec(t);
+  const amountThenName = new RegExp(String.raw`^${amt}\s+(?:to\s+)?@?([a-z0-9_]{3,20})$`, 'i').exec(t);
+  return cleanName((nameThenAmount ?? amountThenName)?.[1]);
+}
+
 /** A reply that is only a number / amount ("1", "1 USDC", "$5"). */
 function bareAmount(text: string): string | null {
   const t = text.trim();
@@ -98,7 +123,7 @@ const LOOKUP_WORDS = /\b(recent|recently|history|last time|who did|did i|have i|
 const QUESTION_START = /^\s*(who|what|when|where|why|which|did|have|has|is|are)\b/i;
 
 function isPlainSend(text: string): boolean {
-  return SEND_VERB.test(text) && !NOT_A_PLAIN_SEND.test(text) && !LOOKUP_WORDS.test(text) && !QUESTION_START.test(text);
+  return (SEND_VERB.test(text) || RECURRING_REQUEST.test(text)) && !NOT_A_PLAIN_SEND.test(text) && !LOOKUP_WORDS.test(text) && !QUESTION_START.test(text);
 }
 
 /**
@@ -108,7 +133,7 @@ function isPlainSend(text: string): boolean {
  * keeps an old "send 1 USDC to joyful" from being revived when the user is answering something unrelated.
  */
 function isSendQuestion(text: string): boolean {
-  return /\?/.test(text) && /\bsend\b/i.test(text) && (ASKED_WHO.test(text) || ASKED_HOW_MUCH.test(text));
+  return /\?/.test(text) && /\bsend\b/i.test(text) && (ASKED_WHO.test(text) || ASKED_HOW_MUCH.test(text) || ASKED_HOW_OFTEN.test(text));
 }
 
 /** Words that mean "forget it" — they end a send exchange rather than answer it. */
@@ -148,7 +173,10 @@ export function parseSendSlots(messages: readonly TurnMessage[]): SendSlots {
   let amount: string | null = null;
   let recipient: string | null = null;
   let fromLast = false; // did the latest message itself supply something?
-  for (let i = lastInExchange; i >= 0 && (amount === null || recipient === null); i--) {
+  // Is this a repeating payment? Anything in THIS exchange that talks about repetition makes it one.
+  const recurring = exchange.some((m) => m.role === 'user' && mentionsRecurrence(m.content));
+  let cadence: Cadence | null = null;
+  for (let i = lastInExchange; i >= 0 && (amount === null || recipient === null || (recurring && cadence === null)); i--) {
     const m = exchange[i];
     if (m.role !== 'user') continue;
     const before = i >= 1 && exchange[i - 1].role === 'assistant' ? exchange[i - 1].content : '';
@@ -158,8 +186,12 @@ export function parseSendSlots(messages: readonly TurnMessage[]): SendSlots {
       if (amount !== null && i === lastInExchange) fromLast = true;
     }
     if (recipient === null) {
-      recipient = (askedFor && ASKED_WHO.test(before) ? bareRecipient(m.content) : null) ?? extractRecipient(m.content);
+      recipient = (askedFor && ASKED_WHO.test(before) ? (bareRecipient(m.content) ?? nameWithAmount(m.content)) : null) ?? extractRecipient(m.content);
       if (recipient !== null && i === lastInExchange) fromLast = true;
+    }
+    if (recurring && cadence === null) {
+      cadence = (askedFor && ASKED_HOW_OFTEN.test(before) ? bareCadence(m.content) : null) ?? parseCadence(m.content);
+      if (cadence !== null && i === lastInExchange) fromLast = true;
     }
   }
   // A bare number must not be read as a name, and the amount can't also be the recipient.
@@ -169,6 +201,12 @@ export function parseSendSlots(messages: readonly TurnMessage[]): SendSlots {
   if (!requestingNow && !fromLast) return none;
   // "1 to @joyful and 2 to @omoefe" is two payments; we do one at a time rather than quietly doing a wrong one.
   if (requestingNow && (distinctRecipients(last).length > 1 || distinctAmounts(last).length > 1)) return { wantsSend: true, amount, recipient, multiple: true };
+  if (recurring) {
+    const out: SendSlots = { wantsSend: true, amount, recipient, recurring: true };
+    if (cadence?.kind === 'ok') out.cadence = cadence.label;
+    if (cadence?.kind === 'unsupported') out.cadenceUnsupported = true;
+    return out;
+  }
   return { wantsSend: true, amount, recipient };
 }
 
@@ -225,9 +263,11 @@ export function replyToTypedAnswer(messages: readonly TurnMessage[]): string | n
   const card = messages[n - 2].content;
   const text = messages[n - 1].content;
   const isPayment = /confirm below/i.test(card);
+  const isRecurring = isPayment && /\b(recurring|every|weekly|monthly|daily)\b/i.test(card);
   const isPurchase = /approve it below/i.test(card);
   if (!isPayment && !isPurchase) return null;
   if (TYPED_YES.test(text)) {
+    if (isRecurring) return 'To start it, tap “Start recurring payment” on the card above — I can’t set up payments from a typed message.';
     return isPayment ? 'To send it, tap “Confirm payment” on the card above — I can’t send money from a typed message.' : 'To buy it, tap “Approve & pay” on the card above — I can’t spend from a typed message.';
   }
   if (TYPED_NO.test(text)) return 'Okay — nothing was sent or charged. Tap Cancel on the card to clear it, or tell me what you’d like instead.';
@@ -243,4 +283,9 @@ export function askWho(amount: string | null, recents: readonly string[]): strin
 
 export function askHowMuch(recipient: string): string {
   return `How much would you like to send to ${recipient.startsWith('0x') ? recipient.slice(0, 8) + '…' : '@' + recipient}?`;
+}
+
+export function askHowOften(recipient: string, amount: string): string {
+  const who = recipient.startsWith('0x') ? recipient.slice(0, 8) + '…' : '@' + recipient;
+  return `How often should I send ${amount} USDC to ${who} — ${CADENCE_OPTIONS}?`;
 }

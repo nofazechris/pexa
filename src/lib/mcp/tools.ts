@@ -9,6 +9,7 @@ import { getWalletByUserId } from '@/lib/wallets/service';
 import { getUsdcBalance } from '@/lib/celo/balance';
 import { previewPayment, authorizePayment, confirmPayment, executeAuthorizedPayment, listPayments } from '@/lib/payments/engine';
 import { addContact, listContacts, removeContact } from '@/lib/contacts/service';
+import { cancelRecurring, listRecurring, setRecurringPaused } from '@/lib/recurring/service';
 import { findPeople, listRecentPeople, listSavedPeople } from '@/lib/contacts/people';
 import { label, lastSeen, type Person } from '@/lib/contacts/match';
 import { createRequest } from '@/lib/requests/service';
@@ -351,6 +352,40 @@ export const TOOLS: ToolDef[] = [
     handler: async (ctx, args) => {
       await removeContact(ctx.userId, args.username);
       return { removed: true, username: '@' + normalizeUsername(args.username) };
+    },
+  }),
+
+  tool({
+    name: 'list_recurring_payments',
+    description: 'List the user’s recurring (repeating) payments: who gets paid, how much, how often, when the next one is due, and whether it is paused. Use before pausing or cancelling one, or when asked "what recurring payments do I have".',
+    schema: z.object({}),
+    handler: async (ctx) => {
+      const items = await listRecurring(ctx.userId);
+      return { count: items.length, recurring: items.map((r) => ({ id: r.id, to: r.counterparty, amount: r.amount + ' USDC', cadence: r.cadence, next: r.next, paused: r.paused })) };
+    },
+  }),
+
+  tool({
+    name: 'pause_recurring_payment',
+    description: 'Pause (paused=true) or resume (paused=false) one of the user’s recurring payments, by id from list_recurring_payments. Pausing only stops future payments; it never moves money.',
+    mutating: true,
+    schema: z.object({ id: z.string().min(1), paused: z.boolean() }),
+    handler: async (ctx, args) => {
+      const res = await setRecurringPaused(args.id, ctx.userId, args.paused);
+      if (!res.ok) throw new ToolError('not_found', 'No recurring payment with that id. Use list_recurring_payments to find it.');
+      return { id: args.id, paused: args.paused };
+    },
+  }),
+
+  tool({
+    name: 'cancel_recurring_payment',
+    description: 'Cancel one of the user’s recurring payments for good, by id from list_recurring_payments. Stops all future payments; it never moves money. Confirm with the user which one if there is any doubt.',
+    mutating: true,
+    schema: z.object({ id: z.string().min(1) }),
+    handler: async (ctx, args) => {
+      const res = await cancelRecurring(args.id, ctx.userId);
+      if (!res.ok) throw new ToolError('not_found', 'No recurring payment with that id. Use list_recurring_payments to find it.');
+      return { id: args.id, cancelled: true };
     },
   }),
 

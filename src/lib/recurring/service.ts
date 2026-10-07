@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, desc, eq, lte } from 'drizzle-orm';
+import { and, desc, eq, inArray, lte } from 'drizzle-orm';
 import { formatUnits, parseUnits } from 'viem';
 import { getDb, schema } from '@/lib/db';
 import { activeNetwork, getToken } from '@/lib/config';
@@ -56,7 +56,24 @@ export interface RecurringItem {
 
 export type CreateRecurringResult =
   | { ok: true; item: RecurringItem }
-  | { ok: false; error: 'invalid_amount' | 'no_such_user' | 'cannot_pay_self' };
+  | { ok: false; error: 'invalid_amount' | 'no_such_user' | 'cannot_pay_self' | 'too_many' | 'duplicate' };
+
+/** Most schedules one account may have running (active or paused) — keeps the daily payment worker bounded. */
+export const MAX_RECURRING_PER_USER = 10;
+
+/**
+ * Would a new schedule be refused? Either the account already has the maximum, or the exact same payment
+ * (same person, amount and schedule) is already set up — which would pay them twice on every due date.
+ */
+export async function recurringConflict(ownerUserId: string, payeeUserId: string, amountRaw: string, cadence: string): Promise<'too_many' | 'duplicate' | null> {
+  const rows = await getDb()
+    .select({ payeeUserId: schema.recurringPayments.payeeUserId, amount: schema.recurringPayments.amount, cadence: schema.recurringPayments.cadence })
+    .from(schema.recurringPayments)
+    .where(and(eq(schema.recurringPayments.ownerUserId, ownerUserId), inArray(schema.recurringPayments.status, ['active', 'paused'])));
+  if (rows.length >= MAX_RECURRING_PER_USER) return 'too_many';
+  const same = rows.some((r) => r.payeeUserId === payeeUserId && r.amount === amountRaw && r.cadence.trim().toLowerCase() === cadence.trim().toLowerCase());
+  return same ? 'duplicate' : null;
+}
 
 /** Create a recurring payment to `payeeUsername` for `amount` (decimal) on `cadence`. */
 export async function createRecurring(
@@ -76,6 +93,8 @@ export async function createRecurring(
   if (resolved.user.id === ownerUserId) return { ok: false, error: 'cannot_pay_self' };
 
   const cadence = input.cadence?.trim() || 'Weekly';
+  const conflict = await recurringConflict(ownerUserId, resolved.user.id, amountRaw.toString(), cadence);
+  if (conflict) return { ok: false, error: conflict };
   const nextRun = computeNextRun(cadence);
   const db = getDb();
   const [row] = await db

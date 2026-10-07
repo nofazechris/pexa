@@ -77,6 +77,25 @@ export default function AppGate() {
         return r;
       },
       cancelBuy,
+      // Set up a confirmed recurring payment; the server re-validates the person, amount and schedule.
+      createRecurring: async (args: { payee: string; amount: string; cadence: string }) => {
+        try {
+          const token = await getAccessToken();
+          const res = await fetch('/api/recurring', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+            body: JSON.stringify(args),
+          });
+          const data = (await res.json().catch(() => ({}))) as { recurring?: { next?: string }; message?: string };
+          if (res.ok) {
+            refreshRecurring();
+            return { ok: true as const, next: data.recurring?.next };
+          }
+          return { ok: false as const, error: data.message ?? 'Couldn’t set that up.' };
+        } catch {
+          return { ok: false as const, error: 'Network error.' };
+        }
+      },
       setRecurringPaused: (id: string, paused: boolean) => setRecurringPaused(id, paused),
       cancelRecurring: (id: string) => cancelRecurring(id),
       // The tool-calling agent: one message + recent history in, a reply (+ optional pending action) out.
@@ -229,6 +248,7 @@ export default function AppGate() {
       executeSend={hooks.executeSend}
       executeBuy={hooks.executeBuy}
       cancelBuy={hooks.cancelBuy}
+      createRecurring={hooks.createRecurring}
       conversations={conversations}
       payRequest={hooks.payRequest}
       cancelRequest={cancelRequest}

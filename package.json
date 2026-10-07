@@ -14,7 +14,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "wallets:audit": "node scripts/wallet-audit.mjs"
+    "wallets:audit": "node scripts/wallet-audit.mjs",
+    "buy:report": "node scripts/buy-report.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

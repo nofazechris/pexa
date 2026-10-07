@@ -7,7 +7,7 @@ import { env, activeNetwork, getToken, features } from '@/lib/config';
 import { TOOLS, TOOLS_BY_NAME, ToolError, type ToolContext } from '@/lib/mcp/tools';
 import QRCode from 'qrcode';
 import { getPayment } from '@/lib/payments/engine';
-import { getProfileByUserId } from '@/lib/users/service';
+import { getProfileByUserId, resolveUsername } from '@/lib/users/service';
 import { getWalletByUserId } from '@/lib/wallets/service';
 import { getFiatQuoteById } from '@/lib/fiat/service';
 import { presentQuote, type QuoteView } from '@/lib/fiat/present';
@@ -16,7 +16,10 @@ import { buyAvailable, getApprovalPayload } from '@/lib/buy/service';
 import { describeRequest } from '@/lib/buy/catalog';
 import type { AuthorizationTypedData } from '@/lib/buy/x402';
 import { activeAlerts } from '@/lib/rules/worker';
-import { askHowMuch, askWho, isMoneyConversation, parseSendSlots, replyToTypedAnswer, type SendSlots } from './send-intent';
+import { askHowMuch, askHowOften, askWho, isMoneyConversation, parseSendSlots, replyToTypedAnswer, type SendSlots } from './send-intent';
+import { computeNextRun, recurringConflict } from '@/lib/recurring/service';
+import { recurringAutoLimit, recurringRunsAutomatically } from '@/lib/recurring/automation';
+import { exceedsAutonomousCap } from '@/lib/payments/policy';
 import { listRecentPeople, resolveRecipient } from '@/lib/contacts/people';
 import { label, lastSeen } from '@/lib/contacts/match';
 
@@ -56,6 +59,9 @@ const AGENT_TOOLS = new Set([
   'list_recent_people',
   'save_beneficiary',
   'remove_beneficiary',
+  'list_recurring_payments',
+  'pause_recurring_payment',
+  'cancel_recurring_payment',
   'get_recent_transactions',
   'get_payment_status',
   'create_payment_preview',
@@ -110,7 +116,7 @@ How you work:
 - You may freely call read tools (balance, profile, contacts, transactions, quotes, limits, compliance, list payout accounts), preparation tools (create_payment_preview, get_ngn_usdt_quote), and verify_payout_account to link a bank account.
 - To move money — send a payment, buy/sell/convert, or withdraw — FIRST prepare it (create_payment_preview for a send; get_ngn_usdt_quote for buy/sell/withdraw), then in the SAME turn call the matching execute tool (confirm_payment / create_buy_usdt_order / create_sell_usdt_order). Calling the execute tool does NOT run it — it makes the app show the user a Confirm button. So when the user wants to DO the action, you MUST call the execute tool; do NOT stop and ask "would you like to proceed?" in text. Only skip the execute tool when the user explicitly asked for just a rate/quote or preview.
 - NEVER guess an amount or a recipient — but DO use what the user already told you in this conversation. If they said "send 1 USDC" and later "joyful", the amount is 1 USDC and the person is joyful: don't ask again. Ask ONE short question only for what is truly missing. Use an amount or person only from this same request, not from an old unrelated one.
-- RECURRING / SCHEDULED payments ("every Friday", "monthly", "each week") cannot be created from chat yet — say so plainly and offer a one-off payment instead. NEVER use create_money_rule for this: money rules are only autosave_on_income and balance_alert, and must never be described as scheduled payments.
+- RECURRING payments ("pay @x $5 every Friday", "monthly", "each week"): the app sets these up itself and shows the user a card to confirm — you never create one. Do NOT call create_money_rule for this: money rules are only autosave_on_income and balance_alert, and must never be described as scheduled payments. To show, pause/resume or cancel existing ones use list_recurring_payments, pause_recurring_payment and cancel_recurring_payment (stopping a payment moves no money). Schedules Pexa supports: daily, weekly, monthly, or a weekday (every Friday); anything else (every other week, a date like the 15th) is not available yet — say so.
 - PEOPLE: for any name the user gives, call find_people (it searches their saved beneficiaries and everyone they've paid or been paid by, then all Pexa users). One clear match → use it and say who (include their UID if similar names exist). More than one → list them with their UIDs and ask which; never pick between two people. If the user says "I sent money to chris" or "the guy I paid yesterday", look in recents. To save someone for later call save_beneficiary; after a successful payment you may offer "Want me to save @x as a beneficiary?" once.
 - Adding money (deposit / fund / top up / "add money" / "put money in"): this means the user wants to RECEIVE, not send. Call get_deposit_details to show their wallet address + QR to receive USDC on Celo. Never turn "fund/deposit" into a payment to someone. (Funding with naira is separate and coming soon.)
 - Withdraw to a bank = a sell: call get_ngn_usdt_quote with side "sell" and amountCurrency "NGN" for a naira amount, then create_sell_usdt_order (the user's linked account is used automatically). If they have no linked account, ask for their account number and bank, then verify_payout_account.
@@ -158,6 +164,22 @@ export interface PendingAction {
     | { type: 'payment_preview'; recipient: string; amount: string; token: string; network: string }
     | { type: 'fiat_quote'; quote: QuoteView }
     | { type: 'receive'; address: string; username: string; network: string; qr: string }
+    /** A repeating payment waiting for the user's Confirm; creating it authorizes future payments. */
+    | {
+        type: 'recurring_preview';
+        recipient: string;
+        username: string;
+        amount: string;
+        token: string;
+        cadence: string;
+        firstPayment: string;
+        /** Will it run by itself (Pexa may sign for the wallet), or does it only wait for the user? */
+        automatic: boolean;
+        /** Above the auto limit: each payment will wait for the user's approval. */
+        needsApprovalEachTime: boolean;
+        autoLimit: string;
+        network: string;
+      }
     /** A Buy purchase waiting for the user's approval; the browser signs `typedData` with the user's wallet. */
     | {
         type: 'buy_quote';
@@ -260,6 +282,50 @@ async function buildRender(ctx: ToolContext, tool: string, args: Record<string, 
 }
 
 /**
+ * A repeating payment. By now the person and the amount are known; this settles the schedule and builds the Confirm
+ * card. Setting one up authorizes FUTURE payments, so the card says plainly when the first one is due, whether it
+ * will run by itself (Pexa must be allowed to sign for the wallet) and the size above which each one waits for approval.
+ */
+async function handleRecurring(ctx: ToolContext, slots: SendSlots, recipientArg: string, shown: string, note: string): Promise<AgentTurn | null> {
+  const amount = slots.amount as string;
+  if (recipientArg.startsWith('0x')) {
+    return { reply: 'Recurring payments can only go to a Pexa @username for now. Who should I send to instead? Give me their @username.' };
+  }
+  const payee = recipientArg.slice(1);
+
+  if (!slots.cadence) {
+    const ask = askHowOften(payee, amount);
+    // (the question itself lists what is supported, so the refusal doesn't repeat the options)
+    return { reply: slots.cadenceUnsupported ? `I can’t run that schedule yet. ${ask}` : ask };
+  }
+
+  const resolved = await resolveUsername(payee);
+  if (!resolved) return { reply: `I couldn’t find @${payee} on Pexa. Who should I send to instead? Give me their @username.` };
+  const amountRaw = parseUnits(amount, 6).toString();
+  const conflict = await recurringConflict(ctx.userId, resolved.user.id, amountRaw, slots.cadence);
+  const phrase = slots.cadence.charAt(0).toLowerCase() + slots.cadence.slice(1);
+  if (conflict === 'duplicate') return { reply: `You already have ${amount} USDC going to @${payee} ${phrase}. You can pause or cancel it under Payments.` };
+  if (conflict === 'too_many') return { reply: 'You already have the maximum number of recurring payments. Cancel one under Payments, then I can set this up.' };
+
+  const first = computeNextRun(slots.cadence).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const automatic = await recurringRunsAutomatically(ctx.userId);
+  const render: PendingAction['render'] = {
+    type: 'recurring_preview',
+    recipient: shown,
+    username: payee,
+    amount,
+    token: 'USDC',
+    cadence: slots.cadence,
+    firstPayment: first,
+    automatic,
+    needsApprovalEachTime: exceedsAutonomousCap(amountRaw),
+    autoLimit: recurringAutoLimit(),
+    network: activeNetwork.name,
+  };
+  return { reply: `Setting up ${amount} USDC to ${shown}, ${phrase} — confirm below.${note}`, action: { tool: 'create_recurring_payment', args: { payee, amount, cadence: slots.cadence }, render } };
+}
+
+/**
  * The deterministic "send money" flow. Returns a turn when it handled the request (a question, or the Confirm
  * card) and null to let the model take over (anything unusual). It only ever PREPARES a payment — the user's tap
  * on Confirm is still what sends it.
@@ -303,6 +369,9 @@ async function handleSend(ctx: ToolContext, slots: SendSlots): Promise<AgentTurn
   }
 
   if (!slots.amount) return { reply: askHowMuch(recipientArg.startsWith('@') ? recipientArg.slice(1) : recipientArg) };
+
+  // A repeating payment: needs a schedule we can really run, then a card that is honest about what happens.
+  if (slots.recurring) return handleRecurring(ctx, slots, recipientArg, shown, note);
 
   // Don't show a Confirm button for money you don't have.
   const balanceTool = TOOLS_BY_NAME.get('get_balance');

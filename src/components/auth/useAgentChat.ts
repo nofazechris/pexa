@@ -35,6 +35,7 @@ export interface PendingActionView {
     | { type: 'payment_preview'; recipient: string; amount: string; token: string; network: string }
     | { type: 'fiat_quote'; quote: FiatQuoteView }
     | { type: 'receive'; address: string; username: string; network: string; qr: string }
+    | ({ type: 'recurring_preview' } & RecurringCardData)
     | { type: 'buy_quote'; purchaseId: string; service: string; price: string; priceAtomic: string; token: string; detail: string; expiresAt: string; from: string; typedData: BuyTypedData; note: string };
 }
 
@@ -54,16 +55,35 @@ export interface BuyQuoteCardData {
   note: string;
 }
 
+/** A repeating payment waiting for Confirm (mirrors the server's recurring_preview render). */
+export interface RecurringCardData {
+  recipient: string;
+  username: string;
+  amount: string;
+  token: string;
+  cadence: string;
+  firstPayment: string;
+  /** Will it run by itself, or only wait for the user until they enable Agent payments? */
+  automatic: boolean;
+  /** Above the auto limit: every payment will wait for the user's approval. */
+  needsApprovalEachTime: boolean;
+  autoLimit: string;
+  network: string;
+}
+
 export interface ChatMessage {
   id: number;
   role: 'user' | 'agent';
-  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result';
+  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt';
   text?: string;
   /** Card payloads. */
   kind?: 'send' | 'buy' | 'sell';
   preview?: { recipient: string; amount: string; token: string; network: string };
   receive?: { address: string; username: string; network: string; qr: string };
   buy?: BuyQuoteCardData;
+  /** A repeating payment: the card to confirm, and (on the receipt) what was set up. */
+  recurring?: RecurringCardData;
+  recurringResult?: { ok: boolean; next?: string; error?: string };
   /** A finished Buy purchase (the receipt card). */
   buyResult?: BuyResult;
   quote?: FiatQuoteView;
@@ -109,6 +129,8 @@ export interface AgentChatDeps {
   executeBuy?: (args: { purchaseId: string; from: string; typedData: BuyTypedData }) => Promise<BuyResult>;
   /** Decline a quoted Buy purchase (best effort). */
   cancelBuy?: (purchaseId: string) => Promise<void>;
+  /** Set up a confirmed recurring payment (the server re-validates everything). */
+  createRecurring?: (args: { payee: string; amount: string; cadence: string }) => Promise<{ ok: boolean; next?: string; error?: string }>;
   /** Save the chat so it survives a reload and can be continued later (best effort). */
   saveConversation?: (id: string, messages: ChatMessage[]) => Promise<void>;
   /** Load a saved chat; the server has already made any pending money card inert. */
@@ -202,6 +224,10 @@ export function useAgentChat(deps: AgentChatDeps) {
       if (action) {
         if (action.render.type === 'receive') {
           push({ role: 'agent', type: 'receive', receive: action.render });
+        } else if (action.render.type === 'recurring_preview') {
+          const { type: _t, ...card } = action.render;
+          void _t;
+          push({ role: 'agent', type: 'recurring_preview', recurring: card, execArgs: action.args, status: 'awaiting' });
         } else if (action.render.type === 'buy_quote') {
           const { purchaseId, service, price, priceAtomic, token, detail, expiresAt, from, typedData, note } = action.render;
           push({ role: 'agent', type: 'buy_quote', buy: { purchaseId, service, price, priceAtomic, token, detail, expiresAt, from, typedData, note }, status: 'awaiting' });
@@ -252,6 +278,17 @@ export function useAgentChat(deps: AgentChatDeps) {
           push({ role: 'agent', type: 'error', title: 'Payment failed.', hint: r.error ?? 'Something went wrong settling this payment.' });
           setAgentState('error');
         }
+      } else if (m.type === 'recurring_preview' && m.recurring) {
+        const card = m.recurring;
+        const create = d.createRecurring;
+        const r = create ? await create({ payee: card.username, amount: card.amount, cadence: card.cadence }) : { ok: false, error: 'Recurring payments aren’t available here.' };
+        push({ role: 'agent', type: 'recurring_receipt', recurring: card, recurringResult: r });
+        if (r.ok) {
+          setAgentState('success');
+        } else {
+          setStatus(id, 'failed');
+          setAgentState('error');
+        }
       } else if (m.type === 'buy_quote' && m.buy) {
         const buy = m.buy;
         if (!d.executeBuy) {
@@ -298,7 +335,7 @@ export function useAgentChat(deps: AgentChatDeps) {
       const m = messages.find((x) => x.id === id);
       if (m?.type === 'buy_quote' && m.buy) void depsRef.current.cancelBuy?.(m.buy.purchaseId);
       setStatus(id, 'cancelled');
-      push({ role: 'agent', type: 'text', text: m?.type === 'buy_quote' ? 'Cancelled. Nothing was charged.' : 'Cancelled. Nothing was sent.' });
+      push({ role: 'agent', type: 'text', text: m?.type === 'buy_quote' ? 'Cancelled. Nothing was charged.' : m?.type === 'recurring_preview' ? 'Cancelled. Nothing was set up.' : 'Cancelled. Nothing was sent.' });
       setAgentState('idle');
     },
     [messages, push, setStatus],

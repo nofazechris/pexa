@@ -10,6 +10,7 @@ import { AgentPayments } from '@/components/app/AgentPayments';
 import { ShareLink } from '@/components/pexa/ShareLink';
 import { BuyPage } from '@/components/pexa/BuyPage';
 import { BuyQuoteCard, BuyResultCard } from '@/components/pexa/BuyCards';
+import { RecurringPreviewCard, RecurringReceiptCard } from '@/components/pexa/RecurringCards';
 import { ContinueCard, HistorySheet } from '@/components/pexa/ChatHistory';
 import { PurchasesPanel } from '@/components/pexa/BuyReceipts';
 import type { useConversations } from '@/components/auth/useConversations';
@@ -70,6 +71,7 @@ export interface PexaAppProps {
   executeSend: AgentChatDeps['executeSend'];
   executeBuy?: AgentChatDeps['executeBuy'];
   cancelBuy?: AgentChatDeps['cancelBuy'];
+  createRecurring?: AgentChatDeps['createRecurring'];
   /** Saved chats (history). Optional: without it the chat just isn't saved. */
   conversations?: ReturnType<typeof useConversations>;
   /** Pay a received request through the engine, then mark it settled. */
@@ -104,10 +106,11 @@ export function PexaApp(props: PexaAppProps) {
       executeSend: props.executeSend,
       executeBuy: props.executeBuy,
       cancelBuy: props.cancelBuy,
+      createRecurring: props.createRecurring,
       saveConversation: props.conversations?.save,
       loadConversation: props.conversations?.load,
     }),
-    [props.sendToAgent, props.executeAction, props.executeSend, props.executeBuy, props.cancelBuy, props.conversations],
+    [props.sendToAgent, props.executeAction, props.executeSend, props.executeBuy, props.cancelBuy, props.createRecurring, props.conversations],
   );
   const chat = useAgentChat(deps);
 
@@ -425,6 +428,8 @@ function ChatRow({ m, onConfirm, onCancel, onRetry, getAccessToken }: { m: ChatM
         {m.type === 'receipt' ? <ReceiptCard m={m} getAccessToken={getAccessToken} /> : null}
         {m.type === 'fiat_quote' ? <FiatQuoteCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
         {m.type === 'fiat_receipt' ? <FiatReceiptCard m={m} /> : null}
+        {m.type === 'recurring_preview' ? <RecurringPreviewCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
+        {m.type === 'recurring_receipt' ? <RecurringReceiptCard m={m} /> : null}
         {m.type === 'buy_quote' ? <BuyQuoteCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
         {m.type === 'buy_result' ? <BuyResultCard m={m} /> : null}
         {m.type === 'error' ? <ErrorCard m={m} onRetry={onRetry} /> : null}

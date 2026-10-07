@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/security/ratelimit';
 import { withUser, errorResponse, jsonError } from '@/lib/http';
 import { getOrCreateUser } from '@/lib/users/service';
 import { resolveUsername } from '@/lib/users/service';
@@ -15,6 +16,8 @@ import { normalizeUsername } from '@/lib/users/username';
 export async function POST(req: Request) {
   const auth = await withUser(req);
   if ('response' in auth) return auth.response;
+  const tooMany = rateLimit('agent-command', auth.user.userId, { max: 30, windowMs: 60000 });
+  if (tooMany) return tooMany;
 
   let message = '';
   try {

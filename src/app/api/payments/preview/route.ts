@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/security/ratelimit';
 import { withUser, errorResponse, jsonError } from '@/lib/http';
 import { getOrCreateUser } from '@/lib/users/service';
 import { getWalletByUserId } from '@/lib/wallets/service';
@@ -13,6 +14,8 @@ import { activeNetwork } from '@/lib/config';
 export async function POST(req: Request) {
   const auth = await withUser(req);
   if ('response' in auth) return auth.response;
+  const tooMany = rateLimit('payments-preview', auth.user.userId, { max: 60, windowMs: 60000 });
+  if (tooMany) return tooMany;
 
   let body: { recipient?: unknown; amount?: unknown; memo?: unknown; idempotencyKey?: unknown };
   try {

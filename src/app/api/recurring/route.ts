@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/security/ratelimit';
 import { withUser, errorResponse, jsonError } from '@/lib/http';
 import { getOrCreateUser } from '@/lib/users/service';
 import { createRecurring, listRecurring } from '@/lib/recurring/service';
@@ -36,6 +37,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const auth = await withUser(req);
   if ('response' in auth) return auth.response;
+  const tooMany = rateLimit('recurring-create', auth.user.userId, { max: 20, windowMs: 60000 });
+  if (tooMany) return tooMany;
 
   let body: { payee?: unknown; amount?: unknown; cadence?: unknown; memo?: unknown };
   try {

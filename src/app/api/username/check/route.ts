@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/security/ratelimit';
 import { withUser, errorResponse } from '@/lib/http';
 import { validateUsername, usernameErrorMessage, normalizeUsername } from '@/lib/users/username';
 import { isUsernameTaken, suggestUsernames } from '@/lib/users/service';
@@ -11,6 +12,8 @@ import { isUsernameTaken, suggestUsernames } from '@/lib/users/service';
 export async function GET(req: Request) {
   const auth = await withUser(req);
   if ('response' in auth) return auth.response;
+  const tooMany = rateLimit('username-check', auth.user.userId, { max: 60, windowMs: 60000 });
+  if (tooMany) return tooMany;
 
   const u = new URL(req.url).searchParams.get('u') ?? '';
   const formatError = validateUsername(u);

@@ -4,6 +4,7 @@ import { getSessionUser, type SessionUser } from '@/lib/auth/server';
 import { env } from '@/lib/config';
 import { DbNotConfiguredError } from '@/lib/db';
 import { isTransientDbError } from '@/lib/db/errors';
+import { isCrossSiteWrite } from '@/lib/security/csrf';
 
 /**
  * Small helpers shared by API routes: consistent JSON errors, the auth gate, and translating
@@ -30,6 +31,8 @@ export function siteOrigin(req: Request): string {
 export async function withUser(
   req: Request,
 ): Promise<{ user: SessionUser } | { response: NextResponse }> {
+  // A write that rides on the login cookie must come from our own site, not from another website's page.
+  if (isCrossSiteWrite(req)) return { response: jsonError(403, 'cross_site_request') };
   const user = await getSessionUser(req);
   if (!user) return { response: jsonError(401, 'unauthorized') };
   return { user };

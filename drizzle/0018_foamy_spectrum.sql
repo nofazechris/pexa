@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "payments_tx_hash_uq" ON "payments" USING btree ("tx_hash");

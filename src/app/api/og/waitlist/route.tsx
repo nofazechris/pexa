@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og';
+import { clientIp, rateLimit } from '@/lib/security/ratelimit';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { waitlistStatusByCode } from '@/lib/referrals/service';
@@ -37,6 +38,8 @@ function Mark({ size }: { size: number }) {
 }
 
 export async function GET(req: Request) {
+  const tooMany = rateLimit('og-waitlist', clientIp(req), { max: 60, windowMs: 60_000 });
+  if (tooMany) return tooMany;
   const code = normalizeReferralCode(new URL(req.url).searchParams.get('code'));
   let position: number | null = null;
   let total: number | null = null;

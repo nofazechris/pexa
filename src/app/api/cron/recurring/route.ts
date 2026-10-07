@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requestHasSecret } from '@/lib/security/secret';
 import { env } from '@/lib/config';
 import { errorResponse } from '@/lib/http';
 import { runDueRecurring } from '@/lib/recurring/worker';
@@ -14,13 +15,7 @@ import { runDueRecurring } from '@/lib/recurring/worker';
 export const dynamic = 'force-dynamic';
 
 function authorized(req: Request): boolean {
-  const secret = env.CRON_SECRET;
-  if (!secret) return false;
-  const header = req.headers.get('authorization') ?? req.headers.get('Authorization');
-  const bearer = header?.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : null;
-  // Also accept a plain x-cron-secret header for schedulers that can't set Authorization.
-  const alt = req.headers.get('x-cron-secret');
-  return bearer === secret || alt === secret;
+  return requestHasSecret(req, env.CRON_SECRET, { headers: ['x-cron-secret'] });
 }
 
 async function handle(req: Request): Promise<Response> {

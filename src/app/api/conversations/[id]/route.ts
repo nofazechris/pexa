@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/security/ratelimit';
 import { withUser, errorResponse, jsonError } from '@/lib/http';
 import { getOrCreateUser } from '@/lib/users/service';
 import { deleteConversation, getConversation, saveConversation } from '@/lib/conversations/service';
@@ -25,6 +26,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const auth = await withUser(req);
   if ('response' in auth) return auth.response;
+  const tooMany = rateLimit('conversations-save', auth.user.userId, { max: 120, windowMs: 60000 });
+  if (tooMany) return tooMany;
   try {
     const text = await req.text();
     if (text.length > MAX_BODY_BYTES) return jsonError(413, 'too_large');

@@ -1,10 +1,11 @@
 import 'server-only';
-import { and, desc, eq, or } from 'drizzle-orm';
+import { and, desc, eq, ne, or } from 'drizzle-orm';
 import { formatUnits, parseUnits } from 'viem';
 import { getDb, schema } from '@/lib/db';
 import { activeNetwork, getToken } from '@/lib/config';
 import { normalizeUsername } from '@/lib/users/username';
 import { resolveUsername } from '@/lib/users/service';
+import { paymentFulfilsRequest } from './fulfil';
 
 /**
  * Payment requests (§ money you ask for / money asked of you).
@@ -136,7 +137,7 @@ export async function listRequests(userId: string): Promise<RequestItem[]> {
   });
 }
 
-export type PayRequestResult = { ok: true } | { ok: false; error: 'not_found' | 'not_payable' };
+export type PayRequestResult = { ok: true } | { ok: false; error: 'not_found' | 'not_payable' | 'payment_required' | 'payment_mismatch' | 'payment_reused' };
 
 /**
  * Mark a request paid, linking the payment that fulfilled it. Only the payer can do this, and
@@ -153,9 +154,18 @@ export async function markRequestPaid(
   if (!req || req.payerUserId !== payerUserId) return { ok: false, error: 'not_found' };
   if (req.status !== 'PENDING') return { ok: false, error: 'not_payable' };
 
+  // "I paid it" is a claim from the payer's browser — it only counts if a real payment backs it: theirs, to the
+  // person who asked, for at least the amount, in the same token, actually sent. And one payment can settle
+  // only one request.
+  if (!paymentId) return { ok: false, error: 'payment_required' };
+  const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.id, paymentId)).limit(1);
+  if (!payment || !paymentFulfilsRequest(payment, req).ok) return { ok: false, error: 'payment_mismatch' };
+  const [already] = await db.select({ id: schema.requests.id }).from(schema.requests).where(and(eq(schema.requests.paymentId, paymentId), ne(schema.requests.id, requestId))).limit(1);
+  if (already) return { ok: false, error: 'payment_reused' };
+
   await db
     .update(schema.requests)
-    .set({ status: 'PAID', paidAt: new Date(), paymentId: paymentId ?? null })
+    .set({ status: 'PAID', paidAt: new Date(), paymentId })
     .where(and(eq(schema.requests.id, requestId), eq(schema.requests.status, 'PENDING')));
   return { ok: true };
 }

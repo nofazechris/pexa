@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/security/ratelimit';
 import { withUser, errorResponse, jsonError } from '@/lib/http';
 import { getOrCreateUser } from '@/lib/users/service';
 import { markRequestPaid } from '@/lib/requests/service';
@@ -11,6 +12,8 @@ import { markRequestPaid } from '@/lib/requests/service';
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const auth = await withUser(req);
   if ('response' in auth) return auth.response;
+  const tooMany = rateLimit('requests-pay', auth.user.userId, { max: 30, windowMs: 60000 });
+  if (tooMany) return tooMany;
   const { id } = await ctx.params;
 
   let body: { paymentId?: unknown };
@@ -24,7 +27,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   try {
     const user = await getOrCreateUser(auth.user.userId);
     const res = await markRequestPaid(id, user.id, paymentId);
-    if (!res.ok) return jsonError(res.error === 'not_found' ? 404 : 409, res.error);
+    if (!res.ok) {
+      const status = res.error === 'not_found' ? 404 : res.error === 'not_payable' ? 409 : 422;
+      return jsonError(status, res.error);
+    }
     return NextResponse.json({ ok: true });
   } catch (e) {
     return errorResponse(e);

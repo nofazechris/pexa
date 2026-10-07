@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requestHasSecret } from '@/lib/security/secret';
 import { env } from '@/lib/config';
 import { errorResponse } from '@/lib/http';
 import { exportWaitlistCsv } from '@/lib/waitlist/service';
@@ -12,12 +13,7 @@ import { exportWaitlistCsv } from '@/lib/waitlist/service';
 export const dynamic = 'force-dynamic';
 
 function authorized(req: Request): boolean {
-  const secret = env.CRON_SECRET;
-  if (!secret) return false;
-  const header = req.headers.get('authorization') ?? req.headers.get('Authorization');
-  const bearer = header?.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : null;
-  const key = new URL(req.url).searchParams.get('key');
-  return bearer === secret || key === secret || req.headers.get('x-admin-key') === secret;
+  return requestHasSecret(req, env.CRON_SECRET, { headers: ['x-admin-key'], queryParams: ['key'] });
 }
 
 export async function GET(req: Request) {

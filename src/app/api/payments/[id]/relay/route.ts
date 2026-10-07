@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/security/ratelimit';
 import type { Hex } from 'viem';
 import { withUser, errorResponse, jsonError } from '@/lib/http';
 import { getOrCreateUser } from '@/lib/users/service';
@@ -17,6 +18,8 @@ import { activeNetwork, features, txExplorerUrl } from '@/lib/config';
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const auth = await withUser(req);
   if ('response' in auth) return auth.response;
+  const tooMany = rateLimit('payments-relay', auth.user.userId, { max: 20, windowMs: 60000 });
+  if (tooMany) return tooMany;
   if (!features.gaslessRelayer) return jsonError(404, 'relayer_disabled');
   const { id } = await ctx.params;
 

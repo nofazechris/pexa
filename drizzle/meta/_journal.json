@@ -127,6 +127,13 @@
       "when": 1791370889635,
       "tag": "0017_sleepy_spot",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791377665186,
+      "tag": "0018_foamy_spectrum",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requestHasSecret } from '@/lib/security/secret';
 import { env, features } from '@/lib/config';
 import { errorResponse } from '@/lib/http';
 import { reconcileFiatOrders } from '@/lib/fiat/settlement';
@@ -11,11 +12,7 @@ import { reconcileFiatOrders } from '@/lib/fiat/settlement';
 export const dynamic = 'force-dynamic';
 
 function authorized(req: Request): boolean {
-  const secret = env.CRON_SECRET;
-  if (!secret) return false;
-  const header = req.headers.get('authorization') ?? req.headers.get('Authorization');
-  const bearer = header?.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : null;
-  return bearer === secret || req.headers.get('x-cron-secret') === secret;
+  return requestHasSecret(req, env.CRON_SECRET, { headers: ['x-cron-secret'] });
 }
 
 async function handle(req: Request): Promise<Response> {

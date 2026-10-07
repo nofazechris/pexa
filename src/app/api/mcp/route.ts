@@ -1,4 +1,5 @@
 import { features } from '@/lib/config';
+import { rateLimit } from '@/lib/security/ratelimit';
 import { verifyMcpToken } from '@/lib/mcp/tokens';
 import { handleMcpMessage } from '@/lib/mcp/server';
 import type { ToolContext } from '@/lib/mcp/tools';
@@ -32,6 +33,8 @@ export async function POST(req: Request): Promise<Response> {
   const auth = await verifyMcpToken(token);
   if (!auth) return jsonRpcError(-32001, 'Invalid or revoked MCP token.', 401);
   const ctx: ToolContext = { userId: auth.userId };
+  const tooMany = rateLimit('mcp', auth.userId, { max: 120, windowMs: 60_000 });
+  if (tooMany) return tooMany;
 
   let body: unknown;
   try {

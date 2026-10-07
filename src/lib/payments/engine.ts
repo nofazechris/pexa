@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, desc, eq, inArray, ne } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { formatUnits, parseUnits } from 'viem';
 import { getDb, schema } from '@/lib/db';
 import { activeNetwork, env, features, getToken, txExplorerUrl } from '@/lib/config';
@@ -13,6 +13,7 @@ import { celoClient } from '@/lib/celo/client';
 import { assertTransition, type PaymentStatus } from './state';
 import { evaluatePaymentPolicy } from './policy';
 import { INCOMING_VISIBLE, OUTGOING_VISIBLE } from './visibility';
+import { receiptHasTransfer } from './verify';
 import { issueAuthorization, consumeAuthorization } from './authorization';
 import type { PaymentRow } from '@/lib/db/schema';
 
@@ -279,9 +280,19 @@ export async function recordBroadcast(input: {
   txHash: string;
 }): Promise<{ ok: true; payment: PaymentRow } | { ok: false; error: string }> {
   if (!/^0x[0-9a-fA-F]{64}$/.test(input.txHash)) return { ok: false, error: 'Invalid transaction hash.' };
+  const txHash = input.txHash.toLowerCase();
   const payment = await loadOwned(input.paymentId, input.userId);
   if (!payment) return { ok: false, error: 'Payment not found.' };
   if (payment.status !== 'AUTHORIZED') return { ok: false, error: 'Payment is not authorized.' };
+
+  // One transaction can settle one payment. Without this, the same genuine transfer could be attached to
+  // many payments and counted again and again.
+  const reused = await getDb()
+    .select({ id: schema.payments.id })
+    .from(schema.payments)
+    .where(and(sql`lower(${schema.payments.txHash}) = ${txHash}`, ne(schema.payments.id, payment.id)))
+    .limit(1);
+  if (reused.length > 0) return { ok: false, error: 'That transaction is already attached to another payment.' };
 
   const consumed = await consumeAuthorization(input.authorizationId, {
     paymentId: payment.id,
@@ -297,7 +308,7 @@ export async function recordBroadcast(input: {
   await setStatus(payment.id, 'AUTHORIZED', 'PREPARING');
   await setStatus(payment.id, 'PREPARING', 'SIGNING');
   await setStatus(payment.id, 'SIGNING', 'BROADCASTING');
-  await setStatus(payment.id, 'BROADCASTING', 'PENDING', { txHash: input.txHash, broadcastAt: new Date() });
+  await setStatus(payment.id, 'BROADCASTING', 'PENDING', { txHash, broadcastAt: new Date() });
 
   const db = getDb();
   const [updated] = await db.select().from(schema.payments).where(eq(schema.payments.id, payment.id)).limit(1);
@@ -326,14 +337,36 @@ export async function confirmPayment(input: { paymentId: string; userId: string 
   }
 
   if (receipt.status === 'success') {
-    const fee = (receipt.gasUsed * receipt.effectiveGasPrice).toString();
-    await setStatus(payment.id, 'PENDING', 'CONFIRMED', { confirmedAt: new Date(), feeAmount: fee });
+    // "The transaction succeeded" is not "this payment happened": the hash can come from the client. Only the
+    // transaction's own event log can prove the right token moved from the sender to the recipient, for exactly
+    // this amount. Anything else is treated as failed, never as completed.
+    const [sender, token] = [await getWalletByUserId(payment.senderUserId), getToken(payment.token, activeNetwork.network)];
+    const genuine =
+      Boolean(sender && token?.address) &&
+      receiptHasTransfer(receipt.logs, { token: token!.address!, from: sender!.address, to: payment.recipientAddress, amount: BigInt(payment.amount) });
+    if (genuine) {
+      const fee = (receipt.gasUsed * receipt.effectiveGasPrice).toString();
+      await setStatus(payment.id, 'PENDING', 'CONFIRMED', { confirmedAt: new Date(), feeAmount: fee });
+    } else {
+      console.error(`[payments] tx ${payment.txHash} succeeded on-chain but is not payment ${payment.id}'s transfer — marking FAILED`);
+      await setStatus(payment.id, 'PENDING', 'FAILED', { failedAt: new Date() });
+      await reopenRequestsFor(payment.id);
+    }
   } else {
     await setStatus(payment.id, 'PENDING', 'FAILED', { failedAt: new Date() });
+    await reopenRequestsFor(payment.id);
   }
   const db = getDb();
   const [updated] = await db.select().from(schema.payments).where(eq(schema.payments.id, payment.id)).limit(1);
   return { ok: true, payment: updated };
+}
+
+/** A payment that turned out to have failed can no longer count as having settled a request — put it back to PENDING. */
+async function reopenRequestsFor(paymentId: string): Promise<void> {
+  await getDb()
+    .update(schema.requests)
+    .set({ status: 'PENDING', paidAt: null, paymentId: null })
+    .where(and(eq(schema.requests.paymentId, paymentId), eq(schema.requests.status, 'PAID')));
 }
 
 export async function getPayment(paymentId: string, userId: string): Promise<PaymentRow | null> {

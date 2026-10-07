@@ -89,7 +89,8 @@ export const payments = pgTable(
     confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
     failedAt: timestamp('failed_at', { withTimezone: true }),
   },
-  (t) => [uniqueIndex('payments_sender_idem_uq').on(t.senderUserId, t.idempotencyKey)],
+  // A transaction hash can settle only one payment (NULL = not broadcast yet, any number allowed).
+  (t) => [uniqueIndex('payments_sender_idem_uq').on(t.senderUserId, t.idempotencyKey), uniqueIndex('payments_tx_hash_uq').on(t.txHash)],
 );
 
 export const contacts = pgTable(

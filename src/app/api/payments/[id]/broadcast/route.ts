@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/security/ratelimit';
 import { withUser, errorResponse, jsonError } from '@/lib/http';
 import { getOrCreateUser } from '@/lib/users/service';
 import { recordBroadcast } from '@/lib/payments/engine';
@@ -12,6 +13,8 @@ import { recordBroadcast } from '@/lib/payments/engine';
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const auth = await withUser(req);
   if ('response' in auth) return auth.response;
+  const tooMany = rateLimit('payments-broadcast', auth.user.userId, { max: 30, windowMs: 60000 });
+  if (tooMany) return tooMany;
   const { id } = await ctx.params;
 
   let body: { authorizationId?: unknown; txHash?: unknown };

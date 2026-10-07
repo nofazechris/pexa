@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/security/ratelimit';
 import { withUser, errorResponse, jsonError } from '@/lib/http';
 import { getOrCreateUser } from '@/lib/users/service';
 import { runAgentTurn, type AgentMessage } from '@/lib/agent/runtime';
@@ -15,6 +16,8 @@ export const maxDuration = 300;
 export async function POST(req: Request) {
   const auth = await withUser(req);
   if ('response' in auth) return auth.response;
+  const tooMany = rateLimit('agent-chat', auth.user.userId, { max: 30, windowMs: 60000 });
+  if (tooMany) return tooMany;
 
   let body: { message?: unknown; history?: unknown };
   try {

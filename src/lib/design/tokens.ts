@@ -2,10 +2,9 @@
  * Design tokens (§94–97).
  *
  * The single source of truth for PrivyPay's visual language: premium AI-native fintech, not a
- * generic crypto dashboard. Values match what the imported design already renders, so
- * hand-built components (auth, real payment preview, dashboard data states) are visually
- * identical to the generated screens. The same values are mirrored as CSS variables in
- * `globals.css` for styling that lives in CSS.
+ * generic crypto dashboard. Every colour is a CSS variable (`--pp-*`, defined in `globals.css`),
+ * so the same inline styles render in light and dark: `html[data-theme='dark']` swaps the values.
+ * The light values are listed next to each token.
  *
  * Palette is restrained and deliberate — cobalt / navy / off-white / blue-gray, with a single
  * restrained green and red. No AI purple, no neon, no gradients-as-decoration (§94, §137).
@@ -13,36 +12,49 @@
 
 export const color = {
   // Primary — cobalt blue
-  primary: '#1B45D7',
-  primaryHover: '#153AB4',
-  primarySoft: '#EDF1FE',
-  primarySoftBorder: '#DDE3F6',
+  primary: 'var(--pp-primary)', // #1B45D7
+  primaryHover: 'var(--pp-primary-hover)', // #153AB4 (as text on a soft background)
+  primaryPress: 'var(--pp-primary-press)', // #153AB4 (a primary button on hover)
+  primarySoft: 'var(--pp-primary-soft)', // #EDF1FE
+  primarySoftBorder: 'var(--pp-primary-soft-border)', // #DDE3F6
+  primaryTint: 'var(--pp-primary-tint)', // #F4F6FE
 
-  // Ink — deep navy
-  ink: '#0E1420',
+  // Ink — deep navy (text), and the dark panels that stay dark (chat bubble, balance card)
+  ink: 'var(--pp-ink)', // #0E1420
+  inkBg: 'var(--pp-ink-bg)', // #0E1420
 
   // Surfaces — warm off-white
-  background: '#F6F7F9',
-  surface: '#FFFFFF',
-  surfaceMuted: '#FBFBFD',
+  background: 'var(--pp-background)', // #F6F7F9
+  surface: 'var(--pp-surface)', // #FFFFFF
+  surfaceMuted: 'var(--pp-surface-muted)', // #FBFBFD
+  neutral: 'var(--pp-neutral)', // #F1F2F5 — quiet grey fills (chips, tracks)
 
   // Cool blue-gray text
-  muted: '#5B6472',
-  mutedStrong: '#5F6878',
-  faint: '#6C7484',
+  muted: 'var(--pp-muted)', // #5B6472
+  mutedStrong: 'var(--pp-muted-strong)', // #5F6878
+  faint: 'var(--pp-faint)', // #6C7484
+  idle: 'var(--pp-idle)', // #8A93A6 — inactive step / disabled label
 
   // Borders
-  border: '#E4E7EC',
-  borderStrong: '#DCE0E7',
-  borderFaint: '#EDEFF3',
+  border: 'var(--pp-border)', // #E4E7EC
+  borderStrong: 'var(--pp-border-strong)', // #DCE0E7
+  borderFaint: 'var(--pp-border-faint)', // #EDEFF3
+  line: 'var(--pp-line)', // #E8EAEF
+  switchOff: 'var(--pp-switch-off)', // #CBD1DB
 
   // Restrained status colors
-  success: '#167A54',
-  successSoft: '#E8F3ED',
-  warning: '#8A6A1E',
-  warningDot: '#D8A93A',
-  danger: '#C0362A',
-  dangerSoft: '#F6E9E7',
+  success: 'var(--pp-success)', // #167A54
+  successSoft: 'var(--pp-success-soft)', // #E8F3ED
+  successBorder: 'var(--pp-success-border)', // #CDE7DA
+  warning: 'var(--pp-warning)', // #8A6A1E
+  warningDot: 'var(--pp-warning-dot)', // #D8A93A
+  warningTint: 'var(--pp-warning-tint)', // #FEFBF0
+  warningBorder: 'var(--pp-warning-border)', // #F0E4C8
+  danger: 'var(--pp-danger)', // #C0362A
+  dangerText: 'var(--pp-danger-text)', // #A8352A
+  dangerSoft: 'var(--pp-danger-soft)', // #F6E9E7
+  dangerTint: 'var(--pp-danger-tint)', // #FDF1EF
+  dangerBorder: 'var(--pp-danger-border)', // #F0DCD8
 } as const;
 
 export const radius = {

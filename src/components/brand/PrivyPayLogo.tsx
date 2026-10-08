@@ -25,7 +25,7 @@ export type LogoVariant = 'light' | 'dark' | 'white' | 'mono';
 const SIZE_PX: Record<LogoSize, number> = { sm: 22, md: 30, lg: 48 };
 // `mono` inherits the surrounding text colour (currentColor); the rest pin an explicit colour.
 const VARIANT_COLOR: Record<LogoVariant, string | undefined> = {
-  light: '#1B45D7', // cobalt on light backgrounds
+  light: 'var(--pp-primary)', // cobalt on light backgrounds
   dark: '#FFFFFF', // on deep navy
   white: '#FFFFFF',
   mono: undefined,

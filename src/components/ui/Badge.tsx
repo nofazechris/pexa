@@ -7,7 +7,7 @@ const tones: Record<BadgeTone, { bg: string; fg: string; dot: string }> = {
   neutral: { bg: color.background, fg: color.muted, dot: color.borderStrong },
   primary: { bg: color.primarySoft, fg: color.primaryHover, dot: color.primary },
   success: { bg: color.successSoft, fg: color.success, dot: color.success },
-  warning: { bg: '#FBF3E2', fg: color.warning, dot: color.warningDot },
+  warning: { bg: 'var(--pp-warning-tint)', fg: color.warning, dot: color.warningDot },
   danger: { bg: color.dangerSoft, fg: color.danger, dot: color.danger },
 };
 

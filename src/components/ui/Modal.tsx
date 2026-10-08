@@ -88,7 +88,7 @@ export function Modal({ open, onClose, placement = 'center', title, ariaLabel, c
         position: 'fixed',
         inset: 0,
         zIndex: 100,
-        background: 'rgba(14,20,32,.36)',
+        background: 'var(--pp-scrim)',
         display: 'flex',
         alignItems: centered ? 'center' : 'flex-end',
         justifyContent: 'center',

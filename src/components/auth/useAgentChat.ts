@@ -35,8 +35,16 @@ export interface PendingActionView {
     | { type: 'payment_preview'; recipient: string; amount: string; token: string; network: string }
     | { type: 'fiat_quote'; quote: FiatQuoteView }
     | { type: 'receive'; address: string; username: string; network: string; qr: string }
+    | { type: 'intro'; features: IntroFeatureView[] }
     | ({ type: 'recurring_preview' } & RecurringCardData)
     | { type: 'buy_quote'; purchaseId: string; service: string; price: string; priceAtomic: string; token: string; detail: string; expiresAt: string; from: string; typedData: BuyTypedData; note: string };
+}
+
+/** One thing Pexa can do, with a sentence to try it. */
+export interface IntroFeatureView {
+  title: string;
+  description: string;
+  example: string;
 }
 
 /** A Buy purchase waiting for approval (shown as an Approve card). */
@@ -74,8 +82,10 @@ export interface RecurringCardData {
 export interface ChatMessage {
   id: number;
   role: 'user' | 'agent';
-  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt';
+  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro';
   text?: string;
+  /** The "what I can do" list, each with a tap-to-try sentence. */
+  intro?: IntroFeatureView[];
   /** Card payloads. */
   kind?: 'send' | 'buy' | 'sell';
   preview?: { recipient: string; amount: string; token: string; network: string };
@@ -224,6 +234,8 @@ export function useAgentChat(deps: AgentChatDeps) {
       if (action) {
         if (action.render.type === 'receive') {
           push({ role: 'agent', type: 'receive', receive: action.render });
+        } else if (action.render.type === 'intro') {
+          push({ role: 'agent', type: 'intro', intro: action.render.features });
         } else if (action.render.type === 'recurring_preview') {
           const { type: _t, ...card } = action.render;
           void _t;

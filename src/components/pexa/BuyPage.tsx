@@ -140,7 +140,7 @@ export function BuyPage({
         </div>
 
         {spending && !spending.available ? (
-          <div style={{ ...card, background: '#FEFBF0', borderColor: color.warningDot, color: color.warning, fontSize: '13.5px', lineHeight: 1.55 }}>
+          <div style={{ ...card, background: 'var(--pp-warning-tint)', borderColor: color.warningDot, color: color.warning, fontSize: '13.5px', lineHeight: 1.55 }}>
             Buy runs on Celo mainnet only, and this account is on a test network — so buying is switched off here.
           </div>
         ) : null}
@@ -199,14 +199,14 @@ export function BuyPage({
               aria-label="Autonomous buying"
               disabled={!spending || saving || !spending.available}
               onClick={() => spending && void save({ autonomous: !spending.autonomous })}
-              style={{ marginLeft: 'auto', flex: 'none', width: 46, height: 27, borderRadius: 999, border: 'none', cursor: 'pointer', background: spending?.autonomous ? color.primary : '#CBD1DB', position: 'relative', transition: 'background .15s' }}
+              style={{ marginLeft: 'auto', flex: 'none', width: 46, height: 27, borderRadius: 999, border: 'none', cursor: 'pointer', background: spending?.autonomous ? color.primary : 'var(--pp-switch-off)', position: 'relative', transition: 'background .15s' }}
             >
               <span style={{ position: 'absolute', top: 3, left: spending?.autonomous ? 22 : 3, width: 21, height: 21, borderRadius: '50%', background: '#fff', transition: 'left .15s' }} />
             </button>
           </div>
 
           {spending?.autonomous && !spending.canSignAutonomously ? (
-            <div style={{ marginTop: '12px', border: `1px solid ${color.warningDot}`, background: '#FEFBF0', borderRadius: '11px', padding: '11px 13px', fontSize: '13px', color: color.warning, lineHeight: 1.5 }}>
+            <div style={{ marginTop: '12px', border: `1px solid ${color.warningDot}`, background: 'var(--pp-warning-tint)', borderRadius: '11px', padding: '11px 13px', fontSize: '13px', color: color.warning, lineHeight: 1.5 }}>
               To buy on its own, Pexa needs permission to sign for your wallet — turn on <strong>Agent payments</strong> in Settings. Until then it will keep asking before it pays.
             </div>
           ) : null}

@@ -17,6 +17,8 @@ import type { useConversations } from '@/components/auth/useConversations';
 import { shareMessage } from '@/lib/referrals/code';
 import { Modal, useToast } from '@/components/ui';
 import { NotificationBell, NotificationsPanel } from '@/components/pexa/Notifications';
+import { InstallBanner, InstallSetting } from '@/components/pexa/InstallPrompt';
+import { ThemeSetting } from '@/components/pexa/ThemeSetting';
 import { useNotifications } from '@/components/auth/useNotifications';
 import type { ActivityItem } from '@/components/auth/useActivity';
 import type { RequestItem } from '@/components/auth/useRequests';
@@ -125,26 +127,26 @@ export function PexaApp(props: PexaAppProps) {
     // Persistent "having trouble" state after a failed turn, until the next success — so downtime
     // stays visible rather than flashing away.
     if (chat.health === 'degraded' && (chat.agentState === 'idle' || chat.agentState === 'error')) {
-      return { label: 'Pexa is having trouble', color: '#A8352A', bg: '#FDF1EF', border: '#F0DCD8', dot: '#C0362A', anim: 'pp-pulse 1.6s ease-in-out infinite' };
+      return { label: 'Pexa is having trouble', color: 'var(--pp-danger-text)', bg: 'var(--pp-danger-tint)', border: 'var(--pp-danger-border)', dot: 'var(--pp-danger)', anim: 'pp-pulse 1.6s ease-in-out infinite' };
     }
     switch (chat.agentState) {
       case 'thinking':
-        return { label: 'Thinking…', color: '#153AB4', bg: '#F4F6FE', border: '#DDE3F6', dot: '#1B45D7', anim: 'pp-pulse 1.2s ease-in-out infinite' };
+        return { label: 'Thinking…', color: 'var(--pp-primary-hover)', bg: 'var(--pp-primary-tint)', border: 'var(--pp-primary-soft-border)', dot: 'var(--pp-primary)', anim: 'pp-pulse 1.2s ease-in-out infinite' };
       case 'processing':
-        return { label: 'Sending…', color: '#153AB4', bg: '#F4F6FE', border: '#DDE3F6', dot: '#1B45D7', anim: 'pp-pulse 1.2s ease-in-out infinite' };
+        return { label: 'Sending…', color: 'var(--pp-primary-hover)', bg: 'var(--pp-primary-tint)', border: 'var(--pp-primary-soft-border)', dot: 'var(--pp-primary)', anim: 'pp-pulse 1.2s ease-in-out infinite' };
       case 'success':
-        return { label: 'Done', color: '#167A54', bg: '#E8F3ED', border: '#CDE7DA', dot: '#167A54', anim: 'none' };
+        return { label: 'Done', color: 'var(--pp-success)', bg: 'var(--pp-success-soft)', border: 'var(--pp-success-border)', dot: 'var(--pp-success)', anim: 'none' };
       case 'error':
-        return { label: 'Needs attention', color: '#8A6A1E', bg: '#FBF6EA', border: '#F0E4C8', dot: '#D8A93A', anim: 'none' };
+        return { label: 'Needs attention', color: 'var(--pp-warning)', bg: 'var(--pp-warning-tint)', border: 'var(--pp-warning-border)', dot: 'var(--pp-warning-dot)', anim: 'none' };
       default:
-        return { label: 'Pexa is active', color: '#167A54', bg: '#E8F3ED', border: '#CDE7DA', dot: '#167A54', anim: 'none' };
+        return { label: 'Pexa is active', color: 'var(--pp-success)', bg: 'var(--pp-success-soft)', border: 'var(--pp-success-border)', dot: 'var(--pp-success)', anim: 'none' };
     }
   })();
 
   return (
     <div style={{ display: 'flex', height: '100dvh', minHeight: '100dvh', maxHeight: '100dvh', background: color.background, overflow: 'hidden' }}>
       {!isMobile ? (
-        <aside style={{ width: '214px', flex: 'none', borderRight: `1px solid #E8EAEF`, background: color.surfaceMuted, display: 'flex', flexDirection: 'column', padding: '16px 12px' }}>
+        <aside style={{ width: '214px', flex: 'none', borderRight: `1px solid var(--pp-line)`, background: color.surfaceMuted, display: 'flex', flexDirection: 'column', padding: '16px 12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '4px 8px 18px' }}>
             <PrivyPayLogo size={22} />
             <span style={{ fontSize: '15.5px', fontWeight: 600, letterSpacing: '-.025em' }}>Pexa</span>
@@ -162,14 +164,14 @@ export function PexaApp(props: PexaAppProps) {
                   aria-current={active ? 'page' : undefined}
                   style={{ display: 'flex', alignItems: 'center', gap: '10px', border: 'none', background: active ? color.primarySoft : 'transparent', borderRadius: '10px', padding: '10px 11px', cursor: 'pointer', textAlign: 'left', width: '100%' }}
                 >
-                  <Ico size={20} color={active ? color.primary : '#5B6472'} weight={active ? 'bold' : 'regular'} />
-                  <span style={{ fontSize: '14px', fontWeight: active ? 600 : 450, color: active ? '#153AB4' : '#5B6472' }}>{n.label}</span>
+                  <Ico size={20} color={active ? color.primary : 'var(--pp-muted)'} weight={active ? 'bold' : 'regular'} />
+                  <span style={{ fontSize: '14px', fontWeight: active ? 600 : 450, color: active ? 'var(--pp-primary-hover)' : 'var(--pp-muted)' }}>{n.label}</span>
                 </button>
               );
             })}
           </nav>
           <div style={{ flex: 1 }} />
-          <div style={{ borderTop: `1px solid #E8EAEF`, padding: '14px 10px 4px', display: 'flex', alignItems: 'center', gap: '9px' }}>
+          <div style={{ borderTop: `1px solid var(--pp-line)`, padding: '14px 10px 4px', display: 'flex', alignItems: 'center', gap: '9px' }}>
             <div style={{ width: 28, height: 28, borderRadius: '50%', background: color.primarySoft, color: color.primary, fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>{initial}</div>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: '13.5px', fontWeight: 600, letterSpacing: '-.01em', overflow: 'hidden', textOverflow: 'ellipsis' }}>{handleDisplay}</div>
@@ -180,7 +182,7 @@ export function PexaApp(props: PexaAppProps) {
       ) : null}
 
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <header style={{ flex: 'none', borderBottom: `1px solid #E8EAEF`, background: 'rgba(246,247,249,.92)', backdropFilter: 'blur(10px)', padding: '11px clamp(14px,2.6vw,26px)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <header style={{ flex: 'none', borderBottom: `1px solid var(--pp-line)`, background: 'var(--pp-glass)', backdropFilter: 'blur(10px)', padding: 'calc(11px + env(safe-area-inset-top)) clamp(14px,2.6vw,26px) 11px', display: 'flex', alignItems: 'center', gap: '12px' }}>
           {isMobile ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <PrivyPayLogo size={21} />
@@ -202,6 +204,7 @@ export function PexaApp(props: PexaAppProps) {
           </div>
         </header>
 
+        {isMobile && page === 'chat' ? <InstallBanner /> : null}
         <NotificationsPanel open={bellOpen} onClose={() => setBellOpen(false)} items={notif.items} onOpened={() => void notif.markSeen()} onGo={(tab) => setPage(tab)} />
 
         <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
@@ -255,14 +258,14 @@ export function PexaApp(props: PexaAppProps) {
         </div>
 
         {isMobile ? (
-          <nav style={{ flex: 'none', borderTop: `1px solid #E8EAEF`, background: 'rgba(255,255,255,.96)', backdropFilter: 'blur(10px)', display: 'flex', padding: '8px 6px 10px' }}>
+          <nav style={{ flex: 'none', borderTop: `1px solid var(--pp-line)`, background: 'var(--pp-glass-strong)', backdropFilter: 'blur(10px)', display: 'flex', padding: '6px 6px calc(8px + env(safe-area-inset-bottom))' }}>
             {NAV.map((n) => {
               const active = page === n.key;
               const Ico = n.icon;
               return (
                 <button key={n.key} onClick={() => setPage(n.key)} aria-label={n.label} style={{ flex: 1, border: 'none', background: 'transparent', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', padding: '6px 2px', minHeight: 48, cursor: 'pointer' }}>
-                  <Ico size={20} color={active ? color.primary : '#5F6878'} weight={active ? 'bold' : 'regular'} />
-                  <span style={{ fontSize: '11px', color: active ? '#153AB4' : '#5F6878', fontWeight: active ? 600 : 450 }}>{n.label}</span>
+                  <Ico size={20} color={active ? color.primary : 'var(--pp-muted-strong)'} weight={active ? 'bold' : 'regular'} />
+                  <span style={{ fontSize: '11px', color: active ? 'var(--pp-primary-hover)' : 'var(--pp-muted-strong)', fontWeight: active ? 600 : 450 }}>{n.label}</span>
                 </button>
               );
             })}
@@ -308,8 +311,8 @@ function ChatScreen({ chat, getAccessToken, balance, conversations }: { chat: Re
   // agent will ask who/how much when it needs to.
   const walletEmpty = !balance || Number(balance) === 0;
   const suggestions = walletEmpty
-    ? ['Add money to my wallet', "What's my balance?", 'Send a payment', 'Save part of every payment I get']
-    : ['Send a payment', 'Request a payment', "What's my balance?", 'Save part of every payment I get'];
+    ? ['Add money to my wallet', "What's my balance?", 'Send a payment', 'Save part of every payment I get', 'What can you do?']
+    : ['Send a payment', 'Request a payment', "What's my balance?", 'Save part of every payment I get', 'What can you do?'];
   const empty = chat.messages.length === 0;
 
   return (
@@ -370,7 +373,7 @@ function ChatScreen({ chat, getAccessToken, balance, conversations }: { chat: Re
           ) : null}
 
           {chat.messages.map((m) => (
-            <ChatRow key={m.id} m={m} onConfirm={() => chat.confirm(m.id)} onCancel={() => chat.cancel(m.id)} onRetry={(t) => chat.send(t)} getAccessToken={getAccessToken} />
+            <ChatRow key={m.id} m={m} onConfirm={() => chat.confirm(m.id)} onCancel={() => chat.cancel(m.id)} onRetry={(t) => chat.send(t)} onTry={(t) => chat.send(t)} getAccessToken={getAccessToken} />
           ))}
 
           {chat.agentState === 'thinking' || chat.agentState === 'processing' ? (
@@ -384,7 +387,7 @@ function ChatScreen({ chat, getAccessToken, balance, conversations }: { chat: Re
         </div>
       </div>
 
-      <div style={{ flex: 'none', borderTop: `1px solid #E8EAEF`, background: 'rgba(246,247,249,.94)', backdropFilter: 'blur(8px)', padding: '12px clamp(14px,2.6vw,26px) 14px' }}>
+      <div style={{ flex: 'none', borderTop: `1px solid var(--pp-line)`, background: 'var(--pp-glass)', backdropFilter: 'blur(8px)', padding: '12px clamp(14px,2.6vw,26px) 14px' }}>
         <div style={{ maxWidth: '700px', margin: '0 auto' }}>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
             <input
@@ -398,9 +401,9 @@ function ChatScreen({ chat, getAccessToken, balance, conversations }: { chat: Re
               }}
               aria-label="Ask Pexa to do something"
               placeholder="Ask Pexa to do something..."
-              style={{ flex: 1, minWidth: 0, border: `1px solid ${color.borderStrong}`, background: color.surface, borderRadius: '13px', padding: '14px 15px', fontSize: '15px', color: color.ink, outline: 'none' }}
+              style={{ flex: 1, minWidth: 0, border: `1px solid ${color.borderStrong}`, background: color.surface, borderRadius: '13px', padding: 'var(--pp-btn-y-lg) 14px', fontSize: '15px', color: color.ink, outline: 'none' }}
             />
-            <button onClick={() => chat.send()} aria-label="Send instruction" style={{ border: 'none', background: color.primary, color: '#fff', borderRadius: '13px', padding: '14px 17px', cursor: 'pointer', fontSize: '14.5px', fontWeight: 500, opacity: chat.draft.trim() ? 1 : 0.55 }}>Send</button>
+            <button onClick={() => chat.send()} aria-label="Send instruction" style={{ border: 'none', background: color.primary, color: '#fff', borderRadius: '13px', padding: 'var(--pp-btn-y-lg) 16px', cursor: 'pointer', fontSize: '14.5px', fontWeight: 500, opacity: chat.draft.trim() ? 1 : 0.55 }}>Send</button>
           </div>
           <div style={{ fontSize: '11.5px', color: color.faint, marginTop: '9px' }}>Pexa always shows a preview. Nothing moves until you confirm.</div>
         </div>
@@ -420,11 +423,11 @@ function Dot({ delay }: { delay: string }) {
   return <span style={{ width: 5, height: 5, borderRadius: '50%', background: color.primary, display: 'inline-block', animation: `pp-pulse 1.1s ease-in-out ${delay} infinite` }} />;
 }
 
-function ChatRow({ m, onConfirm, onCancel, onRetry, getAccessToken }: { m: ChatMessage; onConfirm: () => void; onCancel: () => void; onRetry?: (text: string) => void; getAccessToken?: () => Promise<string | null> }) {
+function ChatRow({ m, onConfirm, onCancel, onRetry, onTry, getAccessToken }: { m: ChatMessage; onConfirm: () => void; onCancel: () => void; onRetry?: (text: string) => void; onTry?: (text: string) => void; getAccessToken?: () => Promise<string | null> }) {
   if (m.role === 'user') {
     return (
       <div style={{ display: 'flex', justifyContent: 'flex-end', animation: 'pp-step .34s cubic-bezier(.2,.8,.3,1) both' }}>
-        <div style={{ maxWidth: '80%', background: color.ink, color: '#fff', borderRadius: '15px 15px 4px 15px', padding: '11px 15px', fontSize: '15px', lineHeight: 1.45 }}>{m.text}</div>
+        <div style={{ maxWidth: '80%', background: color.inkBg, color: '#fff', borderRadius: '15px 15px 4px 15px', padding: '11px 15px', fontSize: '15px', lineHeight: 1.45 }}>{m.text}</div>
       </div>
     );
   }
@@ -443,7 +446,28 @@ function ChatRow({ m, onConfirm, onCancel, onRetry, getAccessToken }: { m: ChatM
         {m.type === 'buy_result' ? <BuyResultCard m={m} /> : null}
         {m.type === 'error' ? <ErrorCard m={m} onRetry={onRetry} /> : null}
         {m.type === 'receive' ? <ReceiveCard m={m} getAccessToken={getAccessToken} /> : null}
+        {m.type === 'intro' && onTry ? <IntroCard m={m} onTry={onTry} /> : null}
       </div>
+    </div>
+  );
+}
+
+/** "What I can do": each feature is a tap-to-try sentence, so people can test Pexa straight away. */
+function IntroCard({ m, onTry }: { m: ChatMessage; onTry: (text: string) => void }) {
+  if (!m.intro?.length) return null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+      {m.intro.map((f) => (
+        <button
+          key={f.title}
+          onClick={() => onTry(f.example)}
+          style={{ textAlign: 'left', border: `1px solid ${color.border}`, background: color.surface, borderRadius: '12px', padding: '10px 12px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '2px' }}
+        >
+          <span style={{ fontSize: '14px', fontWeight: 600, color: color.ink, letterSpacing: '-.01em' }}>{f.title}</span>
+          <span style={{ fontSize: '12.5px', color: color.mutedStrong, lineHeight: 1.4 }}>{f.description}</span>
+          <span style={{ fontSize: '12.5px', color: color.primary, fontWeight: 500, marginTop: '3px' }}>Try: “{f.example}”</span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -458,7 +482,7 @@ function PreviewCard({ m, onConfirm, onCancel }: { m: ChatMessage; onConfirm: ()
     { label: 'Network', value: p.network },
   ];
   return (
-    <div style={{ border: `1px solid ${color.primarySoftBorder}`, background: color.surface, borderRadius: '16px', padding: '16px', maxWidth: '400px', boxShadow: '0 20px 44px -40px rgba(14,20,32,.5)' }}>
+    <div style={{ border: `1px solid ${color.primarySoftBorder}`, background: color.surface, borderRadius: '16px', padding: '16px', maxWidth: '400px', boxShadow: '0 20px 44px -40px var(--pp-scrim)' }}>
       <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>PAYMENT PREVIEW</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '13px', flexWrap: 'wrap' }}>
         <div style={{ width: 34, height: 34, borderRadius: '50%', background: color.primarySoft, color: color.primary, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>{(p.recipient.replace(/^@/, '')[0] ?? '?').toUpperCase()}</div>
@@ -478,8 +502,8 @@ function PreviewCard({ m, onConfirm, onCancel }: { m: ChatMessage; onConfirm: ()
       </div>
       {!settled ? (
         <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
-          <button onClick={onConfirm} style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: '12px 16px', borderRadius: '11px', cursor: 'pointer', flex: 1, minWidth: '150px' }}>Confirm payment</button>
-          <button onClick={onCancel} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '14px', fontWeight: 500, padding: '12px 15px', borderRadius: '11px', cursor: 'pointer' }}>Cancel</button>
+          <button onClick={onConfirm} style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: 'var(--pp-btn-y) 16px', borderRadius: '11px', cursor: 'pointer', flex: 1, minWidth: '150px' }}>Confirm payment</button>
+          <button onClick={onCancel} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '14px', fontWeight: 500, padding: 'var(--pp-btn-y) 15px', borderRadius: '11px', cursor: 'pointer' }}>Cancel</button>
         </div>
       ) : (
         <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginTop: '14px', paddingTop: '13px', borderTop: `1px solid ${color.borderFaint}`, fontSize: '13px', color: m.status === 'cancelled' ? color.warning : color.success }}>
@@ -548,7 +572,7 @@ function ReceiptCard({ m, getAccessToken }: { m: ChatMessage; getAccessToken?: (
 
 function SandboxBadge() {
   return (
-    <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '9.5px', letterSpacing: '.1em', color: color.warning, border: `1px solid ${color.warningDot}`, background: '#FEFBF0', borderRadius: '999px', padding: '3px 7px' }}>
+    <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '9.5px', letterSpacing: '.1em', color: color.warning, border: `1px solid ${color.warningDot}`, background: 'var(--pp-warning-tint)', borderRadius: '999px', padding: '3px 7px' }}>
       SANDBOX · NOT LIVE
     </span>
   );
@@ -570,7 +594,7 @@ function FiatQuoteCard({ m, onConfirm, onCancel }: { m: ChatMessage; onConfirm: 
   const settled = m.status && m.status !== 'awaiting';
   const confirmLabel = isBuy ? 'Confirm purchase' : 'Confirm conversion';
   return (
-    <div style={{ border: `1px solid ${color.primarySoftBorder}`, background: color.surface, borderRadius: '16px', padding: '16px', maxWidth: '400px', boxShadow: '0 20px 44px -40px rgba(14,20,32,.5)' }}>
+    <div style={{ border: `1px solid ${color.primarySoftBorder}`, background: color.surface, borderRadius: '16px', padding: '16px', maxWidth: '400px', boxShadow: '0 20px 44px -40px var(--pp-scrim)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
         <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>{title}</div>
         {q.sandbox ? <SandboxBadge /> : null}
@@ -587,8 +611,8 @@ function FiatQuoteCard({ m, onConfirm, onCancel }: { m: ChatMessage; onConfirm: 
       </div>
       {awaiting ? (
         <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
-          <button onClick={onConfirm} style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: '12px 16px', borderRadius: '11px', cursor: 'pointer', flex: 1, minWidth: '150px' }}>{confirmLabel}</button>
-          <button onClick={onCancel} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '14px', fontWeight: 500, padding: '12px 15px', borderRadius: '11px', cursor: 'pointer' }}>Cancel</button>
+          <button onClick={onConfirm} style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: 'var(--pp-btn-y) 16px', borderRadius: '11px', cursor: 'pointer', flex: 1, minWidth: '150px' }}>{confirmLabel}</button>
+          <button onClick={onCancel} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '14px', fontWeight: 500, padding: 'var(--pp-btn-y) 15px', borderRadius: '11px', cursor: 'pointer' }}>Cancel</button>
         </div>
       ) : settled ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginTop: '14px', paddingTop: '13px', borderTop: `1px solid ${color.borderFaint}`, fontSize: '13px', color: m.status === 'cancelled' ? color.warning : m.status === 'failed' ? color.warning : color.success }}>
@@ -645,17 +669,17 @@ function FiatReceiptCard({ m }: { m: ChatMessage }) {
 function ErrorCard({ m, onRetry }: { m: ChatMessage; onRetry?: (text: string) => void }) {
   const canRetry = Boolean(m.retryText && onRetry);
   return (
-    <div style={{ border: '1px solid #F0DCD8', background: '#FDF8F7', borderRadius: '16px', padding: '15px 16px', maxWidth: '400px' }}>
+    <div style={{ border: '1px solid var(--pp-danger-border)', background: 'var(--pp-danger-tint)', borderRadius: '16px', padding: '15px 16px', maxWidth: '400px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-        <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#F4E2DE', color: '#A8352A', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>!</span>
-        <span style={{ fontSize: '14.5px', fontWeight: 500, color: '#A8352A' }}>{m.title}</span>
+        <span style={{ width: 18, height: 18, borderRadius: '50%', background: 'var(--pp-danger-border)', color: 'var(--pp-danger-text)', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>!</span>
+        <span style={{ fontSize: '14.5px', fontWeight: 500, color: 'var(--pp-danger-text)' }}>{m.title}</span>
       </div>
       {m.hint ? <div style={{ fontSize: '13.5px', color: color.muted, lineHeight: 1.55, marginTop: '9px' }}>{m.hint}</div> : null}
       {canRetry ? (
         <button
           onClick={() => onRetry!(m.retryText!)}
           aria-label="Try again"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', marginTop: '12px', border: '1px solid #E6C9C3', background: '#fff', color: '#A8352A', fontSize: '13px', fontWeight: 500, padding: '7px 12px', borderRadius: '9px', cursor: 'pointer' }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', marginTop: '12px', border: '1px solid var(--pp-danger-border)', background: '#fff', color: 'var(--pp-danger-text)', fontSize: '13px', fontWeight: 500, padding: '7px 12px', borderRadius: '9px', cursor: 'pointer' }}
         >
           <RetryIcon size={14} />
           Try again
@@ -791,13 +815,13 @@ function ReceiveCard({ m, getAccessToken }: { m: ChatMessage; getAccessToken?: (
   if (status === 'received' && deposit) {
     if (closed) {
       return (
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', border: `1px solid #CDE7DA`, background: color.successSoft, borderRadius: '999px', padding: '7px 13px', fontSize: '13.5px', fontWeight: 500, color: color.success }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', border: `1px solid var(--pp-success-border)`, background: color.successSoft, borderRadius: '999px', padding: '7px 13px', fontSize: '13.5px', fontWeight: 500, color: color.success }}>
           <span aria-hidden="true">✓</span> You deposited ${deposit.amount}
         </div>
       );
     }
     return (
-      <div style={{ maxWidth: '360px', border: `1px solid #CDE7DA`, background: color.successSoft, borderRadius: '16px', padding: '16px', animation: 'pp-pop .4s cubic-bezier(.2,.8,.3,1) both' }}>
+      <div style={{ maxWidth: '360px', border: `1px solid var(--pp-success-border)`, background: color.successSoft, borderRadius: '16px', padding: '16px', animation: 'pp-pop .4s cubic-bezier(.2,.8,.3,1) both' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ width: 34, height: 34, borderRadius: '50%', background: color.success, color: '#fff', fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>✓</span>
           <div style={{ minWidth: 0 }}>
@@ -945,7 +969,7 @@ function WalletPage({
     <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 'clamp(16px,2.6vw,28px) clamp(14px,2.6vw,26px) 40px' }}>
       <div style={{ maxWidth: '720px', margin: '0 auto', animation: 'pp-fade .22s ease both' }}>
         {/* Balance */}
-        <div style={{ background: color.ink, borderRadius: '18px', padding: 'clamp(20px,3vw,28px)', color: '#fff' }}>
+        <div style={{ background: color.inkBg, borderRadius: '18px', padding: 'clamp(20px,3vw,28px)', color: '#fff' }}>
           <div style={{ fontSize: '12.5px', color: '#A3ACBC' }}>Available balance</div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '9px', marginTop: '8px' }}>
             <div style={{ fontSize: 'clamp(34px,5vw,44px)', fontWeight: 600, letterSpacing: '-.045em', fontVariantNumeric: 'tabular-nums' }}>${money(Number(balance) || 0)}</div>
@@ -958,8 +982,8 @@ function WalletPage({
             </div>
           ) : null}
           <div style={{ display: 'flex', gap: '8px', marginTop: '20px', flexWrap: 'wrap' }}>
-            <button onClick={() => onAsk('I want to send a payment')} style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: '12px 18px', borderRadius: '11px', cursor: 'pointer' }}>Send</button>
-            <button onClick={copyAddress} style={{ border: '1px solid #2C3547', background: 'transparent', color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: '12px 18px', borderRadius: '11px', cursor: 'pointer' }}>
+            <button onClick={() => onAsk('I want to send a payment')} style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: 'var(--pp-btn-y) 18px', borderRadius: '11px', cursor: 'pointer' }}>Send</button>
+            <button onClick={copyAddress} style={{ border: '1px solid #2C3547', background: 'transparent', color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: 'var(--pp-btn-y) 18px', borderRadius: '11px', cursor: 'pointer' }}>
               {copied ? 'Address copied' : 'Receive'}
             </button>
           </div>
@@ -967,8 +991,8 @@ function WalletPage({
 
         {/* Funding status (only once naira is public). */}
         {fiatPublic && fiatOn && !fundingLive ? (
-          <div style={{ marginTop: '14px', border: `1px solid ${color.warningDot}`, background: '#FEFBF0', borderRadius: '12px', padding: '12px 14px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-            <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#FBF0D2', color: color.warning, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>i</span>
+          <div style={{ marginTop: '14px', border: `1px solid ${color.warningDot}`, background: 'var(--pp-warning-tint)', borderRadius: '12px', padding: '12px 14px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+            <span style={{ width: 18, height: 18, borderRadius: '50%', background: 'var(--pp-warning-border)', color: color.warning, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>i</span>
             <div style={{ fontSize: '13px', color: color.warning, lineHeight: 1.5 }}>Funding is coming soon — you can’t add real money yet while Pexa is in beta.</div>
           </div>
         ) : null}
@@ -1125,7 +1149,7 @@ function ActivityPage({ activity, getAccessToken, onAsk }: { activity: ActivityI
   return (
     <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 'clamp(16px,2.6vw,28px) clamp(14px,2.6vw,26px) 40px' }}>
       <div style={{ maxWidth: '720px', margin: '0 auto', animation: 'pp-fade .22s ease both' }}>
-        <div style={{ display: 'flex', gap: '4px', background: '#EEF0F4', borderRadius: '12px', padding: '4px', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', gap: '4px', background: 'var(--pp-neutral)', borderRadius: '12px', padding: '4px', marginBottom: '14px' }}>
           {seg('payments', 'Payments')}
           {seg('purchases', 'Purchases & receipts')}
         </div>
@@ -1136,8 +1160,8 @@ function ActivityPage({ activity, getAccessToken, onAsk }: { activity: ActivityI
             const out = t.direction === 'out';
             const label = { CONFIRMED: 'Completed', PENDING: 'Pending', FAILED: 'Failed' }[t.status] ?? t.status;
             return (
-              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 17px', borderBottom: `1px solid #F2F3F6` }}>
-                <div style={{ width: 34, height: 34, borderRadius: '50%', background: out ? '#F1F2F5' : color.successSoft, color: out ? '#5B6472' : color.success, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>{(t.counterparty.replace(/^@/, '')[0] ?? '?').toUpperCase()}</div>
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: 'var(--pp-btn-y-lg) 16px', borderBottom: `1px solid var(--pp-neutral)` }}>
+                <div style={{ width: 34, height: 34, borderRadius: '50%', background: out ? 'var(--pp-neutral)' : color.successSoft, color: out ? 'var(--pp-muted)' : color.success, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>{(t.counterparty.replace(/^@/, '')[0] ?? '?').toUpperCase()}</div>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: '14.5px', fontWeight: 500, letterSpacing: '-.012em' }}>{t.counterparty}</div>
                   <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '2px' }}>{new Date(t.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
@@ -1208,7 +1232,7 @@ function PaymentsPage({
           <button onClick={onGoChat} style={{ marginLeft: 'auto', border: `1px solid ${color.primary}`, background: color.primary, color: '#fff', fontSize: '13.5px', fontWeight: 500, padding: '9px 15px', borderRadius: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>New in Chat</button>
         </div>
 
-        {error ? <div style={{ fontSize: '13px', color: color.danger, background: color.dangerSoft, border: '1px solid #F0DCD8', borderRadius: '10px', padding: '10px 13px' }}>{error}</div> : null}
+        {error ? <div style={{ fontSize: '13px', color: color.danger, background: color.dangerSoft, border: '1px solid var(--pp-danger-border)', borderRadius: '10px', padding: '10px 13px' }}>{error}</div> : null}
 
         {/* Requests to pay */}
         <section>
@@ -1335,13 +1359,13 @@ function PaymentsPage({
             <div style={{ display: 'flex', gap: '10px' }}>
               <button
                 onClick={() => setConfirming(null)}
-                style={{ flex: 1, border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '14.5px', fontWeight: 500, padding: '12px 16px', borderRadius: '11px', cursor: 'pointer' }}
+                style={{ flex: 1, border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '14.5px', fontWeight: 500, padding: 'var(--pp-btn-y) 16px', borderRadius: '11px', cursor: 'pointer' }}
               >
                 Cancel
               </button>
               <button
                 onClick={confirmPay}
-                style={{ flex: 1, border: 'none', background: color.primary, color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: '12px 16px', borderRadius: '11px', cursor: 'pointer' }}
+                style={{ flex: 1, border: 'none', background: color.primary, color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: 'var(--pp-btn-y) 16px', borderRadius: '11px', cursor: 'pointer' }}
               >
                 Yes, send it
               </button>
@@ -1354,7 +1378,7 @@ function PaymentsPage({
 }
 
 function Row({ children }: { children: ReactNode }) {
-  return <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 17px', borderBottom: `1px solid #F2F3F6` }}>{children}</div>;
+  return <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: 'var(--pp-btn-y-lg) 16px', borderBottom: `1px solid var(--pp-neutral)` }}>{children}</div>;
 }
 function Avatar({ name }: { name: string }) {
   return <div style={{ width: 34, height: 34, borderRadius: '50%', background: color.primarySoft, color: color.primary, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>{(name.replace(/^@/, '')[0] ?? '?').toUpperCase()}</div>;
@@ -1417,6 +1441,9 @@ function SettingsPage({ username, uid, address, onSignOut }: { username?: string
             </div>
           </div>
         </section>
+
+        <ThemeSetting />
+        <InstallSetting />
 
         {/* Connected agents (MCP) */}
         <section>

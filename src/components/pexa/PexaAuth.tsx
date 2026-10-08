@@ -117,7 +117,7 @@ export function PexaAuth() {
 
         {step === 'welcome' ? (
           <div>
-            <button onClick={doPasskey} style={{ width: '100%', border: 'none', background: color.ink, color: '#fff', fontSize: '15px', fontWeight: 500, padding: '14px', borderRadius: '11px', cursor: 'pointer' }}>{passkeyLabel}</button>
+            <button onClick={doPasskey} style={{ width: '100%', border: 'none', background: color.inkBg, color: '#fff', fontSize: '15px', fontWeight: 500, padding: '14px', borderRadius: '11px', cursor: 'pointer' }}>{passkeyLabel}</button>
             <button onClick={() => setStep('email')} style={{ width: '100%', marginTop: '10px', border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '15px', fontWeight: 500, padding: '13px', borderRadius: '11px', cursor: 'pointer' }}>Continue with email</button>
           </div>
         ) : null}
@@ -133,7 +133,7 @@ export function PexaAuth() {
               autoFocus
               style={{ width: '100%', border: `1px solid ${color.borderStrong}`, background: color.surface, borderRadius: '11px', padding: '13px 15px', fontSize: '15px', outline: 'none', color: color.ink }}
             />
-            <button onClick={doSendCode} disabled={!EMAIL_RE.test(email)} style={{ width: '100%', marginTop: '12px', border: 'none', background: color.ink, color: '#fff', fontSize: '15px', fontWeight: 500, padding: '14px', borderRadius: '11px', cursor: EMAIL_RE.test(email) ? 'pointer' : 'default', opacity: EMAIL_RE.test(email) ? 1 : 0.5 }}>Send code</button>
+            <button onClick={doSendCode} disabled={!EMAIL_RE.test(email)} style={{ width: '100%', marginTop: '12px', border: 'none', background: color.inkBg, color: '#fff', fontSize: '15px', fontWeight: 500, padding: '14px', borderRadius: '11px', cursor: EMAIL_RE.test(email) ? 'pointer' : 'default', opacity: EMAIL_RE.test(email) ? 1 : 0.5 }}>Send code</button>
             <button onClick={() => setStep('welcome')} style={{ width: '100%', marginTop: '10px', border: 'none', background: 'transparent', color: color.mutedStrong, fontSize: '13.5px', padding: '8px', cursor: 'pointer' }}>Back</button>
           </div>
         ) : null}
@@ -153,7 +153,7 @@ export function PexaAuth() {
               <div style={{ fontSize: '12.5px', color: color.mutedStrong }}>Sent to {email}</div>
               <button onClick={doResend} disabled={cooldown > 0} style={{ border: 'none', background: 'transparent', color: cooldown > 0 ? color.faint : color.primary, fontSize: '12.5px', fontWeight: 500, padding: 0, cursor: cooldown > 0 ? 'default' : 'pointer' }}>{cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend code'}</button>
             </div>
-            <button onClick={doVerify} disabled={code.length < 6} style={{ width: '100%', marginTop: '12px', border: 'none', background: color.ink, color: '#fff', fontSize: '15px', fontWeight: 500, padding: '14px', borderRadius: '11px', cursor: code.length < 6 ? 'default' : 'pointer', opacity: code.length < 6 ? 0.5 : 1 }}>Verify</button>
+            <button onClick={doVerify} disabled={code.length < 6} style={{ width: '100%', marginTop: '12px', border: 'none', background: color.inkBg, color: '#fff', fontSize: '15px', fontWeight: 500, padding: '14px', borderRadius: '11px', cursor: code.length < 6 ? 'default' : 'pointer', opacity: code.length < 6 ? 0.5 : 1 }}>Verify</button>
             <button onClick={() => { setStep('welcome'); setCode(''); }} style={{ width: '100%', marginTop: '10px', border: 'none', background: 'transparent', color: color.mutedStrong, fontSize: '13.5px', padding: '8px', cursor: 'pointer' }}>Start over</button>
           </div>
         ) : null}

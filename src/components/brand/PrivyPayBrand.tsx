@@ -31,7 +31,7 @@ export function PrivyPayBrand({
   className,
   style,
 }: PrivyPayBrandProps) {
-  const inkDefault = variant === 'dark' || variant === 'white' ? '#FFFFFF' : '#0E1420';
+  const inkDefault = variant === 'dark' || variant === 'white' ? '#FFFFFF' : 'var(--pp-ink)';
   return (
     <span
       className={className}

@@ -18,27 +18,108 @@
   --font-geist: var(--font-geist-sans);
   --pp-primary: #1B45D7;
   --pp-primary-hover: #153AB4;
+  --pp-primary-press: #153AB4;
   --pp-primary-soft: #EDF1FE;
   --pp-primary-soft-border: #DDE3F6;
+  --pp-primary-tint: #F4F6FE;
   --pp-ink: #0E1420;
+  --pp-ink-bg: #0E1420;
   --pp-background: #F6F7F9;
   --pp-surface: #FFFFFF;
   --pp-surface-muted: #FBFBFD;
+  --pp-neutral: #F1F2F5;
   --pp-muted: #5B6472;
   --pp-muted-strong: #5F6878;
   --pp-faint: #6C7484;
+  --pp-idle: #8A93A6;
   --pp-border: #E4E7EC;
   --pp-border-strong: #DCE0E7;
   --pp-border-faint: #EDEFF3;
+  --pp-line: #E8EAEF;
+  --pp-switch-off: #CBD1DB;
   --pp-success: #167A54;
   --pp-success-soft: #E8F3ED;
+  --pp-success-border: #CDE7DA;
   --pp-warning: #8A6A1E;
+  --pp-warning-dot: #D8A93A;
+  --pp-warning-tint: #FEFBF0;
+  --pp-warning-border: #F0E4C8;
   --pp-danger: #C0362A;
+  --pp-danger-text: #A8352A;
   --pp-danger-soft: #F6E9E7;
+  --pp-danger-tint: #FDF1EF;
+  --pp-danger-border: #F0DCD8;
   --pp-radius-card: 14px;
   --pp-radius-control: 11px;
   --pp-shadow-card: 0 30px 60px -38px rgba(14, 20, 32, .34);
   --pp-focus-ring: 0 0 0 3px rgba(27, 69, 215, .10);
+  /* Button heights: roomy on a computer, compact on a phone (see the mobile block below). */
+  --pp-btn-y: 12px;
+  --pp-btn-y-lg: 14px;
+  --pp-glass: rgba(246, 247, 249, .92);
+  --pp-glass-strong: rgba(255, 255, 255, .96);
+  --pp-scrim: rgba(14, 20, 32, .5);
+  color-scheme: light;
+}
+
+/* Dark mode. Only set on the signed-in screens (see ThemeController); the marketing page stays light. */
+html[data-theme='dark'] {
+  --pp-primary: #4D74F0;
+  --pp-primary-hover: #9DB4F8;
+  --pp-primary-press: #3E63DB;
+  --pp-primary-soft: #18223E;
+  --pp-primary-soft-border: #27375F;
+  --pp-primary-tint: #131B30;
+  --pp-ink: #E8ECF3;
+  --pp-ink-bg: #22304F;
+  --pp-background: #0A0E15;
+  --pp-surface: #121823;
+  --pp-surface-muted: #0F141D;
+  --pp-neutral: #1B2230;
+  --pp-muted: #9AA4B5;
+  --pp-muted-strong: #A3ACBC;
+  --pp-faint: #8892A4;
+  --pp-idle: #6B7587;
+  --pp-border: #232B3A;
+  --pp-border-strong: #2B3546;
+  --pp-border-faint: #1C2330;
+  --pp-line: #202838;
+  --pp-switch-off: #3A4456;
+  --pp-success: #3FBF85;
+  --pp-success-soft: #11261D;
+  --pp-success-border: #1E4A38;
+  --pp-warning: #E2B857;
+  --pp-warning-dot: #D8A93A;
+  --pp-warning-tint: #241F10;
+  --pp-warning-border: #4A3F1C;
+  --pp-danger: #F0786C;
+  --pp-danger-text: #F28B80;
+  --pp-danger-soft: #2B1714;
+  --pp-danger-tint: #231413;
+  --pp-danger-border: #4A2824;
+  --pp-shadow-card: 0 30px 60px -38px rgba(0, 0, 0, .7);
+  --pp-focus-ring: 0 0 0 3px rgba(77, 116, 240, .28);
+  --pp-glass: rgba(10, 14, 21, .88);
+  --pp-glass-strong: rgba(18, 24, 35, .94);
+  --pp-scrim: rgba(0, 0, 0, .62);
+  color-scheme: dark;
+}
+
+/* The app's own body colours (the base reset in design.css is light-only). */
+html[data-theme='dark'] body {
+  background: var(--pp-background);
+  color: var(--pp-ink);
+}
+html[data-theme='dark'] a { color: var(--pp-primary-hover); }
+html[data-theme='dark'] input::placeholder { color: var(--pp-faint); }
+
+/* Phones: the chat box must be at least 16px or iOS zooms the page when it is focused. */
+@media (max-width: 819px) {
+  input, textarea, select { font-size: 16px !important; }
+  :root {
+    --pp-btn-y: 9px;
+    --pp-btn-y-lg: 11px;
+  }
 }
 
 /* Interaction states for the reusable UI primitives (src/components/ui). Kept here so the
@@ -57,7 +138,7 @@
   cursor: not-allowed;
 }
 .pp-btn--primary:not(:disabled):hover {
-  background: var(--pp-primary-hover);
+  background: var(--pp-primary-press);
 }
 .pp-btn--secondary:not(:disabled):hover {
   border-color: var(--pp-ink);

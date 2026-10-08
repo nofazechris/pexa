@@ -15,12 +15,12 @@ const ICON: Record<NotificationKind, { glyph: string; bg: string; fg: string }> 
   received: { glyph: '↓', bg: color.successSoft, fg: color.success },
   deposit: { glyph: '↓', bg: color.successSoft, fg: color.success },
   request_paid: { glyph: '✓', bg: color.successSoft, fg: color.success },
-  sent: { glyph: '↑', bg: '#F1F2F5', fg: '#5B6472' },
+  sent: { glyph: '↑', bg: 'var(--pp-neutral)', fg: 'var(--pp-muted)' },
   subscription: { glyph: '↻', bg: color.primarySoft, fg: color.primary },
-  request: { glyph: '?', bg: '#FEFBF0', fg: color.warning },
-  request_declined: { glyph: '×', bg: '#F1F2F5', fg: '#5B6472' },
+  request: { glyph: '?', bg: 'var(--pp-warning-tint)', fg: color.warning },
+  request_declined: { glyph: '×', bg: 'var(--pp-neutral)', fg: 'var(--pp-muted)' },
   purchase: { glyph: '✦', bg: color.primarySoft, fg: color.primary },
-  failed: { glyph: '!', bg: '#FDF1EF', fg: '#A8352A' },
+  failed: { glyph: '!', bg: 'var(--pp-danger-tint)', fg: 'var(--pp-danger-text)' },
 };
 
 function ago(iso: string): string {

@@ -52,7 +52,7 @@ export function RecurringPreviewCard({ m, onConfirm, onCancel }: { m: ChatMessag
           fontSize: '12.5px',
           lineHeight: 1.5,
           border: `1px solid ${r.automatic && !r.needsApprovalEachTime ? color.primarySoftBorder : color.warningDot}`,
-          background: r.automatic && !r.needsApprovalEachTime ? color.primarySoft : '#FEFBF0',
+          background: r.automatic && !r.needsApprovalEachTime ? color.primarySoft : 'var(--pp-warning-tint)',
           color: r.automatic && !r.needsApprovalEachTime ? color.primaryHover : color.warning,
         }}
       >
@@ -65,10 +65,10 @@ export function RecurringPreviewCard({ m, onConfirm, onCancel }: { m: ChatMessag
 
       {awaiting ? (
         <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
-          <button onClick={onConfirm} style={{ flex: 1, border: 'none', background: color.primary, color: '#fff', fontSize: '14px', fontWeight: 500, padding: '12px 15px', borderRadius: '11px', cursor: 'pointer' }}>
+          <button onClick={onConfirm} style={{ flex: 1, border: 'none', background: color.primary, color: '#fff', fontSize: '14px', fontWeight: 500, padding: 'var(--pp-btn-y) 15px', borderRadius: '11px', cursor: 'pointer' }}>
             Start recurring payment
           </button>
-          <button onClick={onCancel} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '14px', fontWeight: 500, padding: '12px 15px', borderRadius: '11px', cursor: 'pointer' }}>
+          <button onClick={onCancel} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '14px', fontWeight: 500, padding: 'var(--pp-btn-y) 15px', borderRadius: '11px', cursor: 'pointer' }}>
             Cancel
           </button>
         </div>
@@ -99,14 +99,14 @@ export function RecurringReceiptCard({ m }: { m: ChatMessage }) {
 
   if (!res.ok) {
     return (
-      <div style={{ border: '1px solid #F0DCD8', background: '#FDF8F7', borderRadius: '16px', padding: '15px 16px', maxWidth: '400px' }}>
-        <div style={{ fontSize: '14.5px', fontWeight: 600, color: '#A8352A' }}>Couldn’t set it up</div>
-        <div style={{ fontSize: '13px', color: '#A8352A', lineHeight: 1.5, marginTop: '6px' }}>{res.error ?? 'Something went wrong.'} Nothing was scheduled.</div>
+      <div style={{ border: '1px solid var(--pp-danger-border)', background: 'var(--pp-danger-tint)', borderRadius: '16px', padding: '15px 16px', maxWidth: '400px' }}>
+        <div style={{ fontSize: '14.5px', fontWeight: 600, color: 'var(--pp-danger-text)' }}>Couldn’t set it up</div>
+        <div style={{ fontSize: '13px', color: 'var(--pp-danger-text)', lineHeight: 1.5, marginTop: '6px' }}>{res.error ?? 'Something went wrong.'} Nothing was scheduled.</div>
       </div>
     );
   }
   return (
-    <div style={{ border: `1px solid #CDE7DA`, background: color.successSoft, borderRadius: '16px', padding: '15px 16px', maxWidth: '400px' }}>
+    <div style={{ border: `1px solid var(--pp-success-border)`, background: color.successSoft, borderRadius: '16px', padding: '15px 16px', maxWidth: '400px' }}>
       <div style={{ fontSize: '14.5px', fontWeight: 600, color: color.success }}>Recurring payment set up</div>
       <div style={{ fontSize: '13.5px', color: color.ink, marginTop: '6px', lineHeight: 1.5 }}>
         ${money(r.amount)} {r.token} to {r.recipient}, {r.cadence.charAt(0).toLowerCase() + r.cadence.slice(1)}.

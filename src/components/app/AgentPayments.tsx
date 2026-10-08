@@ -79,7 +79,7 @@ export function AgentPayments({ address: pinnedAddress }: { address?: string }) 
             fontSize: '11.5px',
             color: delegated ? color.success : color.mutedStrong,
             background: delegated ? color.successSoft : color.surfaceMuted,
-            border: `1px solid ${delegated ? '#CDE7DA' : color.borderFaint}`,
+            border: `1px solid ${delegated ? 'var(--pp-success-border)' : color.borderFaint}`,
             padding: '4px 9px',
             borderRadius: '999px',
           }}
@@ -94,7 +94,7 @@ export function AgentPayments({ address: pinnedAddress }: { address?: string }) 
           : 'Off by default: payments Pexa starts are prepared and wait for you to approve here. Turn this on to let Pexa settle on its own up to $100 per payment — larger ones still ask you first. Keys stay in Privy, and every payment still passes policy and a one-time authorization.'}
       </p>
       {error ? (
-        <div style={{ marginTop: '12px', border: '1px solid #F0DCD8', background: '#FDF8F7', borderRadius: '11px', padding: '11px 13px', fontSize: '13px', color: '#A8352A', lineHeight: 1.5 }}>{error}</div>
+        <div style={{ marginTop: '12px', border: '1px solid var(--pp-danger-border)', background: 'var(--pp-danger-tint)', borderRadius: '11px', padding: '11px 13px', fontSize: '13px', color: 'var(--pp-danger-text)', lineHeight: 1.5 }}>{error}</div>
       ) : null}
       <div style={{ marginTop: '16px' }}>
         {delegated ? (

@@ -30,8 +30,8 @@ const SERVICES: Svc[] = [
     name: 'ChatGPT',
     desc: 'Send and request payments directly from your conversations.',
     logo: '/assets/logo-chatgpt.png',
-    markBg: '#F3F4F6',
-    markBorder: '#E3E5E9',
+    markBg: 'var(--pp-neutral)',
+    markBorder: 'var(--pp-line)',
     url: 'https://chatgpt.com',
     hint: 'In ChatGPT: Settings → Connectors → Add, then paste the endpoint and key.',
   },
@@ -90,8 +90,8 @@ function Copyable({ value, label }: { value: string; label: string }) {
 }
 
 function Step({ n, label, state }: { n: number; label: string; state: 'done' | 'active' | 'todo' }) {
-  const bg = state === 'done' ? color.successSoft : state === 'active' ? color.primarySoft : '#F2F3F6';
-  const fg = state === 'done' ? color.success : state === 'active' ? color.primary : '#8A93A6';
+  const bg = state === 'done' ? color.successSoft : state === 'active' ? color.primarySoft : 'var(--pp-neutral)';
+  const fg = state === 'done' ? color.success : state === 'active' ? color.primary : 'var(--pp-idle)';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '11px', animation: 'pp-step .3s cubic-bezier(.2,.8,.3,1) both' }}>
       <span
@@ -278,7 +278,7 @@ export function ServiceConnect() {
           const connected = connectedByName.has(sv.name.toLowerCase());
           const stateLabel = sv.comingSoon ? 'Coming soon' : connected ? 'Connected' : 'Available via MCP';
           const stateColor = sv.comingSoon ? color.warning : connected ? color.success : color.mutedStrong;
-          const dot = sv.comingSoon ? color.warningDot : connected ? color.success : '#D2D7DF';
+          const dot = sv.comingSoon ? color.warningDot : connected ? color.success : 'var(--pp-switch-off)';
           return (
             <div key={sv.key} className="scpm" style={{ background: color.surface, border: `1px solid ${color.border}`, borderRadius: '16px', padding: '22px', display: 'flex', flexDirection: 'column', transition: 'transform .18s ease,box-shadow .18s ease' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -302,8 +302,8 @@ export function ServiceConnect() {
                   marginTop: 'auto',
                   width: '100%',
                   border: sv.comingSoon ? `1px solid ${color.border}` : connected ? `1px solid ${color.borderStrong}` : `1px solid ${color.primary}`,
-                  background: sv.comingSoon ? '#F2F3F6' : connected ? color.surface : color.primary,
-                  color: sv.comingSoon ? '#8A93A6' : connected ? color.ink : '#fff',
+                  background: sv.comingSoon ? 'var(--pp-neutral)' : connected ? color.surface : color.primary,
+                  color: sv.comingSoon ? 'var(--pp-idle)' : connected ? color.ink : '#fff',
                   fontSize: '14px',
                   fontWeight: 500,
                   padding: '11px',

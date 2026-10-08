@@ -3,7 +3,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { PrivyProvider, usePrivy, useCreateWallet } from '@privy-io/react-auth';
 import { celo, celoSepolia } from 'viem/chains';
-import { color } from '@/lib/design/tokens';
 import { pickCanonicalWallet, type LinkedAccountLike } from '@/lib/wallets/select';
 
 /**
@@ -184,7 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loginMethods: ['email', 'passkey'],
         appearance: {
           theme: 'light',
-          accentColor: color.primary,
+          accentColor: '#1B45D7', // a literal hex: Privy's own modal can't read our CSS variables
           landingHeader: 'Sign in to Pexa',
         },
         // Provision a Celo (EVM) embedded wallet automatically for users who don't have one,

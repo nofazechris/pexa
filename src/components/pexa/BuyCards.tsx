@@ -37,10 +37,10 @@ export function BuyQuoteCard({ m, onConfirm, onCancel }: { m: ChatMessage; onCon
       {awaiting ? (
         <>
           <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
-            <button onClick={onConfirm} style={{ flex: 1, border: 'none', background: color.primary, color: '#fff', fontSize: '14px', fontWeight: 500, padding: '12px 15px', borderRadius: '11px', cursor: 'pointer' }}>
+            <button onClick={onConfirm} style={{ flex: 1, border: 'none', background: color.primary, color: '#fff', fontSize: '14px', fontWeight: 500, padding: 'var(--pp-btn-y) 15px', borderRadius: '11px', cursor: 'pointer' }}>
               Approve & pay {buy.price}
             </button>
-            <button onClick={onCancel} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '14px', fontWeight: 500, padding: '12px 15px', borderRadius: '11px', cursor: 'pointer' }}>
+            <button onClick={onCancel} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '14px', fontWeight: 500, padding: 'var(--pp-btn-y) 15px', borderRadius: '11px', cursor: 'pointer' }}>
               Cancel
             </button>
           </div>
@@ -82,10 +82,10 @@ export function BuyResultCard({ m }: { m: ChatMessage }) {
   const paid = p?.status === 'PAID';
   const uncertain = p?.status === 'UNCERTAIN';
   const tone = paid
-    ? { fg: color.success, bg: color.successSoft, border: '#CDE7DA', label: 'Paid' }
+    ? { fg: color.success, bg: color.successSoft, border: 'var(--pp-success-border)', label: 'Paid' }
     : uncertain
-      ? { fg: color.warning, bg: '#FEFBF0', border: color.warningDot, label: 'Needs checking' }
-      : { fg: '#A8352A', bg: '#FDF8F7', border: '#F0DCD8', label: 'Not charged' };
+      ? { fg: color.warning, bg: 'var(--pp-warning-tint)', border: color.warningDot, label: 'Needs checking' }
+      : { fg: 'var(--pp-danger-text)', bg: 'var(--pp-danger-tint)', border: 'var(--pp-danger-border)', label: 'Not charged' };
 
   const out = prettyOutput(r.output);
 
@@ -103,7 +103,7 @@ export function BuyResultCard({ m }: { m: ChatMessage }) {
         </div>
       ) : null}
       {!paid && !uncertain ? (
-        <div style={{ fontSize: '13px', color: '#A8352A', lineHeight: 1.5, marginTop: '9px' }}>{p?.error?.message ?? r.error ?? 'The purchase didn’t complete. Nothing was charged.'}</div>
+        <div style={{ fontSize: '13px', color: 'var(--pp-danger-text)', lineHeight: 1.5, marginTop: '9px' }}>{p?.error?.message ?? r.error ?? 'The purchase didn’t complete. Nothing was charged.'}</div>
       ) : null}
 
       {out ? (

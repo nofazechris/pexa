@@ -166,7 +166,7 @@ export function PexaOnboarding() {
             <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '11px', letterSpacing: '.14em', color: color.faint }}>STEP 2 OF 3</div>
             <h1 style={{ fontSize: '27px', letterSpacing: '-.03em', fontWeight: 600, margin: '14px 0 0' }}>Choose your username.</h1>
             <p style={{ fontSize: '15px', color: color.muted, lineHeight: 1.6, margin: '10px 0 22px' }}>This is how people send you money.</p>
-            <div style={{ background: color.surface, border: `1px solid ${avail && !avail.ok ? '#E7C9C4' : color.borderStrong}`, borderRadius: '11px', padding: '13px 15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ background: color.surface, border: `1px solid ${avail && !avail.ok ? 'var(--pp-danger-border)' : color.borderStrong}`, borderRadius: '11px', padding: '13px 15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '16px', color: color.faint }}>@</span>
               <input
                 value={handle}
@@ -223,8 +223,8 @@ export function PexaOnboarding() {
               {SETUP_STEPS.map((label, i) => {
                 const done = i < setupIdx;
                 const activeS = i === setupIdx;
-                const bg = done ? color.successSoft : activeS ? color.primarySoft : '#F2F3F6';
-                const fg = done ? color.success : activeS ? color.primary : '#8A93A6';
+                const bg = done ? color.successSoft : activeS ? color.primarySoft : 'var(--pp-neutral)';
+                const fg = done ? color.success : activeS ? color.primary : 'var(--pp-idle)';
                 return (
                   <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '11px', fontSize: '14.5px' }}>
                     <span style={{ width: 20, height: 20, borderRadius: '50%', background: bg, color: fg, fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', animation: activeS ? 'pp-pulse 1.6s ease-in-out infinite' : undefined }}>{done ? '✓' : i + 1}</span>
@@ -243,7 +243,7 @@ export function PexaOnboarding() {
           <div>
             <h1 style={{ fontSize: '27px', letterSpacing: '-.03em', fontWeight: 600, margin: 0 }}>Your wallet is ready.</h1>
             <p style={{ fontSize: '15px', color: color.muted, lineHeight: 1.6, margin: '10px 0 22px' }}>You can send, receive and request money right away.</p>
-            <div style={{ background: color.ink, borderRadius: '16px', padding: '26px', color: '#fff' }}>
+            <div style={{ background: color.inkBg, borderRadius: '16px', padding: '26px', color: '#fff' }}>
               <div style={{ fontSize: '24px', fontWeight: 600, letterSpacing: '-.025em' }}>{handleDisplay}</div>
               <div style={{ height: 1, background: '#212938', margin: '20px 0' }} />
               <div style={{ fontSize: '12.5px', color: '#A3ACBC' }}>Celo payment wallet</div>

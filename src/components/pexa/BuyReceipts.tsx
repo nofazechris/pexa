@@ -28,7 +28,7 @@ export function purchaseTone(status: string): { fg: string; label: string } {
     case 'EXPIRED':
       return { fg: color.mutedStrong, label: 'Expired' };
     default:
-      return { fg: '#A8352A', label: 'Not charged' };
+      return { fg: 'var(--pp-danger-text)', label: 'Not charged' };
   }
 }
 
@@ -172,7 +172,7 @@ export function ReceiptSheet({
           </div>
         </div>
 
-        {p.error ? <div style={{ fontSize: '13px', color: p.status === 'UNCERTAIN' ? color.warning : '#A8352A', lineHeight: 1.5 }}>{p.error.message}</div> : null}
+        {p.error ? <div style={{ fontSize: '13px', color: p.status === 'UNCERTAIN' ? color.warning : 'var(--pp-danger-text)', lineHeight: 1.5 }}>{p.error.message}</div> : null}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', fontSize: '12.5px' }}>
           {p.receiptUrl ? (

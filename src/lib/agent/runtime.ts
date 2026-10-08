@@ -22,6 +22,7 @@ import { recurringAutoLimit, recurringRunsAutomatically } from '@/lib/recurring/
 import { exceedsAutonomousCap } from '@/lib/payments/policy';
 import { listRecentPeople, resolveRecipient } from '@/lib/contacts/people';
 import { label, lastSeen } from '@/lib/contacts/match';
+import { buildIntro, isIntroRequest, type IntroFeature } from './intro';
 
 /**
  * Pexa agent runtime (§10, §13, §28) — the in-app bot as a real tool-calling agent.
@@ -164,6 +165,8 @@ export interface PendingAction {
     | { type: 'payment_preview'; recipient: string; amount: string; token: string; network: string }
     | { type: 'fiat_quote'; quote: QuoteView }
     | { type: 'receive'; address: string; username: string; network: string; qr: string }
+    /** "What do you do?": the features Pexa has for this user, each with a sentence to try. Nothing to confirm. */
+    | { type: 'intro'; features: IntroFeature[] }
     /** A repeating payment waiting for the user's Confirm; creating it authorizes future payments. */
     | {
         type: 'recurring_preview';
@@ -409,6 +412,13 @@ async function handleSend(ctx: ToolContext, slots: SendSlots): Promise<AgentTurn
  * configured (the caller then falls back to the simple parser path).
  */
 export async function runAgentTurn(input: { userId: string; messages: AgentMessage[] }): Promise<AgentTurn | null> {
+  // "What do you do?" is answered by the app so it only ever lists what Pexa really does for this user.
+  const last = input.messages[input.messages.length - 1];
+  if (last?.role === 'user' && isIntroRequest(last.content)) {
+    const { reply, features: list } = buildIntro({ buy: buyAvailable(), naira: features.fiat && features.fiatPublic });
+    return { reply, action: { tool: 'intro', args: {}, render: { type: 'intro', features: list } } };
+  }
+
   const openai = getClient();
   if (!openai) return null;
   const ctx: ToolContext = { userId: input.userId };

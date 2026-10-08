@@ -20,7 +20,7 @@ export function useToast(): ToastApi {
 }
 
 const toneColors: Record<ToastTone, { bg: string; fg: string }> = {
-  neutral: { bg: color.ink, fg: '#fff' },
+  neutral: { bg: color.inkBg, fg: '#fff' },
   success: { bg: color.success, fg: '#fff' },
   danger: { bg: color.danger, fg: '#fff' },
 };

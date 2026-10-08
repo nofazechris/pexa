@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { ThemeController } from "@/components/theme/ThemeController";
+import { themeInitScript } from "@/lib/theme";
 import "./globals.css";
 
 // Fonts come from the self-hosted `geist` package (the font files ship inside it), not
@@ -29,8 +31,10 @@ export const metadata: Metadata = {
   icons: {
     icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
     shortcut: [{ url: "/favicon.svg", type: "image/svg+xml" }],
-    apple: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
+  // Opens full-screen like an app once it is on the home screen (iPhone).
+  appleWebApp: { capable: true, title: "Pexa", statusBarStyle: "default" },
   openGraph: {
     type: "website",
     siteName: "Pexa",
@@ -48,14 +52,22 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  // Matches the off-white page ground (§94) so mobile browser chrome blends in.
+  // Draw under the notch / home bar; the app pads for it with env(safe-area-inset-*).
+  viewportFit: "cover",
+  // Matches the off-white page ground (§94) so mobile browser chrome blends in (ThemeController darkens it in dark mode).
   themeColor: "#F6F7F9",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+    // data-theme is set before paint by the inline script (and kept current by ThemeController), so React must not
+    // treat the extra attribute as a hydration mismatch.
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body>
+        <ThemeController />
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>

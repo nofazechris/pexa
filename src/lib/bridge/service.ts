@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { and, eq } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db';
 import { getWalletByUserId } from '@/lib/wallets/service';
+import { env } from '@/lib/config/env';
 import { requestDepositAddress } from './relay';
 import { type BridgeChain } from './chains';
 
@@ -20,6 +21,7 @@ export interface BridgeDeposit {
  * points at the user's own pinned Pexa wallet — if that were ever different from what was stored, a new address is made.
  */
 export async function getBridgeDeposit(userId: string, chain: BridgeChain): Promise<BridgeDeposit | null> {
+  if (chain.needsApiKey && !env.RELAY_API_KEY) return null;
   const wallet = await getWalletByUserId(userId);
   if (!wallet) return null;
   const db = getDb();
@@ -28,7 +30,7 @@ export async function getBridgeDeposit(userId: string, chain: BridgeChain): Prom
 
   let row = existing && existing.recipient.toLowerCase() === wallet.address.toLowerCase() ? existing : null;
   if (!row) {
-    const made = await requestDepositAddress(chain, wallet.address);
+    const made = await requestDepositAddress(chain, wallet.address, env.RELAY_API_KEY);
     const values = { userId, originChainId: chain.chainId, depositAddress: made.depositAddress, requestId: made.requestId, recipient: wallet.address, estimateFeeUsd: made.estimateFeeUsd };
     if (existing) {
       // Its wallet changed since it was made: point it at the current one.

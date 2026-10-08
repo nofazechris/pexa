@@ -37,6 +37,14 @@ describe('parseRelayQuote', () => {
     wrongToken.details.currencyOut.currency.address = '0x48065fbbe25f71c9282ddf5e1cd6d6a887483d5e';
     expect(() => parseRelayQuote(wrongToken, WALLET)).toThrow('relay_wrong_destination');
   });
+  it('reads a Solana deposit address (base58, case-sensitive)', () => {
+    const q = good();
+    q.steps = [{ id: 'deposit', depositAddress: 'B7ZtyFcjjJ5z3vA3fKq4p9wH1Zk2mYx6QeRcN8sUdLpa' }];
+    expect(parseRelayQuote(q, WALLET, 'svm').depositAddress).toBe('B7ZtyFcjjJ5z3vA3fKq4p9wH1Zk2mYx6QeRcN8sUdLpa');
+    expect(() => parseRelayQuote(q, WALLET, 'evm')).toThrow('relay_no_deposit_address');
+    expect(() => parseRelayQuote(good(), WALLET, 'svm')).toThrow('relay_no_deposit_address');
+  });
+
   it('refuses a missing or malformed deposit address', () => {
     const none = good();
     none.steps = [{ id: 'deposit', depositAddress: 'not-an-address' }];

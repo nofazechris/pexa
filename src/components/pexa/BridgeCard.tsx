@@ -10,12 +10,14 @@ import type { BridgeCardData } from '@/components/auth/useAgentChat';
  */
 
 export function BridgeCard({ data }: { data: BridgeCardData }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard?.writeText(data.address).then(
+  const [copied, setCopied] = useState<'address' | 'message' | null>(null);
+  const copy = (what: 'address' | 'message') => {
+    const text = what === 'address' ? data.address : `Please send USDC on ${data.chain} to this address: ${data.address}
+Only USDC, and only on ${data.chain}. It reaches me automatically in my Pexa wallet.`;
+    navigator.clipboard?.writeText(text).then(
       () => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1600);
+        setCopied(what);
+        setTimeout(() => setCopied(null), 1600);
       },
       () => {},
     );
@@ -24,7 +26,7 @@ export function BridgeCard({ data }: { data: BridgeCardData }) {
   const pricey = fee >= 0.5;
   return (
     <div style={{ background: color.surface, border: `1px solid ${color.border}`, borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '13px' }}>
-      <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>BRING USDC FROM {data.chain.toUpperCase()}</div>
+      <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>GET PAID FROM {data.chain.toUpperCase()}</div>
 
       <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
         {data.qr ? (
@@ -32,11 +34,16 @@ export function BridgeCard({ data }: { data: BridgeCardData }) {
           <img src={data.qr} alt={`QR code for the ${data.chain} deposit address`} width={112} height={112} style={{ borderRadius: '10px', background: '#fff', flex: 'none' }} />
         ) : null}
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: '12.5px', color: color.mutedStrong }}>Send USDC on {data.chain} to</div>
+          <div style={{ fontSize: '12.5px', color: color.mutedStrong }}>USDC sent on {data.chain} to this address</div>
           <div style={{ fontFamily: 'var(--font-geist-mono),monospace', fontSize: '12.5px', marginTop: '5px', wordBreak: 'break-all', lineHeight: 1.5 }}>{data.address}</div>
-          <button onClick={copy} style={{ marginTop: '9px', border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '13px', fontWeight: 500, padding: 'var(--pp-btn-y) 14px', borderRadius: '10px', cursor: 'pointer' }}>
-            {copied ? 'Copied' : 'Copy address'}
-          </button>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '9px' }}>
+            <button onClick={() => copy('message')} style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '13px', fontWeight: 500, padding: 'var(--pp-btn-y) 14px', borderRadius: '10px', cursor: 'pointer' }}>
+              {copied === 'message' ? 'Copied' : 'Copy message for sender'}
+            </button>
+            <button onClick={() => copy('address')} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '13px', fontWeight: 500, padding: 'var(--pp-btn-y) 14px', borderRadius: '10px', cursor: 'pointer' }}>
+              {copied === 'address' ? 'Copied' : 'Copy address'}
+            </button>
+          </div>
         </div>
       </div>
 

@@ -53,7 +53,7 @@ export function introFeatures(a: IntroAvailability): IntroFeature[] {
     { title: 'Ask for money', description: 'Request a payment from someone.', example: 'Request $20 from @joyful' },
     { title: 'Recurring payments', description: 'Rent, subscriptions, allowances — on a schedule you set.', example: 'Pay @joyful $5 every Friday' },
     { title: 'Add money', description: 'Get your wallet address and see the deposit the moment it lands.', example: 'Add money to my wallet' },
-    { title: 'Bring money from another chain', description: 'Hold USDC on Arbitrum, Base, Ethereum, Optimism or Polygon? I give you an address and it lands here as USDC on Celo.', example: 'Bring USDC from Arbitrum' },
+    { title: 'Bring money from another chain', description: 'Someone wants to send you USDC from Arbitrum, Base, Ethereum, Optimism or Polygon (Solana soon)? I give you an address to hand them, and it lands here as USDC on Celo.', example: 'Somebody wants to send me USDC on Arbitrum' },
     { title: 'Balance & activity', description: 'See what you have and what moved.', example: 'Show my recent payments' },
     { title: 'Save automatically', description: 'Set money aside in vaults, or save a share of everything you receive.', example: 'Save 10% of every payment I get' },
   ];

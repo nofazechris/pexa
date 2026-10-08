@@ -288,20 +288,33 @@ async function buildRender(ctx: ToolContext, tool: string, args: Record<string, 
   return null;
 }
 
-/** Bring USDC in from another network: ask which one if needed, otherwise show the deposit address for it. */
+/**
+ * Getting paid from another network: ask which one if needed, otherwise show the deposit address for it — to hand to
+ * whoever is sending (or to use from your own wallet). If the sender is on Celo/Pexa the normal wallet address will do.
+ */
 async function handleBridge(ctx: ToolContext, intent: Exclude<BridgeIntent, { kind: 'none' }>): Promise<AgentTurn> {
-  if (intent.kind === 'unsupported') {
+  const hasKey = Boolean(env.RELAY_API_KEY);
+  if (intent.kind === 'celo') {
+    const render = await buildRender(ctx, 'get_deposit_details', {});
     return {
-      reply: `I can’t bring money in from ${intent.name[0].toUpperCase()}${intent.name.slice(1)} yet. I can do USDC from ${chainList()}. If your money is on ${intent.name}, an exchange can move it to one of those first — then tell me which one.`,
+      reply: 'If they’re on Celo — or already on Pexa — it’s simpler: they send USDC straight to your wallet address (on Pexa they can just pay your @username). Here’s your address.',
+      ...(render ? { action: { tool: 'get_deposit_details', args: {}, render } } : {}),
     };
   }
+  if (intent.kind === 'unsupported') {
+    const name = `${intent.name[0].toUpperCase()}${intent.name.slice(1)}`;
+    return { reply: `I can’t take money from ${name} yet. I can do USDC from ${chainList(hasKey)}. If it’s on ${name}, they can move it to one of those first (an exchange can do that) — then tell me which one.` };
+  }
   if (!intent.chain) {
-    return { reply: `Sure — I can bring USDC from another network straight into your Pexa wallet. ${ASK_NETWORK_MARKER} I support ${chainList()}.` };
+    return { reply: `Sure — I’ll give you an address to hand them, and whatever they send lands in your Pexa wallet as USDC on Celo. ${ASK_NETWORK_MARKER} I can do ${chainList(hasKey)} (or Celo itself, if they’re already on it).` };
+  }
+  if (intent.chain.needsApiKey && !hasKey) {
+    return { reply: `${intent.chain.label} isn’t switched on yet — it needs a one-time setup on our side. For now I can do USDC from ${chainList(hasKey)}. Ask them to send from one of those, or tell me which.` };
   }
   const dep = await getBridgeDeposit(ctx.userId, intent.chain);
   if (!dep) return { reply: 'I couldn’t find your wallet yet. Open the Wallet tab once, then ask me again.' };
   return {
-    reply: `Here’s your ${dep.chain} deposit address. Send USDC (only USDC) on ${dep.chain} to it and it arrives in your Pexa wallet as USDC on Celo, usually within a minute. I’ll notify you when it lands.`,
+    reply: `Here’s the ${dep.chain} address. Give it to whoever is sending (or use it from your own wallet): USDC sent to it on ${dep.chain} arrives in your Pexa wallet as USDC on Celo, usually within a minute. I’ll notify you when it lands.`,
     action: { tool: 'bridge_deposit', args: {}, render: { type: 'bridge', chain: dep.chain, address: dep.address, qr: dep.qr, estimateFeeUsd: dep.estimateFeeUsd } },
   };
 }

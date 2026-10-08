@@ -32,6 +32,9 @@ const schema = z.object({
   /** Model for Buy conversations (tool-heavy; small models fumble them). Defaults to gpt-4.1-mini. */
   AI_BUY_MODEL: z.string().min(1).optional(),
 
+  /** Relay (bridge) API key. Optional: Ethereum-style networks work without one; Solana deposit addresses need it. */
+  RELAY_API_KEY: z.string().min(1).optional(),
+
   // Wallet provider (Stage 5 / §11–12) — Privy embedded wallets.
   WALLET_PROVIDER: z.enum(['privy']).default('privy'),
   PRIVY_APP_ID: z.string().min(1).optional(),

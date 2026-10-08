@@ -31,7 +31,7 @@ export const metadata: Metadata = {
   icons: {
     icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
     shortcut: [{ url: "/favicon.svg", type: "image/svg+xml" }],
-    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    apple: [{ url: "/icons/apple-touch-icon-v2.png", sizes: "180x180", type: "image/png" }],
   },
   // Opens full-screen like an app once it is on the home screen (iPhone).
   appleWebApp: { capable: true, title: "Pexa", statusBarStyle: "default" },

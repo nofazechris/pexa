@@ -11,13 +11,13 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: '/',
     display: 'standalone',
     orientation: 'portrait',
-    background_color: '#F6F7F9',
+    background_color: '#FFFFFF',
     theme_color: '#F6F7F9',
     categories: ['finance', 'productivity'],
     icons: [
-      { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-      { src: '/icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      { src: '/icons/icon-v2-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icons/icon-v2-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/icons/icon-v2-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
     ],
   };
 }

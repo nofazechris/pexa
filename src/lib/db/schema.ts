@@ -624,7 +624,32 @@ export const notificationState = pgTable('notification_state', {
   seenAt: timestamp('seen_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * A deposit address per user and source network ("bring USDC from Arbitrum"). Funds sent to it arrive in the user's
+ * Pexa wallet as USDC on Celo. Kept so the user always gets the SAME address for a network, and so we can tell which
+ * wallet it points to (if that ever changed, a new one is made).
+ */
+export const bridgeAddresses = pgTable(
+  "bridge_addresses",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    originChainId: integer("origin_chain_id").notNull(),
+    depositAddress: text("deposit_address").notNull(),
+    requestId: text("request_id").notNull(),
+    /** The Pexa wallet the funds are sent to. */
+    recipient: text("recipient").notNull(),
+    /** Rough fee for a 10 USDC transfer, in USD, when the address was made. */
+    estimateFeeUsd: text("estimate_fee_usd").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("bridge_addresses_user_chain_uq").on(t.userId, t.originChainId)],
+);
+
 export type AgentConversationRow = typeof agentConversations.$inferSelect;
+export type BridgeAddressRow = typeof bridgeAddresses.$inferSelect;
 export type WalletDepositRow = typeof walletDeposits.$inferSelect;
 export type BuySettingsRow = typeof buySettings.$inferSelect;
 export type BuyPurchaseRow = typeof buyPurchases.$inferSelect;

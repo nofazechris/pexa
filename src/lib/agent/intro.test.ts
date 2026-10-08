@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildIntro, introFeatures, isIntroRequest } from './intro';
 import { extractAmount, extractRecipient, parseSendSlots } from './send-intent';
 import { parseCadence } from './cadence';
+import { parseBridgeIntent } from '@/lib/bridge/chains';
 
 describe('isIntroRequest — recognises people asking what the agent is', () => {
   it.each([
@@ -25,7 +26,7 @@ describe('isIntroRequest — recognises people asking what the agent is', () => 
 describe('what it promises', () => {
   it('lists the always-available features', () => {
     const titles = introFeatures({ buy: false, naira: false }).map((f) => f.title);
-    expect(titles).toEqual(['Send money', 'Ask for money', 'Recurring payments', 'Add money', 'Balance & activity', 'Save automatically']);
+    expect(titles).toEqual(['Send money', 'Ask for money', 'Recurring payments', 'Add money', 'Bring money from another chain', 'Balance & activity', 'Save automatically']);
   });
 
   it('adds Buy only where Buy exists, and naira only when it is public', () => {
@@ -53,6 +54,12 @@ describe('what it promises', () => {
     expect(parseCadence(rec.example)).toEqual({ kind: 'ok', label: 'Every Friday' });
     expect(extractAmount(send.example)).toBe('5');
     expect(extractRecipient(send.example)).toBe('joyful');
+  });
+
+  it('the bridge example really opens the Arbitrum deposit card', () => {
+    const f = introFeatures({ buy: false, naira: false }).find((x) => x.title === 'Bring money from another chain')!;
+    const r = parseBridgeIntent(f.example);
+    expect(r.kind === 'bridge' && r.chain?.key).toBe('arbitrum');
   });
 
   it('no example is itself mistaken for "what do you do" (so tapping it does the thing, not the intro again)', () => {

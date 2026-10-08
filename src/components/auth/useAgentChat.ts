@@ -36,8 +36,17 @@ export interface PendingActionView {
     | { type: 'fiat_quote'; quote: FiatQuoteView }
     | { type: 'receive'; address: string; username: string; network: string; qr: string }
     | { type: 'intro'; features: IntroFeatureView[] }
+    | ({ type: 'bridge' } & BridgeCardData)
     | ({ type: 'recurring_preview' } & RecurringCardData)
     | { type: 'buy_quote'; purchaseId: string; service: string; price: string; priceAtomic: string; token: string; detail: string; expiresAt: string; from: string; typedData: BuyTypedData; note: string };
+}
+
+/** A deposit address for bringing USDC from another network (shown as a card; nothing to confirm). */
+export interface BridgeCardData {
+  chain: string;
+  address: string;
+  qr: string;
+  estimateFeeUsd: string;
 }
 
 /** One thing Pexa can do, with a sentence to try it. */
@@ -82,10 +91,12 @@ export interface RecurringCardData {
 export interface ChatMessage {
   id: number;
   role: 'user' | 'agent';
-  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro';
+  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge';
   text?: string;
   /** The "what I can do" list, each with a tap-to-try sentence. */
   intro?: IntroFeatureView[];
+  /** A deposit address for bringing USDC from another network. */
+  bridge?: BridgeCardData;
   /** Card payloads. */
   kind?: 'send' | 'buy' | 'sell';
   preview?: { recipient: string; amount: string; token: string; network: string };
@@ -234,6 +245,10 @@ export function useAgentChat(deps: AgentChatDeps) {
       if (action) {
         if (action.render.type === 'receive') {
           push({ role: 'agent', type: 'receive', receive: action.render });
+        } else if (action.render.type === 'bridge') {
+          const { type: _b, ...card } = action.render;
+          void _b;
+          push({ role: 'agent', type: 'bridge', bridge: card });
         } else if (action.render.type === 'intro') {
           push({ role: 'agent', type: 'intro', intro: action.render.features });
         } else if (action.render.type === 'recurring_preview') {

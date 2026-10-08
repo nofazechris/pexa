@@ -19,6 +19,7 @@ import { Modal, useToast } from '@/components/ui';
 import { NotificationBell, NotificationsPanel } from '@/components/pexa/Notifications';
 import { InstallBanner, InstallSetting } from '@/components/pexa/InstallPrompt';
 import { ThemeSetting } from '@/components/pexa/ThemeSetting';
+import { BridgeCard } from '@/components/pexa/BridgeCard';
 import { useNotifications } from '@/components/auth/useNotifications';
 import type { ActivityItem } from '@/components/auth/useActivity';
 import type { RequestItem } from '@/components/auth/useRequests';
@@ -446,6 +447,7 @@ function ChatRow({ m, onConfirm, onCancel, onRetry, onTry, getAccessToken }: { m
         {m.type === 'buy_result' ? <BuyResultCard m={m} /> : null}
         {m.type === 'error' ? <ErrorCard m={m} onRetry={onRetry} /> : null}
         {m.type === 'receive' ? <ReceiveCard m={m} getAccessToken={getAccessToken} /> : null}
+        {m.type === 'bridge' && m.bridge ? <BridgeCard data={m.bridge} /> : null}
         {m.type === 'intro' && onTry ? <IntroCard m={m} onTry={onTry} /> : null}
       </div>
     </div>

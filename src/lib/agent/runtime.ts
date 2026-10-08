@@ -23,6 +23,8 @@ import { exceedsAutonomousCap } from '@/lib/payments/policy';
 import { listRecentPeople, resolveRecipient } from '@/lib/contacts/people';
 import { label, lastSeen } from '@/lib/contacts/match';
 import { buildIntro, isIntroRequest, type IntroFeature } from './intro';
+import { ASK_NETWORK_MARKER, chainList, parseBridgeIntent, type BridgeIntent } from '@/lib/bridge/chains';
+import { getBridgeDeposit } from '@/lib/bridge/service';
 
 /**
  * Pexa agent runtime (§10, §13, §28) — the in-app bot as a real tool-calling agent.
@@ -167,6 +169,8 @@ export interface PendingAction {
     | { type: 'receive'; address: string; username: string; network: string; qr: string }
     /** "What do you do?": the features Pexa has for this user, each with a sentence to try. Nothing to confirm. */
     | { type: 'intro'; features: IntroFeature[] }
+    /** Bring USDC from another network: the deposit address to send to (nothing to confirm). */
+    | { type: 'bridge'; chain: string; address: string; qr: string; estimateFeeUsd: string }
     /** A repeating payment waiting for the user's Confirm; creating it authorizes future payments. */
     | {
         type: 'recurring_preview';
@@ -282,6 +286,24 @@ async function buildRender(ctx: ToolContext, tool: string, args: Record<string, 
     return { type: 'receive', address: wallet.address, username: profile ? '@' + profile.username : '', network: activeNetwork.name, qr };
   }
   return null;
+}
+
+/** Bring USDC in from another network: ask which one if needed, otherwise show the deposit address for it. */
+async function handleBridge(ctx: ToolContext, intent: Exclude<BridgeIntent, { kind: 'none' }>): Promise<AgentTurn> {
+  if (intent.kind === 'unsupported') {
+    return {
+      reply: `I can’t bring money in from ${intent.name[0].toUpperCase()}${intent.name.slice(1)} yet. I can do USDC from ${chainList()}. If your money is on ${intent.name}, an exchange can move it to one of those first — then tell me which one.`,
+    };
+  }
+  if (!intent.chain) {
+    return { reply: `Sure — I can bring USDC from another network straight into your Pexa wallet. ${ASK_NETWORK_MARKER} I support ${chainList()}.` };
+  }
+  const dep = await getBridgeDeposit(ctx.userId, intent.chain);
+  if (!dep) return { reply: 'I couldn’t find your wallet yet. Open the Wallet tab once, then ask me again.' };
+  return {
+    reply: `Here’s your ${dep.chain} deposit address. Send USDC (only USDC) on ${dep.chain} to it and it arrives in your Pexa wallet as USDC on Celo, usually within a minute. I’ll notify you when it lands.`,
+    action: { tool: 'bridge_deposit', args: {}, render: { type: 'bridge', chain: dep.chain, address: dep.address, qr: dep.qr, estimateFeeUsd: dep.estimateFeeUsd } },
+  };
 }
 
 /**
@@ -417,6 +439,21 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
   if (last?.role === 'user' && isIntroRequest(last.content)) {
     const { reply, features: list } = buildIntro({ buy: buyAvailable(), naira: features.fiat && features.fiatPublic });
     return { reply, action: { tool: 'intro', args: {}, render: { type: 'intro', features: list } } };
+  }
+
+  // "I have USDC on Arbitrum, how do I get it to Celo?" — the app hands out the deposit address itself.
+  if (last?.role === 'user') {
+    const prev = input.messages[input.messages.length - 2];
+    const asked = prev?.role === 'assistant' && prev.content.includes(ASK_NETWORK_MARKER);
+    const bridge = parseBridgeIntent(last.content, asked);
+    if (bridge.kind !== 'none') {
+      try {
+        return await handleBridge({ userId: input.userId }, bridge);
+      } catch (e) {
+        console.error('[agent] bridge handler failed:', e);
+        return { reply: 'I couldn’t get a deposit address just now — the bridge didn’t answer. Nothing was sent or changed. Try again in a moment.' };
+      }
+    }
   }
 
   const openai = getClient();

@@ -10,6 +10,7 @@ import { AgentPayments } from '@/components/app/AgentPayments';
 import { ShareLink } from '@/components/pexa/ShareLink';
 import { BuyPage } from '@/components/pexa/BuyPage';
 import { BuyQuoteCard, BuyResultCard } from '@/components/pexa/BuyCards';
+import { ConversionsPanel, SwapPreviewCard, SwapReceiptCard } from '@/components/pexa/SwapCards';
 import { RecurringPreviewCard, RecurringReceiptCard } from '@/components/pexa/RecurringCards';
 import { ContinueCard, HistorySheet } from '@/components/pexa/ChatHistory';
 import { PurchasesPanel } from '@/components/pexa/BuyReceipts';
@@ -76,6 +77,8 @@ export interface PexaAppProps {
   executeSend: AgentChatDeps['executeSend'];
   executeBuy?: AgentChatDeps['executeBuy'];
   cancelBuy?: AgentChatDeps['cancelBuy'];
+  executeSwap?: AgentChatDeps['executeSwap'];
+  cancelSwap?: AgentChatDeps['cancelSwap'];
   createRecurring?: AgentChatDeps['createRecurring'];
   /** Saved chats (history). Optional: without it the chat just isn't saved. */
   conversations?: ReturnType<typeof useConversations>;
@@ -115,11 +118,13 @@ export function PexaApp(props: PexaAppProps) {
       executeSend: props.executeSend,
       executeBuy: props.executeBuy,
       cancelBuy: props.cancelBuy,
+      executeSwap: props.executeSwap,
+      cancelSwap: props.cancelSwap,
       createRecurring: props.createRecurring,
       saveConversation: props.conversations?.save,
       loadConversation: props.conversations?.load,
     }),
-    [props.sendToAgent, props.executeAction, props.executeSend, props.executeBuy, props.cancelBuy, props.createRecurring, props.conversations],
+    [props.sendToAgent, props.executeAction, props.executeSend, props.executeBuy, props.cancelBuy, props.executeSwap, props.cancelSwap, props.createRecurring, props.conversations],
   );
   const chat = useAgentChat(deps);
 
@@ -443,6 +448,8 @@ function ChatRow({ m, onConfirm, onCancel, onRetry, onTry, getAccessToken }: { m
         {m.type === 'fiat_receipt' ? <FiatReceiptCard m={m} /> : null}
         {m.type === 'recurring_preview' ? <RecurringPreviewCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
         {m.type === 'recurring_receipt' ? <RecurringReceiptCard m={m} /> : null}
+        {m.type === 'swap_preview' ? <SwapPreviewCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
+        {m.type === 'swap_receipt' ? <SwapReceiptCard m={m} /> : null}
         {m.type === 'buy_quote' ? <BuyQuoteCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
         {m.type === 'buy_result' ? <BuyResultCard m={m} /> : null}
         {m.type === 'error' ? <ErrorCard m={m} onRetry={onRetry} /> : null}
@@ -1138,8 +1145,8 @@ function WalletPage({
 }
 
 function ActivityPage({ activity, getAccessToken, onAsk }: { activity: ActivityItem[]; getAccessToken?: () => Promise<string | null>; onAsk: (text: string) => void }) {
-  const [tab, setTab] = useState<'payments' | 'purchases'>('payments');
-  const seg = (key: 'payments' | 'purchases', label: string) => (
+  const [tab, setTab] = useState<'payments' | 'purchases' | 'conversions'>('payments');
+  const seg = (key: 'payments' | 'purchases' | 'conversions', label: string) => (
     <button
       onClick={() => setTab(key)}
       aria-pressed={tab === key}
@@ -1154,8 +1161,10 @@ function ActivityPage({ activity, getAccessToken, onAsk }: { activity: ActivityI
         <div style={{ display: 'flex', gap: '4px', background: 'var(--pp-neutral)', borderRadius: '12px', padding: '4px', marginBottom: '14px' }}>
           {seg('payments', 'Payments')}
           {seg('purchases', 'Purchases & receipts')}
+          {seg('conversions', 'Conversions')}
         </div>
         {tab === 'purchases' ? <PurchasesPanel getAccessToken={getAccessToken} onAsk={onAsk} /> : null}
+        {tab === 'conversions' ? <ConversionsPanel getAccessToken={getAccessToken} onAsk={onAsk} /> : null}
         {tab === 'payments' ? <div style={{ background: color.surface, border: `1px solid ${color.border}`, borderRadius: '16px', overflow: 'hidden' }}>
           {activity.length === 0 ? <div style={{ padding: '34px 18px', textAlign: 'center', fontSize: '14px', color: color.mutedStrong }}>Nothing here yet.</div> : null}
           {activity.map((t) => {

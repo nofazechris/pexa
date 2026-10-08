@@ -12,6 +12,7 @@ import { useActivity } from '@/components/auth/useActivity';
 import { useRequests } from '@/components/auth/useRequests';
 import { useRecurring } from '@/components/auth/useRecurring';
 import { useBuy, type BuyTypedData } from '@/components/auth/useBuy';
+import { useSwap } from '@/components/auth/useSwap';
 import { useConversations } from '@/components/auth/useConversations';
 import type { PendingActionView, AgentFailReason } from '@/components/auth/useAgentChat';
 import { Spinner, Text, ToastProvider } from '@/components/ui';
@@ -42,6 +43,7 @@ export default function AppGate() {
   const { items: requests, markPaid: markRequestPaid, refresh: refreshRequests, cancel: cancelRequest, decline: declineRequest } = useRequests();
   const { items: recurring, setPaused: setRecurringPaused, cancel: cancelRecurring, refresh: refreshRecurring } = useRecurring();
   const { executeBuy, cancelBuy } = useBuy();
+  const { executeSwap, cancelSwap } = useSwap();
   const conversations = useConversations();
   const router = useRouter();
 
@@ -79,6 +81,14 @@ export default function AppGate() {
         return r;
       },
       cancelBuy,
+      // Convert USDC ⇄ USDT ⇄ USAT: the wallet signs what the server prepared; balances refresh when it lands.
+      executeSwap: async (swapId: string, from: string) => {
+        const r = await executeSwap(swapId, from);
+        refreshBalance();
+        refreshActivity();
+        return r;
+      },
+      cancelSwap,
       // Set up a confirmed recurring payment; the server re-validates the person, amount and schedule.
       createRecurring: async (args: { payee: string; amount: string; cadence: string }) => {
         try {
@@ -166,7 +176,7 @@ export default function AppGate() {
         }
       },
     }),
-    [pay, refreshBalance, refreshActivity, refreshRequests, refreshRecurring, markRequestPaid, setRecurringPaused, cancelRecurring, getAccessToken, executeBuy, cancelBuy],
+    [pay, refreshBalance, refreshActivity, refreshRequests, refreshRecurring, markRequestPaid, setRecurringPaused, cancelRecurring, getAccessToken, executeBuy, cancelBuy, executeSwap, cancelSwap],
   );
 
   useEffect(() => {
@@ -258,6 +268,8 @@ export default function AppGate() {
       executeSend={hooks.executeSend}
       executeBuy={hooks.executeBuy}
       cancelBuy={hooks.cancelBuy}
+      executeSwap={hooks.executeSwap}
+      cancelSwap={hooks.cancelSwap}
       createRecurring={hooks.createRecurring}
       conversations={conversations}
       payRequest={hooks.payRequest}

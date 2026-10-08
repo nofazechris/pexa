@@ -37,6 +37,7 @@ export interface PendingActionView {
     | { type: 'receive'; address: string; username: string; network: string; qr: string }
     | { type: 'intro'; features: IntroFeatureView[] }
     | ({ type: 'bridge' } & BridgeCardData)
+    | ({ type: 'swap_preview' } & SwapCardData)
     | ({ type: 'recurring_preview' } & RecurringCardData)
     | { type: 'buy_quote'; purchaseId: string; service: string; price: string; priceAtomic: string; token: string; detail: string; expiresAt: string; from: string; typedData: BuyTypedData; note: string };
 }
@@ -47,6 +48,31 @@ export interface BridgeCardData {
   address: string;
   qr: string;
   estimateFeeUsd: string;
+}
+
+/** A conversion waiting for Confirm (mirrors the server's SwapPreview). */
+export interface SwapCardData {
+  swapId: string;
+  from: 'USDC' | 'USDT' | 'USAT';
+  to: 'USDC' | 'USDT' | 'USAT';
+  amountIn: string;
+  expectedOut: string;
+  minOut: string;
+  rate: string;
+  routeLabel: string;
+  slippagePercent: string;
+  expiresAt: string;
+  network: string;
+}
+
+/** What a finished conversion reports (read from the chain by the server). */
+export interface SwapOutcome {
+  ok: boolean;
+  status?: 'CONFIRMED' | 'PENDING';
+  amountOut?: string | null;
+  txHash?: string | null;
+  explorerUrl?: string | null;
+  error?: string;
 }
 
 /** One thing Pexa can do, with a sentence to try it. */
@@ -91,12 +117,15 @@ export interface RecurringCardData {
 export interface ChatMessage {
   id: number;
   role: 'user' | 'agent';
-  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge';
+  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge' | 'swap_preview' | 'swap_receipt';
   text?: string;
   /** The "what I can do" list, each with a tap-to-try sentence. */
   intro?: IntroFeatureView[];
   /** A deposit address for bringing USDC from another network. */
   bridge?: BridgeCardData;
+  /** A conversion to confirm, and (on the receipt) what happened to it. */
+  swap?: SwapCardData;
+  swapResult?: SwapOutcome;
   /** Card payloads. */
   kind?: 'send' | 'buy' | 'sell';
   preview?: { recipient: string; amount: string; token: string; network: string };
@@ -148,6 +177,10 @@ export interface AgentChatDeps {
   }>;
   /** Approve a Buy purchase: sign with the user's wallet, pay, and wait for the recorded result. */
   executeBuy?: (args: { purchaseId: string; from: string; typedData: BuyTypedData }) => Promise<BuyResult>;
+  /** Run a confirmed conversion: the wallet signs, the server verifies on-chain. */
+  executeSwap?: (swapId: string, from: string) => Promise<SwapOutcome>;
+  /** Drop a quoted conversion (best effort). */
+  cancelSwap?: (swapId: string) => Promise<void>;
   /** Decline a quoted Buy purchase (best effort). */
   cancelBuy?: (purchaseId: string) => Promise<void>;
   /** Set up a confirmed recurring payment (the server re-validates everything). */
@@ -249,6 +282,10 @@ export function useAgentChat(deps: AgentChatDeps) {
           const { type: _b, ...card } = action.render;
           void _b;
           push({ role: 'agent', type: 'bridge', bridge: card });
+        } else if (action.render.type === 'swap_preview') {
+          const { type: _s, ...card } = action.render;
+          void _s;
+          push({ role: 'agent', type: 'swap_preview', swap: card, status: 'awaiting' });
         } else if (action.render.type === 'intro') {
           push({ role: 'agent', type: 'intro', intro: action.render.features });
         } else if (action.render.type === 'recurring_preview') {
@@ -316,6 +353,18 @@ export function useAgentChat(deps: AgentChatDeps) {
           setStatus(id, 'failed');
           setAgentState('error');
         }
+      } else if (m.type === 'swap_preview' && m.swap) {
+        const card = m.swap;
+        const r = d.executeSwap ? await d.executeSwap(card.swapId, card.from) : { ok: false, error: 'Conversions aren’t available here.' };
+        // The preview card learns the outcome too, so it stops showing "converting…".
+        setMessages((prev) => prev.map((x) => (x.id === id ? { ...x, swapResult: r } : x)));
+        push({ role: 'agent', type: 'swap_receipt', swap: card, swapResult: r });
+        if (r.ok) {
+          setAgentState('success');
+        } else {
+          setStatus(id, 'failed');
+          setAgentState('error');
+        }
       } else if (m.type === 'buy_quote' && m.buy) {
         const buy = m.buy;
         if (!d.executeBuy) {
@@ -361,8 +410,9 @@ export function useAgentChat(deps: AgentChatDeps) {
     (id: number) => {
       const m = messages.find((x) => x.id === id);
       if (m?.type === 'buy_quote' && m.buy) void depsRef.current.cancelBuy?.(m.buy.purchaseId);
+      if (m?.type === 'swap_preview' && m.swap) void depsRef.current.cancelSwap?.(m.swap.swapId);
       setStatus(id, 'cancelled');
-      push({ role: 'agent', type: 'text', text: m?.type === 'buy_quote' ? 'Cancelled. Nothing was charged.' : m?.type === 'recurring_preview' ? 'Cancelled. Nothing was set up.' : 'Cancelled. Nothing was sent.' });
+      push({ role: 'agent', type: 'text', text: m?.type === 'buy_quote' ? 'Cancelled. Nothing was charged.' : m?.type === 'recurring_preview' ? 'Cancelled. Nothing was set up.' : m?.type === 'swap_preview' ? 'Cancelled. Nothing was converted.' : 'Cancelled. Nothing was sent.' });
       setAgentState('idle');
     },
     [messages, push, setStatus],

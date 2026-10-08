@@ -3,6 +3,7 @@ import { buildIntro, introFeatures, isIntroRequest } from './intro';
 import { extractAmount, extractRecipient, parseSendSlots } from './send-intent';
 import { parseCadence } from './cadence';
 import { parseBridgeIntent } from '@/lib/bridge/chains';
+import { parseSwapIntent } from '@/lib/swap/intent';
 
 describe('isIntroRequest — recognises people asking what the agent is', () => {
   it.each([
@@ -25,31 +26,31 @@ describe('isIntroRequest — recognises people asking what the agent is', () => 
 
 describe('what it promises', () => {
   it('lists the always-available features', () => {
-    const titles = introFeatures({ buy: false, naira: false }).map((f) => f.title);
+    const titles = introFeatures({ buy: false, naira: false, swap: false }).map((f) => f.title);
     expect(titles).toEqual(['Send money', 'Ask for money', 'Recurring payments', 'Add money', 'Bring money from another chain', 'Balance & activity', 'Save automatically']);
   });
 
   it('adds Buy only where Buy exists, and naira only when it is public', () => {
-    const none = introFeatures({ buy: false, naira: false }).map((f) => f.title).join('|');
+    const none = introFeatures({ buy: false, naira: false, swap: false }).map((f) => f.title).join('|');
     expect(none).not.toMatch(/Check before you pay|Look things up|Naira/);
-    const buy = introFeatures({ buy: true, naira: false }).map((f) => f.title);
+    const buy = introFeatures({ buy: true, naira: false, swap: false }).map((f) => f.title);
     expect(buy).toContain('Check before you pay');
     expect(buy).toContain('Look things up');
     expect(buy).not.toContain('Naira');
-    expect(introFeatures({ buy: false, naira: true }).map((f) => f.title)).toContain('Naira');
+    expect(introFeatures({ buy: false, naira: true, swap: false }).map((f) => f.title)).toContain('Naira');
   });
 
   it('the reply introduces itself and asks if they are ready', () => {
-    const { reply } = buildIntro({ buy: true, naira: false });
+    const { reply } = buildIntro({ buy: true, naira: false, swap: false });
     expect(reply).toMatch(/Pexa Agent/);
     expect(reply).toMatch(/Confirm/);
     expect(reply).toMatch(/ready/i);
   });
 
   it('every example is a real sentence that the app understands as written (no dead buttons)', () => {
-    const send = introFeatures({ buy: true, naira: true }).find((f) => f.title === 'Send money')!;
+    const send = introFeatures({ buy: true, naira: true, swap: true }).find((f) => f.title === 'Send money')!;
     expect(parseSendSlots([{ role: 'user', content: send.example }])).toMatchObject({ wantsSend: true, amount: '5', recipient: 'joyful' });
-    const rec = introFeatures({ buy: false, naira: false }).find((f) => f.title === 'Recurring payments')!;
+    const rec = introFeatures({ buy: false, naira: false, swap: false }).find((f) => f.title === 'Recurring payments')!;
     expect(parseSendSlots([{ role: 'user', content: rec.example }])).toMatchObject({ recurring: true, amount: '5', recipient: 'joyful', cadence: 'Every Friday' });
     expect(parseCadence(rec.example)).toEqual({ kind: 'ok', label: 'Every Friday' });
     expect(extractAmount(send.example)).toBe('5');
@@ -57,12 +58,18 @@ describe('what it promises', () => {
   });
 
   it('the bridge example really opens the Arbitrum deposit card', () => {
-    const f = introFeatures({ buy: false, naira: false }).find((x) => x.title === 'Bring money from another chain')!;
+    const f = introFeatures({ buy: false, naira: false, swap: false }).find((x) => x.title === 'Bring money from another chain')!;
     const r = parseBridgeIntent(f.example);
     expect(r.kind === 'bridge' && r.chain?.key).toBe('arbitrum');
   });
 
+  it('only offers conversions where they work, and the example really starts one', () => {
+    expect(introFeatures({ buy: false, naira: false, swap: false }).map((f) => f.title)).not.toContain('Convert to USAT');
+    const f = introFeatures({ buy: false, naira: false, swap: true }).find((x) => x.title === 'Convert to USAT')!;
+    expect(parseSwapIntent(f.example)).toEqual({ kind: 'swap', from: 'USDC', to: 'USAT', amount: '5' });
+  });
+
   it('no example is itself mistaken for "what do you do" (so tapping it does the thing, not the intro again)', () => {
-    for (const f of introFeatures({ buy: true, naira: true })) expect(isIntroRequest(f.example), f.example).toBe(false);
+    for (const f of introFeatures({ buy: true, naira: true, swap: true })) expect(isIntroRequest(f.example), f.example).toBe(false);
   });
 });

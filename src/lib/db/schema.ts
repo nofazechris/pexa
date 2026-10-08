@@ -648,6 +648,44 @@ export const bridgeAddresses = pgTable(
   (t) => [uniqueIndex("bridge_addresses_user_chain_uq").on(t.userId, t.originChainId)],
 );
 
+/**
+ * A stablecoin conversion (USDC ⇄ USDT ⇄ USAT through Uniswap on Celo). The row is the quote the person agreed to
+ * (amounts, route, the least they'll accept); the transactions themselves are signed by their own wallet. Confirmation
+ * comes from the chain: the amount received is read from the swap transaction's token transfer, never from the browser.
+ */
+export const swaps = pgTable(
+  "swaps",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    walletAddress: text("wallet_address").notNull(),
+    fromToken: text("from_token").notNull(),
+    toToken: text("to_token").notNull(),
+    /** Atomic (6-decimal) amounts as decimal strings. */
+    amountIn: text("amount_in").notNull(),
+    expectedOut: text("expected_out").notNull(),
+    minOut: text("min_out").notNull(),
+    /** JSON of the route (tokens + fee tiers). */
+    route: text("route").notNull(),
+    /** PREVIEW → PREPARED → CONFIRMED | FAILED | CANCELLED | EXPIRED */
+    status: text("status").notNull().default("PREVIEW"),
+    /** CELO we sent the wallet so it can pay gas (users never need to hold CELO). */
+    gasDripTx: text("gas_drip_tx"),
+    approveTx: text("approve_tx"),
+    swapTx: text("swap_tx"),
+    /** What actually arrived, read from the chain. */
+    amountOut: text("amount_out"),
+    error: text("error"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("swaps_swap_tx_uq").on(t.swapTx), index("swaps_user_time_idx").on(t.userId, t.createdAt)],
+);
+
+export type SwapRow = typeof swaps.$inferSelect;
 export type AgentConversationRow = typeof agentConversations.$inferSelect;
 export type BridgeAddressRow = typeof bridgeAddresses.$inferSelect;
 export type WalletDepositRow = typeof walletDeposits.$inferSelect;

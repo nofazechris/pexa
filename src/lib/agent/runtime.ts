@@ -25,6 +25,8 @@ import { label, lastSeen } from '@/lib/contacts/match';
 import { buildIntro, isIntroRequest, type IntroFeature } from './intro';
 import { ASK_NETWORK_MARKER, chainList, parseBridgeIntent, type BridgeIntent } from '@/lib/bridge/chains';
 import { getBridgeDeposit } from '@/lib/bridge/service';
+import { askSwapAmount, parseSwapIntent, type SwapIntent } from '@/lib/swap/intent';
+import { createSwapPreview, swapsAvailable, type SwapPreview } from '@/lib/swap/service';
 import { AI_DOWN_REPLY, aiBreaker, fastLane, formatBalanceReply, formatRecentReply, modelChain } from './resilience';
 
 /**
@@ -170,6 +172,8 @@ export interface PendingAction {
     | { type: 'receive'; address: string; username: string; network: string; qr: string }
     /** "What do you do?": the features Pexa has for this user, each with a sentence to try. Nothing to confirm. */
     | { type: 'intro'; features: IntroFeature[] }
+    /** Convert between USDC / USDT / USAT: the quote waiting for the person's Confirm (they sign it with their own wallet). */
+    | ({ type: 'swap_preview' } & SwapPreview)
     /** Bring USDC from another network: the deposit address to send to (nothing to confirm). */
     | { type: 'bridge'; chain: string; address: string; qr: string; estimateFeeUsd: string }
     /** A repeating payment waiting for the user's Confirm; creating it authorizes future payments. */
@@ -291,6 +295,19 @@ async function buildRender(ctx: ToolContext, tool: string, args: Record<string, 
     return { type: 'receive', address: wallet.address, username: profile ? '@' + profile.username : '', network: activeNetwork.name, qr };
   }
   return null;
+}
+
+/** Convert between the dollar coins: ask for the amount if it's missing, otherwise quote it and show the Confirm card. */
+async function handleSwap(ctx: ToolContext, intent: Extract<SwapIntent, { kind: 'swap' }>): Promise<AgentTurn> {
+  if (!swapsAvailable()) return { reply: 'Conversions between USDC and USAT aren’t switched on yet.' };
+  if (intent.amount === null) return { reply: askSwapAmount(intent.from, intent.to) };
+  const r = await createSwapPreview(ctx.userId, intent.from, intent.to, intent.amount);
+  if (!r.ok) return { reply: r.message };
+  const p = r.preview;
+  return {
+    reply: `Here’s the conversion: ${p.amountIn} ${p.from} → about ${p.expectedOut} ${p.to}. Nothing happens until you confirm.`,
+    action: { tool: 'swap', args: { swapId: p.swapId }, render: { type: 'swap_preview', ...p } },
+  };
 }
 
 const BRIDGE_DEADLINE_MS = 25_000;
@@ -518,7 +535,7 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
   // "What do you do?" is answered by the app so it only ever lists what Pexa really does for this user.
   const last = input.messages[input.messages.length - 1];
   if (last?.role === 'user' && isIntroRequest(last.content)) {
-    const { reply, features: list } = buildIntro({ buy: buyAvailable(), naira: features.fiat && features.fiatPublic });
+    const { reply, features: list } = buildIntro({ buy: buyAvailable(), naira: features.fiat && features.fiatPublic, swap: swapsAvailable() });
     return { reply, action: { tool: 'intro', args: {}, render: { type: 'intro', features: list } } };
   }
 
@@ -535,6 +552,20 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
         console.error('[agent] bridge handler failed:', e);
         const code = e instanceof Error && /^(relay|bridge)_[a-z0-9_]+$/.test(e.message) ? e.message : 'unexpected';
         return { reply: `I couldn’t get a deposit address just now. Nothing was sent or changed — try again in a moment. (reason: ${code})` };
+      }
+    }
+  }
+
+  // "Convert $5 to USAT" — read by the app itself, like sending: it only prepares a quote; the person's Confirm runs it.
+  if (last?.role === 'user') {
+    const prev = input.messages[input.messages.length - 2];
+    const swap = parseSwapIntent(last.content, prev?.role === 'assistant' ? prev.content : undefined);
+    if (swap.kind === 'swap') {
+      try {
+        return await withDeadline(handleSwap({ userId: input.userId }, swap), 25_000);
+      } catch (e) {
+        console.error('[agent] swap handler failed:', e);
+        return { reply: 'I couldn’t prepare that conversion just now. Nothing was changed — try again in a moment.' };
       }
     }
   }

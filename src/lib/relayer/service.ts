@@ -120,6 +120,27 @@ export async function buildTransferAuthorization(input: { from: string; to: stri
   };
 }
 
+/** The relayer's own CELO balance, so we can stop topping up wallets before it runs dry. */
+export async function relayerCeloBalance(): Promise<bigint | null> {
+  const key = env.RELAYER_PRIVATE_KEY;
+  if (!key) return null;
+  const account = privateKeyToAccount((key.startsWith('0x') ? key : `0x${key}`) as Hex);
+  return celoClient().getBalance({ address: account.address });
+}
+
+/**
+ * Send a small amount of CELO from the relayer to a user's wallet so it can pay gas for one conversion (users never
+ * need to hold CELO). Returns the transaction hash; the caller waits for it to confirm.
+ */
+export async function sendGasTopUp(input: { to: string; valueWei: bigint }): Promise<{ hash: string }> {
+  const key = env.RELAYER_PRIVATE_KEY;
+  if (!key) throw new Error('Gasless relayer is not configured.');
+  const account = privateKeyToAccount((key.startsWith('0x') ? key : `0x${key}`) as Hex);
+  const wallet = createWalletClient({ account, chain: VIEM_CHAIN[activeNetwork.network], transport: http(activeNetwork.rpcUrls[0]) });
+  const hash = await wallet.sendTransaction({ to: input.to as Hex, value: input.valueWei });
+  return { hash };
+}
+
 /**
  * Submit a signed transfer authorization on-chain from the relayer wallet (which pays gas).
  * Returns the transaction hash. Throws if the relayer isn't configured or the tx reverts (e.g.

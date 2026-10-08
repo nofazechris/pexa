@@ -18,6 +18,8 @@ export interface IntroAvailability {
   buy: boolean;
   /** Naira ↔ USDT conversion is public. */
   naira: boolean;
+  /** Converting between USDC / USDT / USAT works (mainnet + gas covered). */
+  swap: boolean;
 }
 
 const MAX_LEN = 90;
@@ -57,6 +59,9 @@ export function introFeatures(a: IntroAvailability): IntroFeature[] {
     { title: 'Balance & activity', description: 'See what you have and what moved.', example: 'Show my recent payments' },
     { title: 'Save automatically', description: 'Set money aside in vaults, or save a share of everything you receive.', example: 'Save 10% of every payment I get' },
   ];
+  if (a.swap) {
+    f.push({ title: 'Convert to USAT', description: 'Swap between USDC, USDT and USAT at the market price. Pexa adds no fee and covers the network fee.', example: 'Convert $5 to USAT' });
+  }
   if (a.buy) {
     f.push({ title: 'Check before you pay', description: 'I look up a vendor’s profile and what people say about them before you send money.', example: 'Is this Instagram vendor legit? @sneakerplug_ng' });
     f.push({ title: 'Look things up', description: 'I can buy live posts, flights or a cloud computer for a few cents, with your approval.', example: 'What is Reddit saying about Celo today?' });

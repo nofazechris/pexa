@@ -27,6 +27,8 @@ import { color } from '@/lib/design/tokens';
  * simply can't gate.
  * (Data shown here is still the in-memory demo until Stages 6–13 wire real balances.)
  */
+const AGENT_TURN_TIMEOUT_MS = 120_000;
+
 export default function AppGate() {
   const { configured, ready, authenticated, logout, getAccessToken } = useAuth();
   const { loading: profileLoading, profile, wallet, unavailable, error: profileError, refresh: refreshProfile } = useProfile();
@@ -100,12 +102,17 @@ export default function AppGate() {
       cancelRecurring: (id: string) => cancelRecurring(id),
       // The tool-calling agent: one message + recent history in, a reply (+ optional pending action) out.
       sendToAgent: async (args: { message: string; history: { role: 'user' | 'assistant'; content: string }[] }) => {
+        // A turn can legitimately take a while (a Buy purchase waits for its result), but never forever: after this the chat
+        // shows its "couldn't reach Pexa" card with a Retry button instead of spinning.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), AGENT_TURN_TIMEOUT_MS);
         try {
           const token = await getAccessToken();
           const res = await fetch('/api/agent/chat', {
             method: 'POST',
             headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
             body: JSON.stringify(args),
+            signal: controller.signal,
           });
           if (!res.ok) {
             // Map the HTTP failure to a plain reason the chat can explain in human terms.
@@ -132,8 +139,10 @@ export default function AppGate() {
           refreshBalance();
           return { ok: true as const, reply: data.reply, action: data.action };
         } catch {
-          // Network error / offline / request never reached the server.
+          // Network error / offline / request never reached the server / took too long.
           return { ok: false as const, reason: 'network' as const };
+        } finally {
+          clearTimeout(timer);
         }
       },
       // Execute a user-confirmed fiat action (buy/sell/withdraw) server-side via the policy engine.

@@ -218,7 +218,8 @@ let client: OpenAI | null = null;
 function getClient(): OpenAI | null {
   if (client) return client;
   if (!env.AI_API_KEY) return null;
-  client = new OpenAI({ apiKey: env.AI_API_KEY });
+  // A slow or failing OpenAI must end in an error card, not an endless spinner (the SDK default is a 10-minute wait).
+  client = new OpenAI({ apiKey: env.AI_API_KEY, timeout: 40_000, maxRetries: 1 });
   return client;
 }
 
@@ -286,6 +287,24 @@ async function buildRender(ctx: ToolContext, tool: string, args: Record<string, 
     return { type: 'receive', address: wallet.address, username: profile ? '@' + profile.username : '', network: activeNetwork.name, qr };
   }
   return null;
+}
+
+const BRIDGE_DEADLINE_MS = 25_000;
+
+function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('bridge_timeout')), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
 }
 
 /**
@@ -461,10 +480,12 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
     const bridge = parseBridgeIntent(last.content, asked);
     if (bridge.kind !== 'none') {
       try {
-        return await handleBridge({ userId: input.userId }, bridge);
+        // Never leave the chat waiting: if the address can't be made in time, say so.
+        return await withDeadline(handleBridge({ userId: input.userId }, bridge), BRIDGE_DEADLINE_MS);
       } catch (e) {
         console.error('[agent] bridge handler failed:', e);
-        return { reply: 'I couldn’t get a deposit address just now — the bridge didn’t answer. Nothing was sent or changed. Try again in a moment.' };
+        const code = e instanceof Error && /^(relay|bridge)_[a-z0-9_]+$/.test(e.message) ? e.message : 'unexpected';
+        return { reply: `I couldn’t get a deposit address just now. Nothing was sent or changed — try again in a moment. (reason: ${code})` };
       }
     }
   }

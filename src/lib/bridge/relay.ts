@@ -7,6 +7,8 @@ import { CELO_CHAIN_ID, CELO_USDC, type BridgeChain } from './chains';
  */
 
 const RELAY_API = 'https://api.relay.link';
+/** One try may take this long; there are two tries, so a stuck Relay costs at most ~16s, never a hang. */
+const ATTEMPT_TIMEOUT_MS = 8_000;
 /** Used only to estimate the fee shown to people; the address itself accepts any amount. */
 const ESTIMATE_AMOUNT_ATOMIC = 10_000_000n; // 10 USDC
 /** "Refund to whoever sent it" — Relay's marker for automatic refunds on the origin network. */
@@ -66,20 +68,24 @@ export async function requestDepositAddress(chain: BridgeChain, recipient: strin
   };
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
     try {
       const res = await fetch(`${RELAY_API}/quote/v2`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(apiKey ? { 'x-api-key': apiKey } : {}) },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(15_000),
+        signal: controller.signal,
         cache: 'no-store',
       });
       if (!res.ok) throw new Error(`relay_http_${res.status}`);
       return parseRelayQuote(await res.json(), recipient, chain.kind);
     } catch (e) {
-      lastError = e;
+      lastError = controller.signal.aborted ? new Error('relay_timeout') : e;
       // A refusal we understand won't change on a second try.
       if (e instanceof Error && /^relay_(wrong|no_)/.test(e.message)) break;
+    } finally {
+      clearTimeout(timer);
     }
   }
   throw lastError instanceof Error ? lastError : new Error('relay_failed');

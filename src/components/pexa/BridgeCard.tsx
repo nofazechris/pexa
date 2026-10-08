@@ -52,7 +52,7 @@ Only USDC, and only on ${data.chain}. It reaches me automatically in my Pexa wal
           <b style={{ color: color.ink, fontWeight: 600 }}>It arrives as USDC on Celo</b> in your Pexa wallet, usually within a minute. I’ll notify you.
         </div>
         <div>
-          Fee: about <b style={{ color: color.ink, fontWeight: 600 }}>${data.estimateFeeUsd}</b> for $10{pricey ? ` — ${data.chain} network fees are high, so it’s better for larger amounts` : ', a bit more on very small amounts'}.
+          Network &amp; bridge fee: about <b style={{ color: color.ink, fontWeight: 600 }}>${data.estimateFeeUsd}</b> per $10, so $10 sent arrives as about <b style={{ color: color.ink, fontWeight: 600 }}>${(10 - fee).toFixed(2)}</b>. That fee goes to the networks, not to Pexa — Pexa adds no fee.{pricey ? ` ${data.chain} gas is expensive, so it suits larger amounts.` : ' It’s mostly a flat cost, so bigger transfers lose a smaller share.'}
         </div>
         <div style={{ color: color.warning }}>Send only USDC, and only on {data.chain}. Other tokens or networks may be delayed or need manual recovery.</div>
         <div>Same address every time you use {data.chain}. If a transfer ever fails, it’s refunded to the wallet you sent it from.</div>

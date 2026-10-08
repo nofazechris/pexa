@@ -130,14 +130,14 @@ export default function AppGate() {
                 : 'server';
             return { ok: false as const, reason };
           }
-          const data = (await res.json()) as { reply: string; action?: PendingActionView };
+          const data = (await res.json()) as { reply: string; action?: PendingActionView; degraded?: boolean };
           // The agent may have created a request, set up a recurring payment, or moved money in this
           // turn — reflect it right away so the user never has to reload to see it.
           refreshRequests();
           refreshRecurring();
           refreshActivity();
           refreshBalance();
-          return { ok: true as const, reply: data.reply, action: data.action };
+          return { ok: true as const, reply: data.reply, action: data.action, degraded: data.degraded };
         } catch {
           // Network error / offline / request never reached the server / took too long.
           return { ok: false as const, reason: 'network' as const };

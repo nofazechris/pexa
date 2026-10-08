@@ -25,6 +25,7 @@ import { label, lastSeen } from '@/lib/contacts/match';
 import { buildIntro, isIntroRequest, type IntroFeature } from './intro';
 import { ASK_NETWORK_MARKER, chainList, parseBridgeIntent, type BridgeIntent } from '@/lib/bridge/chains';
 import { getBridgeDeposit } from '@/lib/bridge/service';
+import { AI_DOWN_REPLY, aiBreaker, fastLane, formatBalanceReply, formatRecentReply, modelChain } from './resilience';
 
 /**
  * Pexa agent runtime (§10, §13, §28) — the in-app bot as a real tool-calling agent.
@@ -207,6 +208,8 @@ export interface PendingAction {
 export interface AgentTurn {
   reply: string;
   action?: PendingAction;
+  /** The AI provider couldn't answer; this reply came from the app's own basics (balance, recent payments, address). */
+  degraded?: boolean;
 }
 
 export interface AgentMessage {
@@ -219,7 +222,8 @@ function getClient(): OpenAI | null {
   if (client) return client;
   if (!env.AI_API_KEY) return null;
   // A slow or failing OpenAI must end in an error card, not an endless spinner (the SDK default is a 10-minute wait).
-  client = new OpenAI({ apiKey: env.AI_API_KEY, timeout: 40_000, maxRetries: 1 });
+  // One try per model with a short wait: our own model chain (below) is the retry, so a slow provider costs seconds, not minutes.
+  client = new OpenAI({ apiKey: env.AI_API_KEY, timeout: 20_000, maxRetries: 0 });
   return client;
 }
 
@@ -460,6 +464,51 @@ async function handleSend(ctx: ToolContext, slots: SendSlots): Promise<AgentTurn
   return { reply: `Sending ${slots.amount} USDC to ${shown} — confirm below.${note}`, action: { tool: 'confirm_payment', args: { paymentId }, render } };
 }
 
+/** Every model in the chain failed or the time budget ran out. */
+class AiUnavailableError extends Error {}
+
+// `aiBreaker` (from ./resilience) is shared by all requests on this server: after the AI has failed, don't make the next people wait out the timeouts too.
+/** All the AI attempts of one turn must fit in this, so the chat never waits minutes. */
+const TURN_AI_BUDGET_MS = 60_000;
+
+/**
+ * The AI couldn't answer. The basics still work straight from the app: balance, recent payments and the wallet address.
+ * Anything else gets an honest "my AI side is down" instead of a spinner or a crash.
+ */
+async function degradedTurn(ctx: ToolContext, text: string): Promise<AgentTurn> {
+  const lane = fastLane(text);
+  try {
+    if (lane === 'balance') {
+      const b = (await TOOLS_BY_NAME.get('get_balance')!.handler(ctx, {})) as { balance: string; available: string; savedInVaults: string };
+      return { reply: formatBalanceReply(b), degraded: true };
+    }
+    if (lane === 'recent') {
+      const r = (await TOOLS_BY_NAME.get('get_recent_transactions')!.handler(ctx, { limit: 5 })) as { transactions: Parameters<typeof formatRecentReply>[0] };
+      return { reply: formatRecentReply(r.transactions), degraded: true };
+    }
+    if (lane === 'receive') {
+      const render = await buildRender(ctx, 'get_deposit_details', {});
+      if (render) return { reply: 'Here’s your wallet address. Send USDC on Celo to it and I’ll tell you when it lands.', action: { tool: 'get_deposit_details', args: {}, render }, degraded: true };
+    }
+  } catch (e) {
+    console.error('[agent] degraded lane failed:', e);
+  }
+  return { reply: AI_DOWN_REPLY, degraded: true };
+}
+
+/** Try each model in turn; the first that answers wins. */
+async function completeWithFallback<T>(request: (model: string) => Promise<T>, chain: string[], startedAt: number): Promise<T> {
+  for (const m of chain) {
+    if (Date.now() - startedAt > TURN_AI_BUDGET_MS) break;
+    try {
+      return await request(m);
+    } catch (e) {
+      console.error(`[agent] model ${m} failed:`, e instanceof Error ? e.message : e);
+    }
+  }
+  throw new AiUnavailableError('ai_unavailable');
+}
+
 /**
  * Run one agent turn: auto-executes read/prepare tools and stops when the model wants to move
  * money, returning a pending action for the user to confirm. Returns null only when no AI key is
@@ -510,6 +559,9 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
     }
   }
 
+  // The AI provider is known to be down right now: answer the basics from the app instead of making anyone wait.
+  if (aiBreaker.isOpen(Date.now())) return degradedTurn(ctx, last?.role === 'user' ? last.content : '');
+
   // Dynamic per-turn context: naira/funding status + what we remember about this user.
   const dynamic: string[] = [];
   if (!(features.fiat && features.fiatPublic)) {
@@ -538,7 +590,10 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
   const baseModel = env.AI_MODEL || 'gpt-4o-mini';
   // Buy conversations get a stronger model; if the account can't use it, fall back to the normal one rather than fail the turn.
   const needsStrongModel = (buyAvailable() && isBuyConversation(input.messages)) || isMoneyConversation(input.messages);
-  let model = needsStrongModel ? env.AI_BUY_MODEL || 'gpt-4.1-mini' : baseModel;
+  const preferred = needsStrongModel ? env.AI_BUY_MODEL || 'gpt-4.1-mini' : baseModel;
+  // If the preferred model fails, try the normal one, then a different family — before giving up on the AI for this turn.
+  const chain = modelChain(preferred, baseModel, env.AI_FALLBACK_MODEL || 'gpt-4o-mini');
+  const startedAt = Date.now();
 
   for (let step = 0; step < MAX_STEPS; step++) {
     const request = (m: string) =>
@@ -552,12 +607,12 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
       });
     let resp;
     try {
-      resp = await request(model);
+      resp = await completeWithFallback(request, chain, startedAt);
+      aiBreaker.recordSuccess();
     } catch (e) {
-      if (model === baseModel) throw e;
-      console.error(`[agent] model ${model} failed, falling back to ${baseModel}:`, e instanceof Error ? e.message : e);
-      model = baseModel;
-      resp = await request(model);
+      if (!(e instanceof AiUnavailableError)) throw e;
+      aiBreaker.recordFailure(Date.now());
+      return degradedTurn(ctx, last?.role === 'user' ? last.content : '');
     }
     const msg = resp.choices[0]?.message;
     if (!msg) return { reply: "Sorry — I couldn't process that." };

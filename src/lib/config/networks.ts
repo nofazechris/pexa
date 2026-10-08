@@ -24,7 +24,8 @@ export interface NetworkConfig {
 
 // Public best-effort defaults from Celo docs. Production should point CELO_RPC_URL /
 // CELO_SEPOLIA_RPC_URL at an RPC provider with an SLA (§13); these are the fallback.
-const MAINNET_RPC_FALLBACK = 'https://forno.celo.org';
+// Two independent public endpoints: forno sometimes answers "nothing" for things that exist, and being down once shouldn't stop payments.
+const MAINNET_RPC_FALLBACKS = ['https://forno.celo.org', 'https://1rpc.io/celo'];
 const SEPOLIA_RPC_FALLBACK = 'https://forno.celo-sepolia.celo-testnet.org';
 
 export const NETWORKS: Record<CeloNetwork, NetworkConfig> = {
@@ -33,7 +34,7 @@ export const NETWORKS: Record<CeloNetwork, NetworkConfig> = {
     chainId: 42220,
     name: 'Celo',
     nativeSymbol: 'CELO',
-    rpcUrls: [env.CELO_RPC_URL, MAINNET_RPC_FALLBACK].filter(Boolean) as string[],
+    rpcUrls: [env.CELO_RPC_URL, ...MAINNET_RPC_FALLBACKS].filter(Boolean) as string[],
     explorerBase: 'https://celoscan.io',
     isTestnet: false,
   },

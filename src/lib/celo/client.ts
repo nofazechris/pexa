@@ -18,7 +18,8 @@ let cachedFor: string | null = null;
 
 export function celoClient(network: NetworkConfig = activeNetwork): PublicClient {
   if (cached && cachedFor === network.network) return cached;
-  const transports = network.rpcUrls.map((url) => http(url));
+  // A stuck endpoint is abandoned after 8s (and tried once more) so the next one can answer.
+  const transports = network.rpcUrls.map((url) => http(url, { timeout: 8_000, retryCount: 1 }));
   cached = createPublicClient({
     chain: VIEM_CHAIN[network.network],
     transport: transports.length > 1 ? fallback(transports) : transports[0],

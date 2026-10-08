@@ -31,6 +31,8 @@ const schema = z.object({
   AI_MODEL: z.string().min(1).optional(),
   /** Model for Buy conversations (tool-heavy; small models fumble them). Defaults to gpt-4.1-mini. */
   AI_BUY_MODEL: z.string().min(1).optional(),
+  /** Last-resort model if the chosen ones fail (a different model family, so it has its own capacity). Defaults to gpt-4o-mini. */
+  AI_FALLBACK_MODEL: z.string().min(1).optional(),
 
   /** Relay (bridge) API key. Optional: Ethereum-style networks work without one; Solana deposit addresses need it. */
   RELAY_API_KEY: z.string().min(1).optional(),

@@ -131,7 +131,7 @@ export interface AgentChatDeps {
   sendToAgent: (args: {
     message: string;
     history: { role: 'user' | 'assistant'; content: string }[];
-  }) => Promise<{ ok: true; reply: string; action?: PendingActionView } | { ok: false; reason: AgentFailReason } | null>;
+  }) => Promise<{ ok: true; reply: string; action?: PendingActionView; /** The AI couldn’t answer; this came from the app’s own basics. */ degraded?: boolean } | { ok: false; reason: AgentFailReason } | null>;
   /** Execute a confirmed fiat action server-side. */
   executeAction: (args: { tool: string; args: Record<string, unknown> }) => Promise<{
     ok: boolean;
@@ -237,8 +237,8 @@ export function useAgentChat(deps: AgentChatDeps) {
         return setTimeout(() => setAgentState('idle'), 400) as unknown as void;
       }
 
-      // A successful turn means the agent is reachable again.
-      setHealth('ok');
+      // A successful turn means the agent is reachable again — unless it could only answer from its basics.
+      setHealth(turn.degraded ? 'degraded' : 'ok');
       if (turn.reply && turn.reply.trim()) push({ role: 'agent', type: 'text', text: turn.reply.trim() });
 
       const action = turn.action;

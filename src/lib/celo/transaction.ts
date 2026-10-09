@@ -24,18 +24,23 @@ export interface PreparedUsdcTransfer {
   amount: bigint;
 }
 
-/** Prepare a USDC transfer of `amountUsdc` (decimal string, e.g. "20") to `recipient`. */
-export function buildUsdcTransfer(recipient: string, amountUsdc: string): PreparedUsdcTransfer {
-  const token = getToken('USDC', activeNetwork.network);
-  if (!token || !token.address) {
-    throw new Error('USDC is not configured for the active network.');
+/** Prepare a transfer of `amountDecimal` (e.g. "20") of a supported token (USDC, USDT, USAT) to `recipient`. */
+export function buildTokenTransfer(symbol: string, recipient: string, amountDecimal: string): PreparedUsdcTransfer {
+  const token = getToken(symbol, activeNetwork.network);
+  if (!token || !token.enabled || !token.address) {
+    throw new Error(`${symbol} is not configured for the active network.`);
   }
   const usdc = getAddress(token.address);
   const to = getAddress(recipient) as Address;
-  const amount = parseUnits(amountUsdc, token.decimals);
+  const amount = parseUnits(amountDecimal, token.decimals);
   const data = encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [to, amount] });
   // Gas is paid in USDC via the fee-currency adapter — never the token address (§14).
   const feeCurrency = getAddress(usdcFeeCurrency(activeNetwork.network));
 
   return { to: usdc, data, feeCurrency, value: BigInt(0), chainId: activeNetwork.chainId, amount };
+}
+
+/** Prepare a USDC transfer of `amountUsdc` (decimal string, e.g. "20") to `recipient`. */
+export function buildUsdcTransfer(recipient: string, amountUsdc: string): PreparedUsdcTransfer {
+  return buildTokenTransfer('USDC', recipient, amountUsdc);
 }

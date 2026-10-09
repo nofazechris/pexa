@@ -11,6 +11,14 @@ import { CADENCE_OPTIONS, bareCadence, mentionsRecurrence, parseCadence, type Ca
 
 export type TurnMessage = { role: 'user' | 'assistant'; content: string };
 
+export type SendToken = 'USDC' | 'USDT' | 'USAT';
+
+/** The coin named in one message, if any ("5 USDT", "send usat"). */
+export function extractToken(text: string): SendToken | null {
+  const m = /\b(usdc|usdt|usat)\b/i.exec(text);
+  return m ? (m[1].toUpperCase() as SendToken) : null;
+}
+
 export interface SendSlots {
   /** The latest message is a send request, or the answer to a question we asked about one. */
   wantsSend: boolean;
@@ -18,6 +26,8 @@ export interface SendSlots {
   amount: string | null;
   /** A username (no @), a UID, or a 0x address; null if none was given. */
   recipient: string | null;
+  /** Which coin, only when the person named one (USDC is the default everywhere). */
+  token?: SendToken;
   /** The message asks for several payments at once (two people, or two amounts). Only ever set when true. */
   multiple?: boolean;
   /** A repeating payment ("every Friday", "monthly"). Only ever set when true. */
@@ -32,14 +42,14 @@ const SEND_VERB = /\b(send|pay|transfer|give|wire|remit)\b/i;
 // A repeating payment can be asked for without a send verb: "set up a recurring payment", "autopay joyful $5".
 const RECURRING_REQUEST = /\b(recurring payment|standing order|auto-?pay|subscription|set up (?:a )?recurring)\b/i;
 // Things that look like a send but are something else (other tools handle them).
-const NOT_A_PLAIN_SEND = /\b(request|invoice|bill|naira|ngn|bank|withdraw|usdt|swap|convert|vault|save|saving|deposit|fund|buy|sell|schedule|rule)\b|₦/i;
+const NOT_A_PLAIN_SEND = /\b(request|invoice|bill|naira|ngn|bank|withdraw|swap|convert|vault|save|saving|deposit|fund|buy|sell|schedule|rule)\b|₦/i;
 
 const ASKED_WHO = /\b(who|which|whom|username|recipient|send (?:it )?to)\b[^?]*\?/i;
 const ASKED_HOW_MUCH = /\bhow much\b[^?]*\?|\bwhat amount\b[^?]*\?/i;
 const ASKED_HOW_OFTEN = /\bhow often\b[^?]*\?/i;
 
 const STOPWORDS = new Set([
-  'money', 'funds', 'fund', 'usdc', 'usd', 'dollar', 'dollars', 'buck', 'bucks', 'cash', 'payment', 'some', 'the', 'him', 'her', 'them', 'me', 'myself',
+  'money', 'funds', 'fund', 'usdc', 'usdt', 'usat', 'usd', 'dollar', 'dollars', 'buck', 'bucks', 'cash', 'payment', 'some', 'the', 'him', 'her', 'them', 'me', 'myself',
   'my', 'it', 'this', 'that', 'someone', 'somebody', 'anyone', 'friend', 'back', 'now', 'today', 'please', 'again', 'same', 'more', 'out', 'over', 'there',
   'first', 'then', 'also', 'just', 'and', 'for', 'from', 'with', 'you', 'yes', 'yeah', 'yep', 'sure', 'okay', 'ok', 'confirm', 'cancel', 'send', 'pay',
   // schedule words must never be read as a person ("pay weekly 5 to joyful")
@@ -62,12 +72,12 @@ function cleanName(raw: string | undefined): string | null {
 
 /** The amount stated in one message, if any. Digits ("1", "$5", "2.5 usdc") or a few number words ("one usdc"). */
 export function extractAmount(text: string): string | null {
-  const digits = /(?<![\w@.#-])\$?\s?(\d{1,9}(?:\.\d{1,6})?)(?![\w.]*\d)(?=\s*(?:usdc|usd|dollars?|bucks?)?\b)/i.exec(text);
+  const digits = /(?<![\w@.#-])\$?\s?(\d{1,9}(?:\.\d{1,6})?)(?![\w.]*\d)(?=\s*(?:usdc|usdt|usat|usd|dollars?|bucks?)?\b)/i.exec(text);
   if (digits && !ADDRESS.test(text.slice(Math.max(0, digits.index - 2), digits.index + digits[0].length + 2))) {
     const n = Number(digits[1]);
     if (n > 0) return String(n);
   }
-  const word = /\b(one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|hundred)\s+(?:usdc|dollars?|bucks?|usd)\b/i.exec(text);
+  const word = /\b(one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|hundred)\s+(?:usdc|usdt|usat|dollars?|bucks?|usd)\b/i.exec(text);
   if (word) return String(WORD_NUMBERS[word[1].toLowerCase()]);
   if (/\ba\s+(?:dollar|buck)\b/i.test(text)) return '1';
   return null;
@@ -104,7 +114,7 @@ function bareRecipient(text: string): string | null {
  */
 function nameWithAmount(text: string): string | null {
   const t = text.trim().replace(/[.!]$/, '');
-  const amt = String.raw`\$?\s?\d{1,9}(?:\.\d{1,6})?\s*(?:usdc|usd|dollars?|bucks?)?`;
+  const amt = String.raw`\$?\s?\d{1,9}(?:\.\d{1,6})?\s*(?:usdc|usdt|usat|usd|dollars?|bucks?)?`;
   const nameThenAmount = new RegExp(String.raw`^@?([a-z0-9_]{3,20})\s+${amt}$`, 'i').exec(t);
   const amountThenName = new RegExp(String.raw`^${amt}\s+(?:to\s+)?@?([a-z0-9_]{3,20})$`, 'i').exec(t);
   return cleanName((nameThenAmount ?? amountThenName)?.[1]);
@@ -113,7 +123,7 @@ function nameWithAmount(text: string): string | null {
 /** A reply that is only a number / amount ("1", "1 USDC", "$5"). */
 function bareAmount(text: string): string | null {
   const t = text.trim();
-  if (!/^\$?\s?\d{1,9}(?:\.\d{1,6})?\s*(?:usdc|usd|dollars?|bucks?)?[.!]?$/i.test(t) && !/^(?:one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|hundred)(?:\s+(?:usdc|usd|dollars?|bucks?))?[.!]?$/i.test(t)) return null;
+  if (!/^\$?\s?\d{1,9}(?:\.\d{1,6})?\s*(?:usdc|usdt|usat|usd|dollars?|bucks?)?[.!]?$/i.test(t) && !/^(?:one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|hundred)(?:\s+(?:usdc|usdt|usat|usd|dollars?|bucks?))?[.!]?$/i.test(t)) return null;
   return extractAmount(t) ?? (WORD_NUMBERS[t.toLowerCase().split(/\s+/)[0]]?.toString() ?? null);
 }
 
@@ -200,14 +210,18 @@ export function parseSendSlots(messages: readonly TurnMessage[]): SendSlots {
   // change of subject, not an answer — hand it back instead of looping the question.
   if (!requestingNow && !fromLast) return none;
   // "1 to @joyful and 2 to @omoefe" is two payments; we do one at a time rather than quietly doing a wrong one.
-  if (requestingNow && (distinctRecipients(last).length > 1 || distinctAmounts(last).length > 1)) return { wantsSend: true, amount, recipient, multiple: true };
+  // Which coin: the newest one named in this exchange ("send 5 USDT to 0x…", or "USDT" answering "which coin?").
+  // USDC is the default, so it is only recorded when it isn't USDC.
+  const named = [...exchange].reverse().map((m) => (m.role === 'user' ? extractToken(m.content) : null)).find((t) => t !== null) ?? null;
+  const withToken = named && named !== 'USDC' ? { token: named } : {};
+  if (requestingNow && (distinctRecipients(last).length > 1 || distinctAmounts(last).length > 1)) return { wantsSend: true, amount, recipient, multiple: true, ...withToken };
   if (recurring) {
-    const out: SendSlots = { wantsSend: true, amount, recipient, recurring: true };
+    const out: SendSlots = { wantsSend: true, amount, recipient, recurring: true, ...withToken };
     if (cadence?.kind === 'ok') out.cadence = cadence.label;
     if (cadence?.kind === 'unsupported') out.cadenceUnsupported = true;
     return out;
   }
-  return { wantsSend: true, amount, recipient };
+  return { wantsSend: true, amount, recipient, ...withToken };
 }
 
 function distinctRecipients(text: string): string[] {
@@ -234,7 +248,7 @@ function distinctRecipients(text: string): string[] {
 function distinctAmounts(text: string): string[] {
   const found = new Set<string>();
   const clean = text.replace(ADDRESS, ' ');
-  for (const m of clean.matchAll(/(?<![\w@.#-])(?:\$\s?(\d{1,9}(?:\.\d{1,6})?)|(\d{1,9}(?:\.\d{1,6})?)\s*(?:usdc|usd|dollars?|bucks?)\b)/gi)) {
+  for (const m of clean.matchAll(/(?<![\w@.#-])(?:\$\s?(\d{1,9}(?:\.\d{1,6})?)|(\d{1,9}(?:\.\d{1,6})?)\s*(?:usdc|usdt|usat|usd|dollars?|bucks?)\b)/gi)) {
     const n = Number(m[1] ?? m[2]);
     if (n > 0) found.add(String(n));
   }
@@ -275,10 +289,10 @@ export function replyToTypedAnswer(messages: readonly TurnMessage[]): string | n
 }
 
 /** Questions the app asks itself; worded so parseSendSlots recognises the next reply as an answer. */
-export function askWho(amount: string | null, recents: readonly string[]): string {
-  const what = amount ? `${amount} USDC` : 'it';
+export function askWho(amount: string | null, recents: readonly string[], token: SendToken = 'USDC'): string {
+  const what = amount ? `${amount} ${token}` : 'it';
   const hint = recents.length ? ` Your recent: ${recents.slice(0, 3).map((u) => '@' + u).join(', ')}.` : '';
-  return `Who should I send ${what} to? Give me their @username.${hint}`;
+  return `Who should I send ${what} to? Give me their @username, or a wallet address (0x…).${hint}`;
 }
 
 export function askHowMuch(recipient: string): string {

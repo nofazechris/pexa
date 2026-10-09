@@ -2,7 +2,7 @@ import 'server-only';
 import { and, eq, gte, inArray } from 'drizzle-orm';
 import { parseUnits } from 'viem';
 import { activeNetwork, env, getToken } from '@/lib/config';
-import { getUsdcBalance } from '@/lib/celo/balance';
+import { getErc20Balance } from '@/lib/celo/balance';
 import { getDb, schema } from '@/lib/db';
 import type { PolicyCheck, PolicyResult } from '@/lib/policy';
 
@@ -17,6 +17,8 @@ import type { PolicyCheck, PolicyResult } from '@/lib/policy';
 // the user tapping each one.
 const PER_PAYMENT_CAP_USDC = '500';
 const DAILY_CAP_USDC = '1000';
+// Sends to a wallet outside Pexa can't be undone and can't be traced back to a person we know, so beta caps each one lower.
+const EXTERNAL_PER_PAYMENT_CAP = '250';
 
 // The most the agent settles on its own — per payment — without a human approving it (the delegated
 // worker path: recurring + on-chain auto-save). Above this, the payment must wait for the user, even
@@ -54,6 +56,8 @@ export interface PaymentPolicyContext {
   token: string;
   /** Amount in the token's smallest unit (decimal string), matching the stored payment. */
   amountRaw: string;
+  /** The recipient is a raw wallet address, not a Pexa user. */
+  external?: boolean;
 }
 
 /** Sum of the sender's committed payments since the start of the current UTC day, smallest unit. */
@@ -93,6 +97,11 @@ export async function evaluatePaymentPolicy(ctx: PaymentPolicyContext): Promise<
   const cap = parseUnits(PER_PAYMENT_CAP_USDC, token.decimals);
   if (amount > cap) return deny('transaction_limits', `Amount exceeds the per-payment limit of $${PER_PAYMENT_CAP_USDC}.`);
 
+  if (ctx.external) {
+    const externalCap = parseUnits(EXTERNAL_PER_PAYMENT_CAP, token.decimals);
+    if (amount > externalCap) return deny('transaction_limits', `While Pexa is in beta, a single send to a wallet outside Pexa is limited to $${EXTERNAL_PER_PAYMENT_CAP}.`);
+  }
+
   // Rolling daily cap — total committed today plus this payment must stay within the limit.
   if (ctx.senderUserId) {
     const dailyCap = parseUnits(DAILY_CAP_USDC, token.decimals);
@@ -105,9 +114,14 @@ export async function evaluatePaymentPolicy(ctx: PaymentPolicyContext): Promise<
   if (!/^0x[0-9a-fA-F]{40}$/.test(ctx.recipientAddress)) return deny('valid_recipient', 'Invalid recipient address.');
 
   // Sufficient balance — read on-chain, never a cached/faked figure (§21–22).
-  const balance = await getUsdcBalance(ctx.senderWalletAddress);
-  if (!balance) return deny('supported_token', 'Unable to read balance.');
-  if (BigInt(balance.raw) < amount) return deny('sufficient_balance', 'Insufficient balance.');
+  if (!token.address) return deny('supported_token', 'Unable to read balance.');
+  let balance: bigint;
+  try {
+    balance = await getErc20Balance(token.address, ctx.senderWalletAddress);
+  } catch {
+    return deny('supported_token', 'Unable to read balance.');
+  }
+  if (balance < amount) return deny('sufficient_balance', `Insufficient ${token.symbol} balance.`);
 
   return { effect: 'ALLOW' };
 }

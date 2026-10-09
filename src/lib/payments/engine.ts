@@ -7,8 +7,9 @@ import { normalizeUsername } from '@/lib/users/username';
 import { resolveUsername, getUserById } from '@/lib/users/service';
 import { getPrivyEmbeddedWallet, sendDelegatedTransaction, signDelegatedTypedData } from '@/lib/auth/server';
 import { getWalletByUserId } from '@/lib/wallets/service';
-import { buildUsdcTransfer, type PreparedUsdcTransfer } from '@/lib/celo/transaction';
-import { buildTransferAuthorization, relayTransfer } from '@/lib/relayer/service';
+import { buildTokenTransfer, type PreparedUsdcTransfer } from '@/lib/celo/transaction';
+import { buildTransferAuthorization, relayTransfer, supportsGasless } from '@/lib/relayer/service';
+import { checkExternalRecipient } from './recipient';
 import { celoClient } from '@/lib/celo/client';
 import { assertTransition, type PaymentStatus } from './state';
 import { evaluatePaymentPolicy } from './policy';
@@ -67,7 +68,7 @@ export async function previewPayment(input: PreviewInput): Promise<{ ok: true; r
       ok: true,
       result: {
         payment: p,
-        prepared: buildUsdcTransfer(p.recipientAddress, formatUnits(BigInt(p.amount), tokenInfo.decimals)),
+        prepared: buildTokenTransfer(p.token, p.recipientAddress, formatUnits(BigInt(p.amount), getToken(p.token, activeNetwork.network)?.decimals ?? tokenInfo.decimals)),
         recipientDisplay: p.recipientAddress,
       },
     };
@@ -86,8 +87,11 @@ export async function previewPayment(input: PreviewInput): Promise<{ ok: true; r
     recipientDisplay = '@' + resolved.profile.username;
     if (!recipientAddress) return { ok: false, error: 'That user has no wallet yet.' };
   } else {
-    recipientAddress = raw;
-    recipientDisplay = raw;
+    // A wallet outside Pexa (MetaMask, an exchange…): sends can't be undone, so refuse the addresses that are certainly wrong.
+    const checked = checkExternalRecipient(raw, { ownAddress: input.senderWalletAddress });
+    if (!checked.ok) return { ok: false, error: checked.error };
+    recipientAddress = checked.address;
+    recipientDisplay = checked.address;
   }
 
   let amountRaw: bigint;
@@ -98,7 +102,7 @@ export async function previewPayment(input: PreviewInput): Promise<{ ok: true; r
   }
   if (amountRaw <= BigInt(0)) return { ok: false, error: 'Amount must be greater than zero.' };
 
-  const prepared = buildUsdcTransfer(recipientAddress, input.amount);
+  const prepared = buildTokenTransfer(token, recipientAddress, input.amount);
 
   const [payment] = await db
     .insert(schema.payments)
@@ -137,7 +141,7 @@ async function loadOwned(paymentId: string, userId: string): Promise<PaymentRow 
 }
 
 export async function authorizePayment(input: { paymentId: string; userId: string; senderWalletAddress: string }): Promise<
-  | { ok: true; authorizationId: string; prepared: PreparedUsdcTransfer; from: string; recipient: string; amountRaw: string }
+  | { ok: true; authorizationId: string; prepared: PreparedUsdcTransfer; from: string; recipient: string; amountRaw: string; token: string }
   | { ok: false; error: string }
 > {
   const payment = await loadOwned(input.paymentId, input.userId);
@@ -150,6 +154,7 @@ export async function authorizePayment(input: { paymentId: string; userId: strin
     recipientAddress: payment.recipientAddress,
     token: payment.token,
     amountRaw: payment.amount,
+    external: !payment.recipientUserId,
   });
   if (policy.effect === 'DENY') return { ok: false, error: policy.reason ?? 'Payment not allowed.' };
 
@@ -166,10 +171,10 @@ export async function authorizePayment(input: { paymentId: string; userId: strin
   });
 
   const decimals = getToken(payment.token, activeNetwork.network)?.decimals ?? 6;
-  const prepared = buildUsdcTransfer(payment.recipientAddress, formatUnits(BigInt(payment.amount), decimals));
+  const prepared = buildTokenTransfer(payment.token, payment.recipientAddress, formatUnits(BigInt(payment.amount), decimals));
   // The client must sign with exactly this wallet — the one policy validated and authorized —
   // never "whatever wallet is first" (§80). A user can hold more than one embedded wallet.
-  return { ok: true, authorizationId: auth.id, prepared, from: input.senderWalletAddress, recipient: payment.recipientAddress, amountRaw: payment.amount };
+  return { ok: true, authorizationId: auth.id, prepared, from: input.senderWalletAddress, recipient: payment.recipientAddress, amountRaw: payment.amount, token: payment.token };
 }
 
 /**
@@ -188,9 +193,9 @@ async function settleDelegated(input: {
   token: string;
   chainId: number;
 }): Promise<string> {
-  // EIP-3009 gasless: only USDC on Celo, and only when a relayer is funded/configured.
-  if (features.gaslessRelayer && input.token === 'USDC') {
-    const typedData = await buildTransferAuthorization({ from: input.from, to: input.to, valueRaw: input.amountRaw });
+  // EIP-3009 gasless: USDC, USDT and USAT on Celo, and only when a relayer is funded/configured.
+  if (features.gaslessRelayer && supportsGasless(input.token)) {
+    const typedData = await buildTransferAuthorization({ from: input.from, to: input.to, valueRaw: input.amountRaw, token: input.token });
     const { signature } = await signDelegatedTypedData({
       walletId: input.walletId,
       typedData: {
@@ -200,12 +205,12 @@ async function settleDelegated(input: {
         primaryType: typedData.primaryType,
       },
     });
-    const relayed = await relayTransfer({ message: typedData.message, signature });
+    const relayed = await relayTransfer({ message: typedData.message, signature, token: input.token });
     return relayed.hash;
   }
   // Direct delegated transfer — the user's wallet pays native CELO gas.
   const decimals = getToken(input.token, activeNetwork.network)?.decimals ?? 6;
-  const prepared = buildUsdcTransfer(input.to, formatUnits(BigInt(input.amountRaw), decimals));
+  const prepared = buildTokenTransfer(input.token, input.to, formatUnits(BigInt(input.amountRaw), decimals));
   const sent = await sendDelegatedTransaction({ walletId: input.walletId, chainId: input.chainId, to: prepared.to, data: prepared.data });
   return sent.hash;
 }
@@ -425,12 +430,12 @@ export async function listPayments(userId: string, limit = 50): Promise<PaymentS
       .limit(limit),
   ]);
 
-  const decimals = getToken('USDC', activeNetwork.network)?.decimals ?? 6;
+  const decimalsOf = (symbol: string) => getToken(symbol, activeNetwork.network)?.decimals ?? 6;
   const map = (r: (typeof sent)[number], direction: 'out' | 'in'): PaymentSummary => ({
     id: r.id,
     direction,
     counterparty: r.username ? '@' + r.username : direction === 'out' ? `${r.recipientAddress.slice(0, 6)}…${r.recipientAddress.slice(-4)}` : 'Someone',
-    amount: formatUnits(BigInt(r.amount), decimals),
+    amount: formatUnits(BigInt(r.amount), decimalsOf(r.token)),
     token: r.token,
     status: r.status as PaymentStatus,
     txHash: r.txHash,

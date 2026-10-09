@@ -5,6 +5,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { celo, celoSepolia } from 'viem/chains';
 import { activeNetwork, env, getToken } from '@/lib/config';
 import { celoClient } from '@/lib/celo/client';
+import { PAY_TOKENS } from '@/lib/buy/tokens';
 
 /**
  * Gasless relayer (EIP-3009 `transferWithAuthorization`).
@@ -61,25 +62,40 @@ const TRANSFER_WITH_AUTHORIZATION_TYPE = [
   { name: 'nonce', type: 'bytes32' },
 ];
 
-function usdcAddress(): Hex {
-  const token = getToken('USDC', activeNetwork.network);
-  if (!token?.address) throw new Error('USDC is not configured for the active network.');
+/** Coins that can be sent gaslessly: all three support EIP-3009 `transferWithAuthorization`. */
+export const GASLESS_TOKENS = ['USDC', 'USDT', 'USAT'] as const;
+export function supportsGasless(symbol: string): boolean {
+  return (GASLESS_TOKENS as readonly string[]).includes(symbol.toUpperCase());
+}
+
+function tokenAddress(symbol: string): Hex {
+  const token = getToken(symbol, activeNetwork.network);
+  if (!token?.address || !token.enabled) throw new Error(`${symbol} is not configured for the active network.`);
   return token.address as Hex;
 }
 
-// Domain cache — name/version don't change; read once per process per network.
-let domainCache: { key: string; name: string; version: string } | null = null;
+// Domain cache — name/version don't change; read once per process per token.
+const domainCache = new Map<string, { name: string; version: string }>();
 
-async function readDomainMeta(): Promise<{ name: string; version: string }> {
-  const address = usdcAddress();
+async function readDomainMeta(symbol: string): Promise<{ name: string; version: string }> {
+  const address = tokenAddress(symbol);
   const key = `${activeNetwork.network}:${address}`;
-  if (domainCache?.key === key) return domainCache;
+  const hit = domainCache.get(key);
+  if (hit) return hit;
+  // Tether's coins sign under the domain the Buy gateway lists and that we verified against each contract (their `version()` is not
+  // always readable); USDC's is read from the contract itself so it is always exact.
+  if (symbol.toUpperCase() !== 'USDC') {
+    const known = PAY_TOKENS[symbol.toUpperCase() as keyof typeof PAY_TOKENS];
+    if (!known) throw new Error(`${symbol} cannot be sent gaslessly.`);
+    domainCache.set(key, known.eip712);
+    return known.eip712;
+  }
   const client = celoClient();
   const [name, version] = await Promise.all([
     client.readContract({ address, abi: ERC20_META_ABI, functionName: 'name' }) as Promise<string>,
     client.readContract({ address, abi: ERC20_META_ABI, functionName: 'version' }) as Promise<string>,
   ]);
-  domainCache = { key, name, version };
+  domainCache.set(key, { name, version });
   return { name, version };
 }
 
@@ -101,8 +117,9 @@ export interface TransferAuthorizationTypedData {
 }
 
 /** Build the EIP-3009 typed data for a transfer of `valueRaw` (smallest unit) from → to. */
-export async function buildTransferAuthorization(input: { from: string; to: string; valueRaw: string }): Promise<TransferAuthorizationTypedData> {
-  const { name, version } = await readDomainMeta();
+export async function buildTransferAuthorization(input: { from: string; to: string; valueRaw: string; token?: string }): Promise<TransferAuthorizationTypedData> {
+  const symbol = input.token ?? 'USDC';
+  const { name, version } = await readDomainMeta(symbol);
   const now = Math.floor(Date.now() / 1000);
   const message: TransferAuthorizationMessage = {
     from: input.from,
@@ -113,7 +130,7 @@ export async function buildTransferAuthorization(input: { from: string; to: stri
     nonce: ('0x' + randomBytes(32).toString('hex')) as Hex,
   };
   return {
-    domain: { name, version, chainId: activeNetwork.chainId, verifyingContract: usdcAddress() },
+    domain: { name, version, chainId: activeNetwork.chainId, verifyingContract: tokenAddress(symbol) },
     types: { EIP712Domain: EIP712_DOMAIN_TYPE, TransferWithAuthorization: TRANSFER_WITH_AUTHORIZATION_TYPE },
     primaryType: 'TransferWithAuthorization',
     message,
@@ -146,7 +163,7 @@ export async function sendGasTopUp(input: { to: string; valueWei: bigint }): Pro
  * Returns the transaction hash. Throws if the relayer isn't configured or the tx reverts (e.g.
  * the authorization was already used, or the relayer is out of CELO).
  */
-export async function relayTransfer(input: { message: TransferAuthorizationMessage; signature: Hex }): Promise<{ hash: string }> {
+export async function relayTransfer(input: { message: TransferAuthorizationMessage; signature: Hex; token?: string }): Promise<{ hash: string }> {
   const key = env.RELAYER_PRIVATE_KEY;
   if (!key) throw new Error('Gasless relayer is not configured.');
   const account = privateKeyToAccount((key.startsWith('0x') ? key : `0x${key}`) as Hex);
@@ -157,7 +174,7 @@ export async function relayTransfer(input: { message: TransferAuthorizationMessa
   const m = input.message;
 
   const hash = await wallet.writeContract({
-    address: usdcAddress(),
+    address: tokenAddress(input.token ?? 'USDC'),
     abi: TRANSFER_WITH_AUTHORIZATION_ABI,
     functionName: 'transferWithAuthorization',
     args: [m.from as Hex, m.to as Hex, BigInt(m.value), BigInt(m.validAfter), BigInt(m.validBefore), m.nonce, v, sig.r, sig.s],

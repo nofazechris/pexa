@@ -53,7 +53,7 @@ export default function AppGate() {
     () => ({
       // Crypto send — client-sign path (real on-chain settlement), used when the agent's confirm
       // card is a payment.
-      executeSend: async (args: { recipient: string; amount: string }) => {
+      executeSend: async (args: { recipient: string; amount: string; token?: string }) => {
         const res = await pay(args);
         if (res.status === 'confirmed' || res.status === 'pending') {
           refreshBalance();

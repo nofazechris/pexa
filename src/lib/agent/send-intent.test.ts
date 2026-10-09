@@ -245,3 +245,40 @@ describe('the questions it asks recognise their own answers', () => {
     expect(askWho(null, [])).not.toContain('Your recent');
   });
 });
+
+describe('sending USDT / USAT, including to a wallet outside Pexa', () => {
+  const WALLET = '0x52c23c312b27c8361bc37e7c8429f0328c7f5f2a';
+
+  it('reads the coin the person named', () => {
+    expect(parseSendSlots([u('send 5 USDT to ' + WALLET)])).toEqual({ wantsSend: true, amount: '5', recipient: WALLET, token: 'USDT' });
+    expect(parseSendSlots([u('Send 10 usdt to @joyful')])).toEqual({ wantsSend: true, amount: '10', recipient: 'joyful', token: 'USDT' });
+    expect(parseSendSlots([u('send 2.5 USAT to @joyful')])).toEqual({ wantsSend: true, amount: '2.5', recipient: 'joyful', token: 'USAT' });
+  });
+
+  it('says nothing about the coin when none was named (USDC is the default)', () => {
+    expect(parseSendSlots([u('send 5 to @joyful')])).not.toHaveProperty('token');
+    expect(parseSendSlots([u('send 5 USDC to @joyful')])).toEqual({ wantsSend: true, amount: '5', recipient: 'joyful' });
+  });
+
+  it('a wallet address is a recipient, and the coin is remembered while we ask the rest', () => {
+    expect(parseSendSlots([u('I want to send USDT to my MetaMask'), a(askWho(null, [], 'USDT')), u(WALLET)])).toMatchObject({ wantsSend: true, recipient: WALLET, token: 'USDT' });
+    const s = parseSendSlots([u('send USDT to ' + WALLET), a(askHowMuch(WALLET)), u('25')]);
+    expect(s).toMatchObject({ wantsSend: true, amount: '25', recipient: WALLET, token: 'USDT' });
+  });
+
+  it('"USDT" is never read as a person', () => {
+    expect(parseSendSlots([u('send usdt')]).recipient).toBeNull();
+    expect(parseSendSlots([u('send 5 usat')]).recipient).toBeNull();
+  });
+
+  it('naira, swaps and conversions are still not plain sends', () => {
+    for (const t of ['buy ₦50,000 of USDT', 'convert 100 USDT to naira', 'swap 5 USDT for USDC', 'sell my USDT', 'withdraw 50 USDT to my bank', 'convert 5 USDC to USAT']) {
+      expect(parseSendSlots([u(t)]).wantsSend, t).toBe(false);
+    }
+  });
+
+  it('asking who to send to also offers a wallet address', () => {
+    expect(askWho('5', [], 'USDT')).toMatch(/5 USDT/);
+    expect(askWho('5', [])).toMatch(/wallet address/);
+  });
+});

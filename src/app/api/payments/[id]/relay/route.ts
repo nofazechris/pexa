@@ -51,7 +51,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       return jsonError(422, 'message_mismatch');
     }
 
-    const { hash } = await relayTransfer({ message, signature });
+    const { hash } = await relayTransfer({ message, signature, token: payment.token });
 
     const rec = await recordBroadcast({ paymentId: id, userId: user.id, authorizationId, txHash: hash });
     if (!rec.ok) return jsonError(409, 'record_failed', { message: rec.error, txHash: hash });

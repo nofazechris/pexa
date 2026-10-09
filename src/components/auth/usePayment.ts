@@ -69,14 +69,14 @@ export function usePayment() {
   const [stage, setStage] = useState<PayStage>('idle');
 
   const pay = useCallback(
-    async (args: { recipient: string; amount: string; memo?: string }): Promise<PayResult> => {
+    async (args: { recipient: string; amount: string; token?: string; memo?: string }): Promise<PayResult> => {
       const idempotencyKey =
         typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `pay_${Date.now()}_${Math.random()}`;
       try {
         setStage('preparing');
         const previewRes = await authedFetch(getAccessToken, '/api/payments/preview', {
           method: 'POST',
-          body: JSON.stringify({ recipient: args.recipient, amount: args.amount, memo: args.memo, idempotencyKey }),
+          body: JSON.stringify({ recipient: args.recipient, amount: args.amount, token: args.token, memo: args.memo, idempotencyKey }),
         });
         const preview = await previewRes.json();
         if (!previewRes.ok) return { status: 'failed', error: preview.message ?? 'Could not prepare payment.' };
@@ -178,7 +178,7 @@ export function usePayment() {
         setStage('failed');
         // Turn the common failures into plain language; the full error is in the console above.
         if (isInsufficientFunds(e)) {
-          return { status: 'failed', error: 'Not enough USDC in your wallet to cover this payment.' };
+          return { status: 'failed', error: `Not enough ${args.token ?? 'USDC'} in your wallet to cover this payment.` };
         }
         const msg = e instanceof Error ? e.message : 'Payment failed.';
         return { status: 'failed', error: msg.length > 120 ? msg.slice(0, 117) + '…' : msg };

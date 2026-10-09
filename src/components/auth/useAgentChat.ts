@@ -32,7 +32,7 @@ export interface PendingActionView {
   tool: string;
   args: Record<string, unknown>;
   render:
-    | { type: 'payment_preview'; recipient: string; amount: string; token: string; network: string }
+    | { type: 'payment_preview'; recipient: string; amount: string; token: string; network: string; external?: boolean }
     | { type: 'fiat_quote'; quote: FiatQuoteView }
     | { type: 'receive'; address: string; username: string; network: string; qr: string }
     | { type: 'intro'; features: IntroFeatureView[] }
@@ -128,7 +128,7 @@ export interface ChatMessage {
   swapResult?: SwapOutcome;
   /** Card payloads. */
   kind?: 'send' | 'buy' | 'sell';
-  preview?: { recipient: string; amount: string; token: string; network: string };
+  preview?: { recipient: string; amount: string; token: string; network: string; external?: boolean };
   receive?: { address: string; username: string; network: string; qr: string };
   buy?: BuyQuoteCardData;
   /** A repeating payment: the card to confirm, and (on the receipt) what was set up. */
@@ -168,7 +168,7 @@ export interface AgentChatDeps {
     error?: string;
   }>;
   /** Execute a confirmed crypto send via the client-sign path (real on-chain outcome). */
-  executeSend: (args: { recipient: string; amount: string }) => Promise<{
+  executeSend: (args: { recipient: string; amount: string; token?: string }) => Promise<{
     ok: boolean;
     error?: string;
     status?: 'confirmed' | 'pending' | 'failed';
@@ -333,7 +333,7 @@ export function useAgentChat(deps: AgentChatDeps) {
 
       if (m.type === 'preview' && m.preview) {
         // Crypto send — client-sign path for a real on-chain settlement.
-        const r = await d.executeSend({ recipient: m.preview.recipient, amount: m.preview.amount });
+        const r = await d.executeSend({ recipient: m.preview.recipient, amount: m.preview.amount, token: m.preview.token });
         if (r.ok) {
           push({ role: 'agent', type: 'receipt', kind: 'send', preview: m.preview, result: { status: r.status ?? 'confirmed', txHash: r.txHash, explorerUrl: r.explorerUrl } });
           setAgentState('success');

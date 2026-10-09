@@ -16,7 +16,9 @@ import { buyAvailable, getApprovalPayload } from '@/lib/buy/service';
 import { describeRequest } from '@/lib/buy/catalog';
 import type { AuthorizationTypedData } from '@/lib/buy/x402';
 import { activeAlerts } from '@/lib/rules/worker';
-import { askHowMuch, askHowOften, askWho, isMoneyConversation, parseSendSlots, replyToTypedAnswer, type SendSlots } from './send-intent';
+import { askHowMuch, askHowOften, askWho, isMoneyConversation, parseSendSlots, replyToTypedAnswer, type SendSlots, type SendToken } from './send-intent';
+import { checkExternalRecipient } from '@/lib/payments/recipient';
+import { getErc20Balance } from '@/lib/celo/balance';
 import { computeNextRun, recurringConflict } from '@/lib/recurring/service';
 import { recurringAutoLimit, recurringRunsAutomatically } from '@/lib/recurring/automation';
 import { exceedsAutonomousCap } from '@/lib/payments/policy';
@@ -167,7 +169,7 @@ export interface PendingAction {
   args: Record<string, unknown>;
   /** What the client renders as a confirmation card. */
   render:
-    | { type: 'payment_preview'; recipient: string; amount: string; token: string; network: string }
+    | { type: 'payment_preview'; recipient: string; amount: string; token: string; network: string; external?: boolean }
     | { type: 'fiat_quote'; quote: QuoteView }
     | { type: 'receive'; address: string; username: string; network: string; qr: string }
     /** "What do you do?": the features Pexa has for this user, each with a sentence to try. Nothing to confirm. */
@@ -268,13 +270,14 @@ async function buildRender(ctx: ToolContext, tool: string, args: Record<string, 
     const paymentId = typeof args.paymentId === 'string' ? args.paymentId : '';
     const p = await getPayment(paymentId, ctx.userId);
     if (!p) return null;
-    let recipient = `${p.recipientAddress.slice(0, 6)}…${p.recipientAddress.slice(-4)}`;
+    // A wallet outside Pexa is shown in FULL so the person can check every character before confirming.
+    let recipient = p.recipientAddress;
     if (p.recipientUserId) {
       const prof = await getProfileByUserId(p.recipientUserId);
-      if (prof) recipient = '@' + prof.username;
+      recipient = prof ? '@' + prof.username : `${p.recipientAddress.slice(0, 6)}…${p.recipientAddress.slice(-4)}`;
     }
     const decimals = getToken(p.token, activeNetwork.network)?.decimals ?? 6;
-    return { type: 'payment_preview', recipient, amount: formatUnits(BigInt(p.amount), decimals), token: p.token, network: activeNetwork.name };
+    return { type: 'payment_preview', recipient, amount: formatUnits(BigInt(p.amount), decimals), token: p.token, network: activeNetwork.name, ...(p.recipientUserId ? {} : { external: true }) };
   }
   if (tool === 'create_buy_usdt_order' || tool === 'create_sell_usdt_order') {
     const quoteId = typeof args.quoteId === 'string' ? args.quoteId : '';
@@ -417,15 +420,22 @@ async function handleSend(ctx: ToolContext, slots: SendSlots): Promise<AgentTurn
   if (!slots.recipient && !slots.amount) {
     return { reply: `Sure — who should I send to, and how much? Give me their @username and the amount.${recents.length ? ` Your recent: ${recents.slice(0, 3).map((u) => '@' + u).join(', ')}.` : ''}` };
   }
-  if (!slots.recipient) return { reply: askWho(slots.amount, recents) };
+  const token: SendToken = slots.token ?? 'USDC';
+  if (!getToken(token, activeNetwork.network)?.enabled) return { reply: `I can’t send ${token} on this network yet — USDC works.` };
+  if (!slots.recipient) return { reply: askWho(slots.amount, recents, token) };
 
-  // Who is it? (A 0x address is used as given; a name, @username or UID is looked up.)
+  // Who is it? (A 0x wallet address — MetaMask, an exchange — is checked and used as given; a name, @username or UID is looked up.)
   let recipientArg: string;
   let shown: string;
   let note = '';
+  let external = false;
   if (/^0x[a-fA-F0-9]{40}$/.test(slots.recipient)) {
-    recipientArg = slots.recipient;
-    shown = slots.recipient.slice(0, 6) + '…' + slots.recipient.slice(-4);
+    const own = (await getWalletByUserId(ctx.userId))?.address;
+    const checked = checkExternalRecipient(slots.recipient, { ownAddress: own });
+    if (!checked.ok) return { reply: `${checked.error} Send me the address again, or a @username.` };
+    recipientArg = checked.address;
+    shown = checked.address.slice(0, 6) + '…' + checked.address.slice(-4);
+    external = true;
   } else {
     const me = await getProfileByUserId(ctx.userId);
     const mine = slots.recipient.toLowerCase();
@@ -449,27 +459,38 @@ async function handleSend(ctx: ToolContext, slots: SendSlots): Promise<AgentTurn
   if (!slots.amount) return { reply: askHowMuch(recipientArg.startsWith('@') ? recipientArg.slice(1) : recipientArg) };
 
   // A repeating payment: needs a schedule we can really run, then a card that is honest about what happens.
-  if (slots.recurring) return handleRecurring(ctx, slots, recipientArg, shown, note);
+  if (slots.recurring) {
+    if (token !== 'USDC' || external) return { reply: 'Recurring payments are USDC to a Pexa @username for now. I can send this once, though — just say “send it now”.' };
+    return handleRecurring(ctx, slots, recipientArg, shown, note);
+  }
 
   // Don't show a Confirm button for money you don't have.
-  const balanceTool = TOOLS_BY_NAME.get('get_balance');
-  if (balanceTool) {
-    try {
-      const b = (await balanceTool.handler(ctx, {})) as { available?: string; savedInVaults?: string };
-      if (b.available !== undefined && parseUnits(slots.amount, 6) > parseUnits(b.available, 6)) {
-        const saved = b.savedInVaults && Number(b.savedInVaults) > 0 ? ` (${b.savedInVaults} more is set aside in your vaults)` : '';
-        return { reply: `You have ${b.available} USDC available to send${saved}, which isn’t enough for ${slots.amount} USDC. How much would you like to send to ${shown} instead?` };
-      }
-    } catch {
-      /* if the balance can't be read, let the normal preview checks decide */
+  try {
+    let available: string | null = null;
+    let saved = '';
+    if (token === 'USDC') {
+      const balanceTool = TOOLS_BY_NAME.get('get_balance');
+      const b = balanceTool ? ((await balanceTool.handler(ctx, {})) as { available?: string; savedInVaults?: string }) : {};
+      available = b.available ?? null;
+      if (b.savedInVaults && Number(b.savedInVaults) > 0) saved = ` (${b.savedInVaults} more is set aside in your vaults)`;
+    } else {
+      const wallet = await getWalletByUserId(ctx.userId);
+      const addr = getToken(token, activeNetwork.network)?.address;
+      if (wallet && addr) available = formatUnits(await getErc20Balance(addr, wallet.address), 6);
     }
+    if (available !== null && parseUnits(slots.amount, 6) > parseUnits(available, 6)) {
+      const hint = token !== 'USDC' ? ` You can get some by saying “convert 5 USDC to ${token}”.` : '';
+      return { reply: `You have ${available} ${token} available to send${saved}, which isn’t enough for ${slots.amount} ${token}.${hint} How much would you like to send to ${shown} instead?` };
+    }
+  } catch {
+    /* if the balance can't be read, let the normal preview checks decide */
   }
 
   const create = TOOLS_BY_NAME.get('create_payment_preview');
   if (!create) return null;
   let paymentId: string;
   try {
-    const out = (await create.handler(ctx, { recipient: recipientArg, amount: slots.amount })) as { paymentId?: string };
+    const out = (await create.handler(ctx, { recipient: recipientArg, amount: slots.amount, token })) as { paymentId?: string };
     if (!out.paymentId) return null;
     paymentId = out.paymentId;
   } catch (e) {
@@ -478,7 +499,8 @@ async function handleSend(ctx: ToolContext, slots: SendSlots): Promise<AgentTurn
   }
   const render = await buildRender(ctx, 'confirm_payment', { paymentId });
   if (!render) return null;
-  return { reply: `Sending ${slots.amount} USDC to ${shown} — confirm below.${note}`, action: { tool: 'confirm_payment', args: { paymentId }, render } };
+  const where = external ? `${shown}, a wallet outside Pexa. Check the full address on the card — it can’t be undone` : shown;
+  return { reply: `Sending ${slots.amount} ${token} to ${where} — confirm below.${note}`, action: { tool: 'confirm_payment', args: { paymentId }, render } };
 }
 
 /** Every model in the chain failed or the time budget ran out. */

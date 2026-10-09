@@ -17,7 +17,7 @@ export async function POST(req: Request) {
   const tooMany = rateLimit('payments-preview', auth.user.userId, { max: 60, windowMs: 60000 });
   if (tooMany) return tooMany;
 
-  let body: { recipient?: unknown; amount?: unknown; memo?: unknown; idempotencyKey?: unknown };
+  let body: { recipient?: unknown; amount?: unknown; memo?: unknown; idempotencyKey?: unknown; token?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -27,6 +27,8 @@ export async function POST(req: Request) {
   const amount = typeof body.amount === 'string' ? body.amount : '';
   const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : '';
   const memo = typeof body.memo === 'string' ? body.memo : undefined;
+  // Which coin: USDC (default), USDT or USAT. The engine refuses anything it doesn't support.
+  const token = typeof body.token === 'string' && /^[A-Za-z]{3,6}$/.test(body.token) ? body.token.toUpperCase() : undefined;
   if (!recipient || !amount || !idempotencyKey) return jsonError(400, 'missing_fields');
 
   try {
@@ -39,6 +41,7 @@ export async function POST(req: Request) {
       senderWalletAddress: wallet.address,
       recipient,
       amount,
+      token,
       memo,
       idempotencyKey,
     });

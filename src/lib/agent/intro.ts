@@ -51,7 +51,7 @@ export function isIntroRequest(text: string): boolean {
 
 export function introFeatures(a: IntroAvailability): IntroFeature[] {
   const f: IntroFeature[] = [
-    { title: 'Send money', description: 'Pay anyone on Pexa by @username, in USDC.', example: 'Send 5 USDC to @joyful' },
+    { title: 'Send money', description: 'Pay anyone on Pexa by @username, or send to any wallet address (like MetaMask) — in USDC, USDT or USAT.', example: 'Send 5 USDC to @joyful' },
     { title: 'Ask for money', description: 'Request a payment from someone.', example: 'Request $20 from @joyful' },
     { title: 'Recurring payments', description: 'Rent, subscriptions, allowances — on a schedule you set.', example: 'Pay @joyful $5 every Friday' },
     { title: 'Add money', description: 'Get your wallet address and see the deposit the moment it lands.', example: 'Add money to my wallet' },

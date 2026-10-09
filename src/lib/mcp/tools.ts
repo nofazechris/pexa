@@ -422,11 +422,12 @@ export const TOOLS: ToolDef[] = [
   tool({
     name: 'create_payment_preview',
     description:
-      'Draft a USDC payment: validate it, resolve the recipient, and run policy — WITHOUT sending. Returns a paymentId to pass to confirm_payment. Nothing moves until the human approves.',
+      'Draft a payment in USDC (default), USDT or USAT on Celo: validate it, resolve the recipient (a @username, or a 0x wallet address such as a MetaMask address), and run policy — WITHOUT sending. Returns a paymentId to pass to confirm_payment. Nothing moves until the human approves.',
     mutating: true,
     schema: z.object({
       recipient: z.string().min(1).describe('A @username or 0x address.'),
-      amount: z.string().min(1).describe('Decimal USDC amount, e.g. "20".'),
+      amount: z.string().min(1).describe('Decimal amount of the coin, e.g. "20".'),
+      token: z.enum(['USDC', 'USDT', 'USAT']).optional().describe('Which coin to send. Default USDC.'),
       memo: z.string().max(200).optional(),
       idempotencyKey: z.string().min(8).optional().describe('Supply a stable key to make retries safe.'),
     }),
@@ -438,6 +439,7 @@ export const TOOLS: ToolDef[] = [
         senderWalletAddress: wallet.address,
         recipient: args.recipient,
         amount: args.amount,
+        token: args.token,
         memo: args.memo,
         idempotencyKey: args.idempotencyKey ?? `mcp_${randomUUID()}`,
       });

@@ -59,8 +59,18 @@ function usdc(network: CeloNetwork): SupportedToken {
   };
 }
 
+/**
+ * Tether's two dollar coins on Celo mainnet. Both are 6-decimal and support EIP-3009 `transferWithAuthorization` (the same
+ * method USDC uses), so they send gaslessly too. Addresses match the Buy marketplace's token list (checked on-chain).
+ */
+function tether(symbol: 'USDT' | 'USAT'): SupportedToken {
+  const address = symbol === 'USDT' ? '0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e' : '0xD2ab3C9A02DBBAB236BfEC45D1d755DF4267F771';
+  return { symbol, name: symbol === 'USDT' ? 'Tether USD' : 'Tether America USD', network: 'mainnet', address, decimals: 6, enabled: true, feeCurrencySupported: false };
+}
+
+// USDC stays first: code that wants "the" payment token reads TOKENS[network][0].
 export const TOKENS: Record<CeloNetwork, SupportedToken[]> = {
-  mainnet: [usdc('mainnet')],
+  mainnet: [usdc('mainnet'), tether('USDT'), tether('USAT')],
   sepolia: [usdc('sepolia')],
 };
 

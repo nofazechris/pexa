@@ -21,6 +21,7 @@ import { NotificationBell, NotificationsPanel } from '@/components/pexa/Notifica
 import { InstallBanner, InstallSetting } from '@/components/pexa/InstallPrompt';
 import { ThemeSetting } from '@/components/pexa/ThemeSetting';
 import { BridgeCard } from '@/components/pexa/BridgeCard';
+import { PAY_TOKENS } from '@/lib/buy/tokens';
 import { useNotifications } from '@/components/auth/useNotifications';
 import type { ActivityItem } from '@/components/auth/useActivity';
 import type { RequestItem } from '@/components/auth/useRequests';
@@ -503,12 +504,13 @@ function PreviewCard({ m, onConfirm, onCancel }: { m: ChatMessage; onConfirm: ()
       </div>
       <div style={{ display: 'grid', gap: '9px', marginTop: '14px', paddingTop: '13px', borderTop: `1px solid ${color.borderFaint}` }}>
         {rows.map((r, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', fontSize: '13.5px' }}>
-            <span style={{ color: color.mutedStrong }}>{r.label}</span>
-            <span style={{ fontWeight: 500, textAlign: 'right' }}>{r.value}</span>
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', fontSize: '13.5px', minWidth: 0 }}>
+            <span style={{ color: color.mutedStrong, flex: 'none' }}>{r.label}</span>
+            <span style={{ fontWeight: 500, textAlign: 'right', wordBreak: 'break-all', fontFamily: r.label === 'To' && p.external ? 'var(--font-geist-mono),monospace' : undefined, fontSize: r.label === 'To' && p.external ? '12px' : undefined }}>{r.value}</span>
           </div>
         ))}
       </div>
+      {p.external && !settled ? <ExternalSendWarning token={p.token} /> : null}
       {!settled ? (
         <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
           <button onClick={onConfirm} style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '14.5px', fontWeight: 500, padding: 'var(--pp-btn-y) 16px', borderRadius: '11px', cursor: 'pointer', flex: 1, minWidth: '150px' }}>Confirm payment</button>
@@ -520,6 +522,38 @@ function PreviewCard({ m, onConfirm, onCancel }: { m: ChatMessage; onConfirm: ()
           {m.status === 'cancelled' ? 'Cancelled' : m.status === 'failed' ? 'Failed' : 'Confirmed'}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Before money leaves for a wallet outside Pexa: it can't be undone, so say plainly what to check. */
+function ExternalSendWarning({ token }: { token: string }) {
+  const [copied, setCopied] = useState(false);
+  const contract = PAY_TOKENS[token as keyof typeof PAY_TOKENS]?.address;
+  return (
+    <div style={{ marginTop: '13px', background: color.warningTint, border: `1px solid ${color.warningBorder}`, borderRadius: '11px', padding: '10px 12px', fontSize: '12.5px', lineHeight: 1.55, color: color.mutedStrong }}>
+      <div style={{ color: color.warning, fontWeight: 600, marginBottom: '3px' }}>This leaves Pexa and can’t be undone</div>
+      <div>Check the address above, character by character. It must be on the <b style={{ color: color.ink, fontWeight: 600 }}>Celo</b> network — {token} sent to the same address on another network won’t arrive.</div>
+      <div style={{ marginTop: '4px' }}>
+        <b style={{ color: color.ink, fontWeight: 600 }}>MetaMask:</b> switch the network to Celo, then add {token} if it isn’t listed.
+        {contract ? (
+          <button
+            onClick={() =>
+              navigator.clipboard?.writeText(contract).then(
+                () => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1600);
+                },
+                () => {},
+              )
+            }
+            style={{ marginLeft: '6px', border: 'none', background: 'transparent', color: color.primary, fontSize: '12.5px', fontWeight: 500, cursor: 'pointer', padding: 0 }}
+          >
+            {copied ? 'Copied' : `Copy ${token} contract`}
+          </button>
+        ) : null}
+      </div>
+      <div style={{ marginTop: '4px' }}>Sending to an exchange? Only if it accepts {token} on Celo.</div>
     </div>
   );
 }

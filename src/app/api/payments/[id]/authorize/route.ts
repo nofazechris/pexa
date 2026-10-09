@@ -31,7 +31,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // (no gas) and posts the signature to /relay; the relayer submits and pays gas. When it's
     // absent, the client falls back to signing + broadcasting the prepared tx itself (native gas).
     const relay = features.gaslessRelayer
-      ? await buildTransferAuthorization({ from: res.from, to: res.recipient, valueRaw: res.amountRaw })
+      ? await buildTransferAuthorization({ from: res.from, to: res.recipient, valueRaw: res.amountRaw, token: res.token })
       : null;
 
     return NextResponse.json({

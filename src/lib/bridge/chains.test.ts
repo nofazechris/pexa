@@ -137,3 +137,35 @@ describe('Arc (Circle) and "receive on <network>"', () => {
     }
   });
 });
+
+describe('a network we have never heard of', () => {
+  it.each([
+    ['I want to receive on zora', 'zora'],
+    ['somebody wants to send me USDC on Zora', 'zora'],
+    ['can I get paid on fantasia network', 'fantasia'],
+    ['deposit USDC via hedera', 'hedera'],
+    ['I want to receive on Tron', 'unsupported:tron'],
+  ])('unsupported: %s', (text, want) => {
+    const r = parseBridgeIntent(text);
+    const got = r.kind === 'unsupported' ? (want.startsWith('unsupported:') ? 'unsupported:' + r.name.toLowerCase() : r.name.toLowerCase()) : r.kind;
+    expect(got).toBe(want);
+  });
+
+  it('a one-word answer to "which network?" that we do not know is also "not supported"', () => {
+    const r = parseBridgeIntent('Zora', true);
+    expect(r).toEqual({ kind: 'unsupported', name: 'Zora' });
+    expect(parseBridgeIntent('Arbitrum', true).kind).toBe('bridge');
+    expect(parseBridgeIntent('Celo', true).kind).toBe('celo');
+    expect(parseBridgeIntent('yes', true).kind).not.toBe('unsupported');
+  });
+
+  it('ordinary "on …" sentences are left alone', () => {
+    for (const t of ['I want to receive on Friday', 'get paid on time', 'receive money on delivery', 'deposit on arrival', 'I get paid on the 25th', 'fund my vault on monday', 'receive on Celo', 'receive on pexa', 'accept payments on my phone']) {
+      expect(parseBridgeIntent(t).kind, t).not.toBe('unsupported');
+    }
+  });
+});
+
+describe('conversational replies are not network names', () => {
+  it.each(['idk', 'hmm', 'help', 'what', 'any', 'show', 'nope'])('%s', (t) => expect(parseBridgeIntent(t, true).kind).not.toBe('unsupported'));
+});

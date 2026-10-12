@@ -62,6 +62,35 @@ const UNSUPPORTED = /\b(bitcoin|btc|tron|trc20|bnb|bsc|binance|avalanche|avax|fa
 /** "receive / get paid / deposit … on|via|in <network>": naming a network is enough, even without "to my wallet". */
 const RECEIVE_ON = /\b(receive|receiving|get paid|accept|collect|deposit|top[- ]?up|fund)\b[^.?!]*\b(on|via|in|using|through|from)\s+(?:the\s+)?[a-z]/i;
 
+/** "receive / get paid / send me … on|via <word>": the word after on/via, plus an explicit "network/chain" if it has one. */
+const NAMED_AFTER_ON = /\b(?:receive|receiving|get paid|accept|collect|deposit|top[- ]?up|fund|send(?:s|ing)? me|pay(?:s|ing)? me)\b[^.?!]*?\b(?:on|via)\s+(?:the\s+)?([a-z][a-z0-9-]{2,24})(\s+(?:network|chain|blockchain|mainnet))?\b/i;
+/** Words that follow "on" in ordinary sentences — never a network name. */
+const NOT_A_NETWORK = new Set([
+  'celo', 'pexa', 'the', 'this', 'that', 'there', 'here', 'time', 'arrival', 'delivery', 'demand', 'request', 'schedule', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
+  'sunday', 'weekend', 'weekends', 'weekdays', 'today', 'tomorrow', 'yesterday', 'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november',
+  'december', 'cash', 'credit', 'card', 'phone', 'mobile', 'app', 'web', 'website', 'platform', 'usdc', 'usdt', 'usat', 'naira', 'ngn', 'dollars', 'dollar', 'usd', 'money', 'funds', 'payday', 'invoice',
+  'monthly', 'weekly', 'daily', 'yes', 'no', 'ok', 'okay', 'sure', 'thanks', 'cancel', 'stop', 'nevermind', 'balance', 'wallet', 'account', 'vault', 'savings', 'pexa',
+  // conversational replies to "which network?"
+  'idk', 'what', 'why', 'how', 'help', 'hmm', 'huh', 'none', 'nothing', 'any', 'anything', 'other', 'another', 'which', 'list', 'show', 'tell', 'please', 'yeah', 'yep', 'nope', 'nah',
+]);
+
+/**
+ * A network we have never heard of, named in a "receive / get paid on X" sentence (or given as the one-word answer to
+ * "which network?"). Returns the name so the reply can say plainly that it isn't supported — never a silent Celo address.
+ */
+export function unknownNetworkName(text: string, askedForNetwork = false): string | null {
+  const t = text.trim();
+  if (askedForNetwork) {
+    const word = /^(?:on\s+)?([a-z][a-z0-9-]{2,24})[.!]?$/i.exec(t)?.[1];
+    return word && !NOT_A_NETWORK.has(word.toLowerCase()) ? word : null;
+  }
+  if (t.split(/\s+/).length > 14) return null;
+  const m = NAMED_AFTER_ON.exec(t);
+  if (!m) return null;
+  const word = m[1];
+  return NOT_A_NETWORK.has(word.toLowerCase()) ? null : word;
+}
+
 /** Which supported network does this text name? (Longest, most specific alias wins.) */
 export function findChain(text: string): BridgeChain | null {
   const hits = ALIAS_RE.filter((a) => a.re.test(text));
@@ -105,6 +134,12 @@ export function parseBridgeIntent(text: string, askedForNetwork = false): Bridge
   }
 
   if (PAYMENT_TARGET.test(t) && !BRIDGE_WORDS.test(t)) return { kind: 'none' };
+
+  // A network we don't know at all ("receive on zora"): say it isn't supported, rather than guessing or giving a Celo address.
+  if (!chain && !unsupported) {
+    const unknown = unknownNetworkName(t, askedForNetwork);
+    if (unknown) return { kind: 'unsupported', name: unknown };
+  }
 
   const hasBridgeWords = BRIDGE_WORDS.test(t);
   const mentionsMoney = /\b(usdc|usdt|stablecoins?|dollars?|money|funds|crypto|payment)\b/i.test(t);

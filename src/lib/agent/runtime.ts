@@ -346,7 +346,7 @@ async function handleBridge(ctx: ToolContext, intent: Exclude<BridgeIntent, { ki
   }
   if (intent.kind === 'unsupported') {
     const name = `${intent.name[0].toUpperCase()}${intent.name.slice(1)}`;
-    return { reply: `I can’t take money from ${name} yet. I can do USDC from ${chainList(hasKey)}. If it’s on ${name}, they can move it to one of those first (an exchange can do that) — then tell me which one.` };
+    return { reply: `${name} isn’t supported yet. Please use another supported network: ${chainList(hasKey)}. ${ASK_NETWORK_MARKER}` };
   }
   if (!intent.chain) {
     return { reply: `Sure — I’ll give you an address to hand them, and whatever they send lands in your Pexa wallet as USDC on Celo. ${ASK_NETWORK_MARKER} I can do ${chainList(hasKey)} (or Celo itself, if they’re already on it).` };

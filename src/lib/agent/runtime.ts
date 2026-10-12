@@ -565,7 +565,9 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
   if (last?.role === 'user') {
     const prev = input.messages[input.messages.length - 2];
     const asked = prev?.role === 'assistant' && prev.content.includes(ASK_NETWORK_MARKER);
-    const bridge = parseBridgeIntent(last.content, asked);
+    // A bare network name right after we showed a receive address (say, in a chat reopened from History) means "on that network".
+    const afterReceive = prev?.role === 'assistant' && /\b(wallet address|deposit address|add money|receive)\b/i.test(prev.content);
+    const bridge = parseBridgeIntent(last.content, asked, afterReceive);
     if (bridge.kind !== 'none') {
       try {
         // Never leave the chat waiting: if the address can't be made in time, say so.

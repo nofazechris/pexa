@@ -2,6 +2,7 @@ import 'server-only';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db';
 import { deriveTitle, isWorthSaving, prepareForSave, restoreMessages, type SavedMessage } from './persist';
+import { closesAt, isClosed } from './lifetime';
 
 /**
  * Saved agent chats. Every query is scoped to the signed-in user, and a save can only ever update a chat
@@ -16,20 +17,23 @@ export interface ConversationSummary {
   title: string;
   messageCount: number;
   updatedAt: string;
+  /** Chats close 7 days after they start. */
+  closesAt: string;
+  closed: boolean;
 }
 
 export async function listConversations(userId: string, limit = 30): Promise<ConversationSummary[]> {
   const rows = await getDb()
-    .select({ id: schema.agentConversations.id, title: schema.agentConversations.title, messageCount: schema.agentConversations.messageCount, updatedAt: schema.agentConversations.updatedAt })
+    .select({ id: schema.agentConversations.id, title: schema.agentConversations.title, messageCount: schema.agentConversations.messageCount, updatedAt: schema.agentConversations.updatedAt, createdAt: schema.agentConversations.createdAt })
     .from(schema.agentConversations)
     .where(eq(schema.agentConversations.userId, userId))
     .orderBy(desc(schema.agentConversations.updatedAt))
     .limit(Math.min(Math.max(limit, 1), 100));
-  return rows.map((r) => ({ id: r.id, title: r.title, messageCount: r.messageCount, updatedAt: r.updatedAt.toISOString() }));
+  return rows.map((r) => ({ id: r.id, title: r.title, messageCount: r.messageCount, updatedAt: r.updatedAt.toISOString(), closesAt: closesAt(r.createdAt).toISOString(), closed: isClosed(r.createdAt) }));
 }
 
 /** A chat with its messages in restored form (anything that was awaiting a tap comes back inert). */
-export async function getConversation(userId: string, id: string): Promise<{ id: string; title: string; messages: SavedMessage[]; nextId: number } | null> {
+export async function getConversation(userId: string, id: string): Promise<{ id: string; title: string; messages: SavedMessage[]; nextId: number; closesAt: string; closed: boolean } | null> {
   if (!UUID.test(id)) return null;
   const [row] = await getDb()
     .select()
@@ -44,10 +48,10 @@ export async function getConversation(userId: string, id: string): Promise<{ id:
     /* treat a corrupt document as empty */
   }
   const { messages, nextId } = restoreMessages(raw);
-  return { id: row.id, title: row.title, messages, nextId };
+  return { id: row.id, title: row.title, messages, nextId, closesAt: closesAt(row.createdAt).toISOString(), closed: isClosed(row.createdAt) };
 }
 
-export type SaveResult = { ok: true; saved: boolean } | { ok: false; code: 'invalid_id' | 'not_yours' };
+export type SaveResult = { ok: true; saved: boolean; closesAt?: string } | { ok: false; code: 'invalid_id' | 'not_yours' | 'closed'; closesAt?: string };
 
 /** Create or update a chat. Chats the user hasn't taken part in aren't stored. */
 export async function saveConversation(userId: string, id: string, rawMessages: unknown): Promise<SaveResult> {
@@ -56,6 +60,13 @@ export async function saveConversation(userId: string, id: string, rawMessages: 
   if (!isWorthSaving(messages)) return { ok: true, saved: false };
 
   const db = getDb();
+  // A chat that has run its seven days is closed: it can be read, never added to.
+  const [existing] = await db
+    .select({ createdAt: schema.agentConversations.createdAt })
+    .from(schema.agentConversations)
+    .where(and(eq(schema.agentConversations.id, id), eq(schema.agentConversations.userId, userId)))
+    .limit(1);
+  if (existing && isClosed(existing.createdAt)) return { ok: false, code: 'closed', closesAt: closesAt(existing.createdAt).toISOString() };
   const title = deriveTitle(messages);
   const now = new Date();
   const written = await db
@@ -67,7 +78,7 @@ export async function saveConversation(userId: string, id: string, rawMessages: 
       // The conflict is on the id alone, so make sure the existing row is THIS user's before touching it.
       setWhere: eq(schema.agentConversations.userId, userId),
     })
-    .returning({ id: schema.agentConversations.id });
+    .returning({ id: schema.agentConversations.id, createdAt: schema.agentConversations.createdAt });
   if (written.length === 0) return { ok: false, code: 'not_yours' };
 
   // Keep each user's history bounded: drop the oldest beyond the cap.
@@ -79,7 +90,7 @@ export async function saveConversation(userId: string, id: string, rawMessages: 
         order by updated_at desc offset ${MAX_CONVERSATIONS_PER_USER}
       )
   `);
-  return { ok: true, saved: true };
+  return { ok: true, saved: true, closesAt: closesAt(written[0].createdAt).toISOString() };
 }
 
 export async function deleteConversation(userId: string, id: string): Promise<boolean> {

@@ -77,3 +77,28 @@ describe('titles and worth-saving', () => {
     expect(isWorthSaving([user(1, 'hi')])).toBe(true);
   });
 });
+
+describe('the newer cards survive being saved and reopened', () => {
+  it('keeps the deposit address, conversion, intro and statement cards (they used to be dropped)', () => {
+    const saved = prepareForSave([
+      user(1, 'I want to receive on arc'),
+      { id: 2, role: 'agent', type: 'bridge', bridge: { chain: 'Arc', chainId: 5042, address: '0x398228d881c223f4fef2791166afa52a586d7098', qr: 'data:image/png;base64,AAA', estimateFeeUsd: '0.04' } },
+      { id: 3, role: 'agent', type: 'swap_preview', status: 'awaiting', swap: { swapId: 's1', from: 'USDC', to: 'USAT', amountIn: '5', expectedOut: '5.005' } },
+      { id: 4, role: 'agent', type: 'swap_receipt', swap: { swapId: 's1' }, swapResult: { ok: true, amountOut: '5.005' } },
+      { id: 5, role: 'agent', type: 'intro', intro: [{ title: 'Send money', description: 'x', example: 'y' }] },
+      { id: 6, role: 'agent', type: 'statement', statement: { label: 'the last 30 days', count: 2, rows: [] } },
+    ]);
+    expect(saved).toHaveLength(6);
+    expect((saved[1].bridge as { chain: string }).chain).toBe('Arc');
+    expect((saved[2].swap as { swapId: string }).swapId).toBe('s1');
+    expect(saved[3].swapResult).toEqual({ ok: true, amountOut: '5.005' });
+    expect(Array.isArray(saved[4].intro)).toBe(true);
+    expect((saved[5].statement as { label: string }).label).toBe('the last 30 days');
+  });
+
+  it('a conversion that was waiting for a tap comes back inert', () => {
+    const { messages } = restoreMessages([user(1, 'convert $5 to USAT'), { id: 2, role: 'agent', type: 'swap_preview', status: 'awaiting', swap: { swapId: 's1' } }]);
+    expect(messages[1].status).toBe('cancelled');
+    expect(messages[1].restored).toBe(true);
+  });
+});

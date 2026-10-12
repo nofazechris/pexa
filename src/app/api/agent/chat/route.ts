@@ -32,8 +32,8 @@ export async function POST(req: Request) {
   const history: AgentMessage[] = Array.isArray(body.history)
     ? body.history
         .filter((m): m is { role: string; content: string } => !!m && typeof m === 'object' && typeof (m as { content?: unknown }).content === 'string')
-        .slice(-10)
-        .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }))
+        .slice(-16)
+        .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content.slice(0, 2000) }))
     : [];
 
   try {

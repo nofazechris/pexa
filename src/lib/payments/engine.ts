@@ -417,7 +417,8 @@ export async function listPayments(userId: string, limit = 50): Promise<PaymentS
       .select(cols)
       .from(schema.payments)
       .leftJoin(schema.profiles, eq(schema.profiles.userId, schema.payments.recipientUserId))
-      .where(and(eq(schema.payments.senderUserId, userId), inArray(schema.payments.status, [...OUTGOING_VISIBLE])))
+      // Only this network's payments: old test-network transfers are not real money and don't belong in Activity or a statement.
+      .where(and(eq(schema.payments.senderUserId, userId), eq(schema.payments.chainId, activeNetwork.chainId), inArray(schema.payments.status, [...OUTGOING_VISIBLE])))
       .orderBy(desc(schema.payments.createdAt))
       .limit(limit),
     // Money sent to you: the other person is the SENDER, so their username comes from the sender's profile.
@@ -425,7 +426,7 @@ export async function listPayments(userId: string, limit = 50): Promise<PaymentS
       .select(cols)
       .from(schema.payments)
       .leftJoin(schema.profiles, eq(schema.profiles.userId, schema.payments.senderUserId))
-      .where(and(eq(schema.payments.recipientUserId, userId), ne(schema.payments.senderUserId, userId), inArray(schema.payments.status, [...INCOMING_VISIBLE])))
+      .where(and(eq(schema.payments.recipientUserId, userId), ne(schema.payments.senderUserId, userId), eq(schema.payments.chainId, activeNetwork.chainId), inArray(schema.payments.status, [...INCOMING_VISIBLE])))
       .orderBy(desc(schema.payments.createdAt))
       .limit(limit),
   ]);

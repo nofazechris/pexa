@@ -169,18 +169,3 @@ describe('a network we have never heard of', () => {
 describe('conversational replies are not network names', () => {
   it.each(['idk', 'hmm', 'help', 'what', 'any', 'show', 'nope'])('%s', (t) => expect(parseBridgeIntent(t, true).kind).not.toBe('unsupported'));
 });
-
-describe('naming a network right after a receive address (e.g. in a chat reopened from History)', () => {
-  it('a bare supported network means "on that network"', () => {
-    const r = parseBridgeIntent('Arc', false, true);
-    expect(r.kind === 'bridge' && r.chain?.key).toBe('arc');
-    expect(parseBridgeIntent('arbitrum', false, true).kind).toBe('bridge');
-    expect(parseBridgeIntent('tron', false, true).kind).toBe('unsupported');
-  });
-  it('anything else is left alone — no guessing at unknown words', () => {
-    for (const t of ['thanks', 'great', 'ok', 'cool', 'zora', 'what is that?']) expect(parseBridgeIntent(t, false, true).kind, t).toBe('none');
-  });
-  it('without a receive reply before it, a bare network name is still just a word', () => {
-    expect(parseBridgeIntent('Arc', false, false).kind).toBe('none');
-  });
-});

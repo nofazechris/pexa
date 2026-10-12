@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { BuyResult, BuyTypedData } from './useBuy';
+import { carryOverSummary, historyForAgent, type ChatLike } from '@/lib/conversations/describe';
+import type { StatementData } from '@/lib/statements/format';
 
 /**
  * Pexa's agent chat — the primary surface. Every message goes to the server-side tool-calling agent
@@ -37,6 +39,7 @@ export interface PendingActionView {
     | { type: 'receive'; address: string; username: string; network: string; qr: string }
     | { type: 'intro'; features: IntroFeatureView[] }
     | ({ type: 'bridge' } & BridgeCardData)
+    | ({ type: 'statement' } & StatementData)
     | ({ type: 'swap_preview' } & SwapCardData)
     | ({ type: 'recurring_preview' } & RecurringCardData)
     | { type: 'buy_quote'; purchaseId: string; service: string; price: string; priceAtomic: string; token: string; detail: string; expiresAt: string; from: string; typedData: BuyTypedData; note: string };
@@ -45,6 +48,8 @@ export interface PendingActionView {
 /** A deposit address for bringing USDC from another network (shown as a card; nothing to confirm). */
 export interface BridgeCardData {
   chain: string;
+  /** The network's id, so the card can watch for this deposit (cards saved before this existed don't have it). */
+  chainId?: number;
   address: string;
   qr: string;
   estimateFeeUsd: string;
@@ -117,12 +122,14 @@ export interface RecurringCardData {
 export interface ChatMessage {
   id: number;
   role: 'user' | 'agent';
-  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge' | 'swap_preview' | 'swap_receipt';
+  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge' | 'swap_preview' | 'swap_receipt' | 'statement';
   text?: string;
   /** The "what I can do" list, each with a tap-to-try sentence. */
   intro?: IntroFeatureView[];
   /** A deposit address for bringing USDC from another network. */
   bridge?: BridgeCardData;
+  /** A statement for a period (shown with Download / Print). */
+  statement?: StatementData;
   /** A conversion to confirm, and (on the receipt) what happened to it. */
   swap?: SwapCardData;
   swapResult?: SwapOutcome;
@@ -186,9 +193,9 @@ export interface AgentChatDeps {
   /** Set up a confirmed recurring payment (the server re-validates everything). */
   createRecurring?: (args: { payee: string; amount: string; cadence: string }) => Promise<{ ok: boolean; next?: string; error?: string }>;
   /** Save the chat so it survives a reload and can be continued later (best effort). */
-  saveConversation?: (id: string, messages: ChatMessage[]) => Promise<void>;
+  saveConversation?: (id: string, messages: ChatMessage[]) => Promise<{ closed?: boolean; closesAt?: string } | void>;
   /** Load a saved chat; the server has already made any pending money card inert. */
-  loadConversation?: (id: string) => Promise<{ messages: ChatMessage[]; nextId: number } | null>;
+  loadConversation?: (id: string) => Promise<{ messages: ChatMessage[]; nextId: number; title?: string; closesAt?: string; closed?: boolean } | null>;
 }
 
 /** Plain-language error copy — no codes, no jargon. The whole point is that people understand it. */
@@ -216,6 +223,11 @@ export function useAgentChat(deps: AgentChatDeps) {
   /** Which saved chat this is. Created when the first message is saved; replaced by "New chat" / opening another. */
   const [conversationId, setConversationId] = useState<string | null>(null);
   const conversationIdRef = useRef<string | null>(null);
+  /** Chats close 7 days after they start: when this one closes (known once it has been saved), and whether it already has. */
+  const [chatCloses, setChatCloses] = useState<string | null>(null);
+  const [chatClosed, setChatClosed] = useState(false);
+  /** Title of the chat on screen, so a new chat can say what it is continuing. */
+  const [chatTitle, setChatTitle] = useState<string | null>(null);
   /** Set right after opening a saved chat so loading it doesn't immediately re-save (and bump) it. */
   const skipSaveRef = useRef(false);
   const depsRef = useRef(deps);
@@ -239,6 +251,7 @@ export function useAgentChat(deps: AgentChatDeps) {
     async (text?: string, opts?: { hidden?: boolean }) => {
       const raw = (typeof text === 'string' ? text : draft).trim();
       if (!raw || agentState === 'processing' || agentState === 'thinking') return;
+      if (chatClosed) return; // a closed chat can be read, never added to
       const d = depsRef.current;
       // A hidden turn is a system-driven follow-up (e.g. "read the purchase result"): no user bubble.
       if (!opts?.hidden) {
@@ -247,11 +260,9 @@ export function useAgentChat(deps: AgentChatDeps) {
       }
       setAgentState('thinking');
 
-      // Build bounded conversational history from prior text turns.
-      const history = messages
-        .filter((m) => (m.role === 'user' && m.text) || (m.role === 'agent' && m.type === 'text' && m.text))
-        .slice(-10)
-        .map((m) => ({ role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.text ?? '' }));
+      // What the agent sees of the chat: what was said, plus a short note for every card that was on screen (an address, a
+      // payment preview, a receipt…) — so "check" or "yes" is read in the context of what the person is looking at.
+      const history = historyForAgent(messages as ChatLike[], 16);
 
       let turn: Awaited<ReturnType<AgentChatDeps['sendToAgent']>> = null;
       try {
@@ -278,6 +289,10 @@ export function useAgentChat(deps: AgentChatDeps) {
       if (action) {
         if (action.render.type === 'receive') {
           push({ role: 'agent', type: 'receive', receive: action.render });
+        } else if (action.render.type === 'statement') {
+          const { type: _st, ...card } = action.render;
+          void _st;
+          push({ role: 'agent', type: 'statement', statement: card });
         } else if (action.render.type === 'bridge') {
           const { type: _b, ...card } = action.render;
           void _b;
@@ -320,7 +335,7 @@ export function useAgentChat(deps: AgentChatDeps) {
       }
       setAgentState('idle');
     },
-    [draft, agentState, push, messages],
+    [draft, agentState, push, messages, chatClosed],
   );
 
   const confirm = useCallback(
@@ -439,7 +454,10 @@ export function useAgentChat(deps: AgentChatDeps) {
         conversationIdRef.current = id;
         setConversationId(id);
       }
-      void save(id, messages);
+      void Promise.resolve(save(id, messages)).then((r) => {
+        if (r && r.closesAt) setChatCloses(r.closesAt);
+        if (r && r.closed) setChatClosed(true);
+      });
     }, 800);
     return () => clearTimeout(timer);
   }, [messages, agentState]);
@@ -450,6 +468,9 @@ export function useAgentChat(deps: AgentChatDeps) {
     setConversationId(null);
     skipSaveRef.current = false;
     idRef.current = 1;
+    setChatCloses(null);
+    setChatClosed(false);
+    setChatTitle(null);
     setMessages([]);
     setDraft('');
     setAgentState('idle');
@@ -465,11 +486,34 @@ export function useAgentChat(deps: AgentChatDeps) {
     setConversationId(id);
     skipSaveRef.current = true;
     idRef.current = loaded.nextId;
+    setChatCloses(loaded.closesAt ?? null);
+    setChatClosed(Boolean(loaded.closed));
+    setChatTitle(loaded.title ?? null);
     setMessages(loaded.messages);
     setDraft('');
     setAgentState('idle');
     return true;
   }, []);
 
-  return { messages, agentState, health, draft, setDraft, send, confirm, cancel, conversationId, newChat, openChat };
+  /**
+   * A closed chat can't be added to. Start a fresh one that begins with a short note of where the closed one left off, so the
+   * agent (which reads that note as part of the new chat) carries on with the same context.
+   */
+  const continueInNewChat = useCallback(() => {
+    const closedLabel = chatCloses ? new Date(chatCloses).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+    const firstUser = messages.find((m) => m.role === 'user' && m.text)?.text ?? 'Earlier chat';
+    const note = carryOverSummary(messages as ChatLike[], chatTitle ?? firstUser, closedLabel);
+    conversationIdRef.current = null;
+    setConversationId(null);
+    skipSaveRef.current = false;
+    idRef.current = 2;
+    setChatCloses(null);
+    setChatClosed(false);
+    setChatTitle(null);
+    setMessages([{ id: 1, role: 'agent', type: 'text', text: note }]);
+    setDraft('');
+    setAgentState('idle');
+  }, [messages, chatCloses, chatTitle]);
+
+  return { messages, agentState, health, draft, setDraft, send, confirm, cancel, conversationId, newChat, openChat, chatCloses, chatClosed, continueInNewChat };
 }

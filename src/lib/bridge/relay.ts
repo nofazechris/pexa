@@ -90,3 +90,20 @@ export async function requestDepositAddress(chain: BridgeChain, recipient: strin
   }
   throw lastError instanceof Error ? lastError : new Error('relay_failed');
 }
+
+/** Relay's own word for where a deposit address's transfer stands ("waiting", "pending", "success", …), or null if unreachable. */
+export async function fetchRelayStatus(requestId: string): Promise<string | null> {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(requestId)) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const res = await fetch(`${RELAY_API}/intents/status/v3?requestId=${requestId}`, { signal: controller.signal, cache: 'no-store' });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { status?: unknown };
+    return typeof body.status === 'string' ? body.status : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}

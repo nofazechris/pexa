@@ -1,16 +1,29 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { color } from '@/lib/design/tokens';
 import type { BridgeCardData } from '@/components/auth/useAgentChat';
 
 /**
- * "Bring USDC from <network>": the deposit address to send to. Nothing to confirm here — Pexa never moves anything on the
- * other network; the person sends from their own wallet or exchange, and the app tells them when it lands.
+ * "Get paid from <network>": the deposit address to send to. Nothing to confirm here — Pexa never moves anything on the
+ * other network; the person sends from their own wallet or exchange. While the card is the live one in the chat it watches for
+ * the money by itself (and has a "Check now" button), then says plainly when it has arrived.
  */
 
-export function BridgeCard({ data }: { data: BridgeCardData }) {
+type Phase = 'idle' | 'watching' | 'processing' | 'arrived' | 'stopped';
+
+const POLL_MS = 6_000;
+const MAX_WATCH_MS = 20 * 60_000;
+
+export function BridgeCard({ data, watch = false, getAccessToken }: { data: BridgeCardData; watch?: boolean; getAccessToken?: () => Promise<string | null> }) {
   const [copied, setCopied] = useState<'address' | 'message' | null>(null);
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [arrived, setArrived] = useState<{ amount: string; token: string } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const sinceRef = useRef<string>('');
+  const startedRef = useRef<number>(0);
+  const doneRef = useRef(false);
+
   const copy = (what: 'address' | 'message') => {
     const text = what === 'address' ? data.address : `Please send USDC on ${data.chain} to this address: ${data.address}
 Only USDC, and only on ${data.chain}. It reaches me automatically in my Pexa wallet.`;
@@ -22,6 +35,61 @@ Only USDC, and only on ${data.chain}. It reaches me automatically in my Pexa wal
       () => {},
     );
   };
+
+  /** One look: has money landed on Celo since the card appeared, and what does the bridge say? Returns true when finished. */
+  const check = useCallback(async (): Promise<boolean> => {
+    if (doneRef.current || !sinceRef.current || typeof data.chainId !== 'number') return doneRef.current;
+    try {
+      const token = getAccessToken ? await getAccessToken() : null;
+      const res = await fetch(`/api/bridge/status?chainId=${data.chainId}&since=${encodeURIComponent(sinceRef.current)}`, { headers: token ? { authorization: `Bearer ${token}` } : {}, cache: 'no-store' });
+      if (!res.ok) return false;
+      const d = (await res.json()) as { deposits?: Array<{ amount: string; token: string }>; state?: string };
+      const first = d.deposits?.[0];
+      if (first) {
+        doneRef.current = true;
+        setArrived({ amount: first.amount, token: first.token });
+        setPhase('arrived');
+        return true;
+      }
+      setPhase(d.state === 'processing' ? 'processing' : 'watching');
+    } catch {
+      /* try again on the next tick */
+    }
+    return false;
+  }, [data.chainId, getAccessToken]);
+
+  // Start watching when this is the live card; stop after it arrives or 20 minutes.
+  useEffect(() => {
+    if (!watch) return;
+    sinceRef.current = new Date().toISOString();
+    startedRef.current = Date.now();
+    doneRef.current = false;
+    const first = setTimeout(() => setPhase('watching'), 0);
+    const timer = setInterval(async () => {
+      if (Date.now() - startedRef.current > MAX_WATCH_MS) {
+        clearInterval(timer);
+        if (!doneRef.current) setPhase('stopped');
+        return;
+      }
+      if (await check()) clearInterval(timer);
+    }, POLL_MS);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+  }, [watch, check]);
+
+  const checkNow = async () => {
+    setChecking(true);
+    if (phase === 'stopped') {
+      // Start a fresh 20 minutes from now.
+      startedRef.current = Date.now();
+      setPhase('watching');
+    }
+    await check();
+    setChecking(false);
+  };
+
   const fee = Number(data.estimateFeeUsd);
   const pricey = fee >= 0.5;
   return (
@@ -46,6 +114,30 @@ Only USDC, and only on ${data.chain}. It reaches me automatically in my Pexa wal
           </div>
         </div>
       </div>
+
+      {watch ? (
+        <div role="status" aria-live="polite" style={{ borderTop: `1px solid ${color.borderFaint}`, paddingTop: '12px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          {phase === 'arrived' && arrived ? (
+            <span style={{ flex: 1, minWidth: '180px', fontSize: '13.5px', fontWeight: 600, color: color.success }}>
+              ✓ Deposit arrived: ${arrived.amount} {arrived.token} is in your wallet.
+            </span>
+          ) : (
+            <>
+              {phase === 'stopped' ? null : <span style={{ width: 12, height: 12, border: `2px solid ${color.primarySoftBorder}`, borderTopColor: color.primary, borderRadius: '50%', animation: 'pp-spin .8s linear infinite', display: 'inline-block', flex: 'none' }} />}
+              <span style={{ flex: 1, minWidth: '160px', fontSize: '13px', color: color.mutedStrong, lineHeight: 1.45 }}>
+                {phase === 'processing'
+                  ? `Deposit detected on ${data.chain} — converting it to USDC on Celo…`
+                  : phase === 'stopped'
+                    ? 'Stopped watching after 20 minutes. Tap Check now any time.'
+                    : `Waiting for your deposit on ${data.chain}… this updates by itself.`}
+              </span>
+              <button onClick={() => void checkNow()} disabled={checking} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '13px', fontWeight: 500, padding: 'var(--pp-btn-y) 14px', borderRadius: '10px', cursor: 'pointer', flex: 'none' }}>
+                {checking ? 'Checking…' : 'Check now'}
+              </button>
+            </>
+          )}
+        </div>
+      ) : null}
 
       <div style={{ borderTop: `1px solid ${color.borderFaint}`, paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '7px', fontSize: '13px', lineHeight: 1.5, color: color.mutedStrong }}>
         <div>

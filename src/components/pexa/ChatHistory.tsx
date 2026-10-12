@@ -87,7 +87,7 @@ export function HistorySheet({
             >
               <div style={{ fontSize: '14.5px', fontWeight: 500, color: color.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</div>
               <div style={{ fontSize: '12px', color: color.mutedStrong, marginTop: '3px' }}>
-                {ago(c.updatedAt)} · {c.messageCount} messages{c.id === currentId ? ' · open now' : ''}
+                {ago(c.updatedAt)} · {c.messageCount} messages{c.id === currentId ? ' · open now' : ''}{c.closed ? ' · closed' : ''}
               </div>
             </button>
             <button
@@ -114,7 +114,8 @@ export function ContinueCard({ api, onOpen }: { api: ConversationsApi; onOpen: (
   useEffect(() => {
     let alive = true;
     void api.list().then((all) => {
-      if (alive) setLast(all[0] ?? null);
+      // Only an open chat can be picked up again; a closed one is read-only (it stays in History).
+      if (alive) setLast(all.find((c) => !c.closed) ?? null);
     });
     return () => {
       alive = false;

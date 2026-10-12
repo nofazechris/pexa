@@ -4,8 +4,8 @@ import { and, eq } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db';
 import { getWalletByUserId } from '@/lib/wallets/service';
 import { env } from '@/lib/config/env';
-import { requestDepositAddress } from './relay';
-import { type BridgeChain } from './chains';
+import { fetchRelayStatus, requestDepositAddress } from './relay';
+import { chainById, type BridgeChain } from './chains';
 
 export interface BridgeDeposit {
   chain: string;
@@ -50,4 +50,22 @@ export async function getBridgeDeposit(userId: string, chain: BridgeChain): Prom
     /* the copyable address is enough */
   }
   return { chain: chain.label, chainId: chain.chainId, address: row.depositAddress, estimateFeeUsd: row.estimateFeeUsd, qr };
+}
+
+export interface BridgeStatusView {
+  chain: string;
+  chainId: number;
+  status: string | null;
+}
+
+/** Where each of the user's saved deposit addresses stands, according to Relay (never throws; unreachable → status null). */
+export async function getBridgeStatuses(userId: string): Promise<BridgeStatusView[]> {
+  const rows = await getDb().select().from(schema.bridgeAddresses).where(eq(schema.bridgeAddresses.userId, userId));
+  return Promise.all(
+    rows.map(async (r) => ({
+      chain: chainById(r.originChainId)?.label ?? `chain ${r.originChainId}`,
+      chainId: r.originChainId,
+      status: await fetchRelayStatus(r.requestId),
+    })),
+  );
 }

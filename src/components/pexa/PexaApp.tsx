@@ -22,6 +22,8 @@ import { InstallBanner, InstallSetting } from '@/components/pexa/InstallPrompt';
 import { ThemeSetting } from '@/components/pexa/ThemeSetting';
 import { BridgeCard } from '@/components/pexa/BridgeCard';
 import { PAY_TOKENS } from '@/lib/buy/tokens';
+import { ChatLifetimeBanner } from '@/components/pexa/ChatLifetime';
+import { StatementCard } from '@/components/pexa/StatementCard';
 import { useNotifications } from '@/components/auth/useNotifications';
 import type { ActivityItem } from '@/components/auth/useActivity';
 import type { RequestItem } from '@/components/auth/useRequests';
@@ -321,6 +323,8 @@ function ChatScreen({ chat, getAccessToken, balance, conversations }: { chat: Re
     ? ['Add money to my wallet', "What's my balance?", 'Send a payment', 'Save part of every payment I get', 'What can you do?']
     : ['Send a payment', 'Request a payment', "What's my balance?", 'Save part of every payment I get', 'What can you do?'];
   const empty = chat.messages.length === 0;
+  // Only the newest deposit card watches for its money; older ones stay quiet.
+  const lastBridgeId = [...chat.messages].reverse().find((x) => x.type === 'bridge')?.id;
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -337,6 +341,7 @@ function ChatScreen({ chat, getAccessToken, balance, conversations }: { chat: Re
         </div>
       ) : null}
       {conversations ? <HistorySheet open={historyOpen} onClose={() => setHistoryOpen(false)} api={conversations} currentId={chat.conversationId} onOpen={chat.openChat} /> : null}
+      <ChatLifetimeBanner closesAt={chat.chatCloses} closed={chat.chatClosed} onContinue={chat.continueInNewChat} />
       <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: 'clamp(16px,2.6vw,30px) clamp(14px,2.6vw,26px)' }}>
         <div style={{ maxWidth: '700px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {empty ? (
@@ -380,7 +385,7 @@ function ChatScreen({ chat, getAccessToken, balance, conversations }: { chat: Re
           ) : null}
 
           {chat.messages.map((m) => (
-            <ChatRow key={m.id} m={m} onConfirm={() => chat.confirm(m.id)} onCancel={() => chat.cancel(m.id)} onRetry={(t) => chat.send(t)} onTry={(t) => chat.send(t)} getAccessToken={getAccessToken} />
+            <ChatRow key={m.id} m={m} watchBridge={m.id === lastBridgeId && !chat.chatClosed} onConfirm={() => chat.confirm(m.id)} onCancel={() => chat.cancel(m.id)} onRetry={(t) => chat.send(t)} onTry={(t) => chat.send(t)} getAccessToken={getAccessToken} />
           ))}
 
           {chat.agentState === 'thinking' || chat.agentState === 'processing' ? (
@@ -407,10 +412,11 @@ function ChatScreen({ chat, getAccessToken, balance, conversations }: { chat: Re
                 }
               }}
               aria-label="Ask Pexa to do something"
-              placeholder="Ask Pexa to do something..."
+              disabled={chat.chatClosed}
+              placeholder={chat.chatClosed ? 'This chat is closed — continue in a new chat' : 'Ask Pexa to do something...'}
               style={{ flex: 1, minWidth: 0, border: `1px solid ${color.borderStrong}`, background: color.surface, borderRadius: '13px', padding: 'var(--pp-btn-y-lg) 14px', fontSize: '15px', color: color.ink, outline: 'none' }}
             />
-            <button onClick={() => chat.send()} aria-label="Send instruction" style={{ border: 'none', background: color.primary, color: '#fff', borderRadius: '13px', padding: 'var(--pp-btn-y-lg) 16px', cursor: 'pointer', fontSize: '14.5px', fontWeight: 500, opacity: chat.draft.trim() ? 1 : 0.55 }}>Send</button>
+            <button onClick={() => chat.send()} disabled={chat.chatClosed} aria-label="Send instruction" style={{ border: 'none', background: color.primary, color: '#fff', borderRadius: '13px', padding: 'var(--pp-btn-y-lg) 16px', cursor: 'pointer', fontSize: '14.5px', fontWeight: 500, opacity: chat.draft.trim() ? 1 : 0.55 }}>Send</button>
           </div>
           <div style={{ fontSize: '11.5px', color: color.faint, marginTop: '9px' }}>Pexa always shows a preview. Nothing moves until you confirm.</div>
         </div>
@@ -430,7 +436,7 @@ function Dot({ delay }: { delay: string }) {
   return <span style={{ width: 5, height: 5, borderRadius: '50%', background: color.primary, display: 'inline-block', animation: `pp-pulse 1.1s ease-in-out ${delay} infinite` }} />;
 }
 
-function ChatRow({ m, onConfirm, onCancel, onRetry, onTry, getAccessToken }: { m: ChatMessage; onConfirm: () => void; onCancel: () => void; onRetry?: (text: string) => void; onTry?: (text: string) => void; getAccessToken?: () => Promise<string | null> }) {
+function ChatRow({ m, onConfirm, onCancel, onRetry, onTry, watchBridge, getAccessToken }: { m: ChatMessage; watchBridge?: boolean; onConfirm: () => void; onCancel: () => void; onRetry?: (text: string) => void; onTry?: (text: string) => void; getAccessToken?: () => Promise<string | null> }) {
   if (m.role === 'user') {
     return (
       <div style={{ display: 'flex', justifyContent: 'flex-end', animation: 'pp-step .34s cubic-bezier(.2,.8,.3,1) both' }}>
@@ -455,7 +461,8 @@ function ChatRow({ m, onConfirm, onCancel, onRetry, onTry, getAccessToken }: { m
         {m.type === 'buy_result' ? <BuyResultCard m={m} /> : null}
         {m.type === 'error' ? <ErrorCard m={m} onRetry={onRetry} /> : null}
         {m.type === 'receive' ? <ReceiveCard m={m} getAccessToken={getAccessToken} /> : null}
-        {m.type === 'bridge' && m.bridge ? <BridgeCard data={m.bridge} /> : null}
+        {m.type === 'statement' && m.statement ? <StatementCard data={m.statement} /> : null}
+        {m.type === 'bridge' && m.bridge ? <BridgeCard data={m.bridge} watch={Boolean(watchBridge) && typeof m.bridge.chainId === 'number'} getAccessToken={getAccessToken} /> : null}
         {m.type === 'intro' && onTry ? <IntroCard m={m} onTry={onTry} /> : null}
       </div>
     </div>

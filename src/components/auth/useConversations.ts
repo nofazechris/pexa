@@ -14,6 +14,14 @@ export interface ConversationSummary {
   title: string;
   messageCount: number;
   updatedAt: string;
+  /** Chats close 7 days after they start; a closed chat can be read but not added to. */
+  closesAt: string;
+  closed: boolean;
+}
+
+export interface SaveOutcome {
+  closed?: boolean;
+  closesAt?: string;
 }
 
 export function useConversations() {
@@ -38,12 +46,12 @@ export function useConversations() {
   }, [authed]);
 
   const load = useCallback(
-    async (id: string): Promise<{ messages: ChatMessage[]; nextId: number } | null> => {
+    async (id: string): Promise<{ messages: ChatMessage[]; nextId: number; title: string; closesAt: string; closed: boolean } | null> => {
       try {
         const res = await authed(`/api/conversations/${id}`);
         if (!res.ok) return null;
-        const data = (await res.json()) as { messages: ChatMessage[]; nextId: number };
-        return { messages: data.messages, nextId: data.nextId };
+        const data = (await res.json()) as { messages: ChatMessage[]; nextId: number; title?: string; closesAt: string; closed: boolean };
+        return { messages: data.messages, nextId: data.nextId, title: data.title ?? 'Earlier chat', closesAt: data.closesAt, closed: Boolean(data.closed) };
       } catch {
         return null;
       }
@@ -52,11 +60,13 @@ export function useConversations() {
   );
 
   const save = useCallback(
-    async (id: string, messages: ChatMessage[]): Promise<void> => {
+    async (id: string, messages: ChatMessage[]): Promise<SaveOutcome> => {
       try {
-        await authed(`/api/conversations/${id}`, { method: 'PUT', body: JSON.stringify({ messages }) });
+        const res = await authed(`/api/conversations/${id}`, { method: 'PUT', body: JSON.stringify({ messages }) });
+        const data = (await res.json().catch(() => ({}))) as SaveOutcome;
+        return { closed: Boolean(data.closed), closesAt: data.closesAt };
       } catch {
-        /* best effort */
+        return {}; /* best effort */
       }
     },
     [authed],

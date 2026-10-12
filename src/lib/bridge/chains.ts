@@ -118,7 +118,7 @@ const PAYMENT_TARGET = /(@\w)|(\bsend\s+\$?\d[\d.,]*\s*(usdc|usd|dollars?|bucks)
 /** The sender is on Celo or Pexa. */
 const SAME_NETWORK = /\b(celo|pexa)\b/i;
 
-export function parseBridgeIntent(text: string, askedForNetwork = false, afterReceiveReply = false): BridgeIntent {
+export function parseBridgeIntent(text: string, askedForNetwork = false): BridgeIntent {
   const t = text.trim();
   if (!t || t.length > 220) return { kind: 'none' };
 
@@ -126,12 +126,7 @@ export function parseBridgeIntent(text: string, askedForNetwork = false, afterRe
   const unsupported = t.match(UNSUPPORTED);
   const short = t.split(/\s+/).length <= 6;
 
-  // Answering "which network will the USDC come from?" with just the network — or naming a network right after we showed a
-  // receive address (e.g. in a chat reopened from History): a known network is enough; an unknown word is not guessed at.
-  if (afterReceiveReply && !askedForNetwork && short) {
-    if (chain) return { kind: 'bridge', chain };
-    if (unsupported) return { kind: 'unsupported', name: unsupported[1] };
-  }
+  // Answering "which network will the USDC come from?" with just the network.
   if (askedForNetwork && short) {
     if (chain) return { kind: 'bridge', chain };
     if (unsupported) return { kind: 'unsupported', name: unsupported[1] };

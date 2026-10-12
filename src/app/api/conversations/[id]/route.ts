@@ -40,8 +40,11 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
     const { id } = await ctx.params;
     const user = await getOrCreateUser(auth.user.userId);
     const res = await saveConversation(user.id, id, body.messages);
-    if (!res.ok) return res.code === 'invalid_id' ? jsonError(400, 'invalid_id') : jsonError(404, 'not_found');
-    return NextResponse.json({ saved: res.saved });
+    if (!res.ok) {
+      if (res.code === 'closed') return NextResponse.json({ error: 'closed', closed: true, closesAt: res.closesAt }, { status: 409 });
+      return res.code === 'invalid_id' ? jsonError(400, 'invalid_id') : jsonError(404, 'not_found');
+    }
+    return NextResponse.json({ saved: res.saved, closesAt: res.closesAt });
   } catch (e) {
     return errorResponse(e);
   }

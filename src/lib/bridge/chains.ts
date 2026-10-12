@@ -26,6 +26,8 @@ export const BRIDGE_CHAINS: BridgeChain[] = [
   { key: 'optimism', label: 'Optimism', chainId: 10, kind: 'evm', needsApiKey: false, usdc: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85', aliases: ['optimism', 'op mainnet', 'op'] },
   { key: 'polygon', label: 'Polygon', chainId: 137, kind: 'evm', needsApiKey: false, usdc: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', aliases: ['polygon', 'matic'] },
   { key: 'ethereum', label: 'Ethereum', chainId: 1, kind: 'evm', needsApiKey: false, usdc: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', aliases: ['ethereum', 'eth mainnet'] },
+  // Circle's Arc network: USDC is its native gas coin; the ERC-20 form of USDC lives at this fixed address (6 decimals).
+  { key: 'arc', label: 'Arc', chainId: 5042, kind: 'evm', needsApiKey: false, usdc: '0x3600000000000000000000000000000000000000', aliases: ['arc', 'arc network', 'circle arc'] },
   { key: 'solana', label: 'Solana', chainId: 792703809, kind: 'svm', needsApiKey: true, usdc: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', aliases: ['solana', 'sol'] },
 ];
 
@@ -56,7 +58,9 @@ export const ASK_NETWORK_MARKER = 'Which network will the USDC come from?';
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const ALIAS_RE = BRIDGE_CHAINS.flatMap((c) => c.aliases.map((a) => ({ chain: c, re: new RegExp(`(^|[^a-z])${escape(a)}($|[^a-z])`, 'i') })));
-const UNSUPPORTED = /\b(bitcoin|btc|tron|trc20|bnb|bsc|binance|avalanche|avax|fantom|zksync|linea|scroll|cardano|ton|xrp|ripple)\b/i;
+const UNSUPPORTED = /\b(bitcoin|btc|tron|trc20|bnb|bsc|binance|avalanche|avax|fantom|zksync|linea|scroll|cardano|xrp|ripple|aptos|cosmos|polkadot|litecoin|dogecoin|mantle|gnosis|cronos|sonic|monad|unichain|hyperliquid|berachain|ronin|starknet)\b/i;
+/** "receive / get paid / deposit … on|via|in <network>": naming a network is enough, even without "to my wallet". */
+const RECEIVE_ON = /\b(receive|receiving|get paid|accept|collect|deposit|top[- ]?up|fund)\b[^.?!]*\b(on|via|in|using|through|from)\s+(?:the\s+)?[a-z]/i;
 
 /** Which supported network does this text name? (Longest, most specific alias wins.) */
 export function findChain(text: string): BridgeChain | null {
@@ -109,7 +113,7 @@ export function parseBridgeIntent(text: string, askedForNetwork = false): Bridge
   const asksHow = /\bhow (do|can|to|could|should)\b/i.test(t) || /\bi (have|hold|got)\b/i.test(t);
   const fromWord = MOVE_WORDS.test(t) && /\bfrom\b/i.test(t);
 
-  const wantsBridge = hasBridgeWords || fromSomeone || (mentionsMoney && (movesToPexa || asksHow)) || (!!chain && (movesToPexa || fromWord)) || (!!unsupported && fromWord);
+  const wantsBridge = hasBridgeWords || fromSomeone || (mentionsMoney && (movesToPexa || asksHow)) || (!!chain && (movesToPexa || fromWord || RECEIVE_ON.test(t))) || (!!unsupported && (fromWord || RECEIVE_ON.test(t)));
   if (!wantsBridge) return { kind: 'none' };
 
   // The sender says they are on Celo / Pexa → the ordinary wallet address will do.

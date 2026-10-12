@@ -106,3 +106,34 @@ describe('parseBridgeIntent — bringing my own money from another network', () 
     'Save 10% of every payment I get',
   ])('no: %s', (text) => expect(bridge(text)).toBe('none'));
 });
+
+describe('Arc (Circle) and "receive on <network>"', () => {
+  it('Arc is a supported network with a real USDC address', () => {
+    const arc = BRIDGE_CHAINS.find((c) => c.key === 'arc');
+    expect(arc?.chainId).toBe(5042);
+    expect(arc?.needsApiKey).toBe(false);
+    expect(chainList(false)).toMatch(/\bArc\b/);
+  });
+
+  it.each([
+    ['I want to receive on arc', 'arc'],
+    ['i want to receive on Arc', 'arc'],
+    ['receive USDC on Arc', 'arc'],
+    ['somebody wants to send me USDC on Arc', 'arc'],
+    ['I want to receive USDC on Arbitrum', 'arbitrum'],
+    ['can I get paid on base', 'base'],
+    ['deposit USDC via polygon', 'polygon'],
+    ['fund my wallet from Arc', 'arc'],
+  ])('yes: %s → %s', (text, want) => expect(bridge(text)).toBe(want));
+
+  it('naming a network we do not support gets an honest answer, not a Celo address', () => {
+    expect(bridge('I want to receive on tron')).toBe('unsupported:tron');
+    expect(bridge('can I get paid on avalanche')).toBe('unsupported:avalanche');
+  });
+
+  it('plain Celo and ordinary sentences are untouched', () => {
+    for (const t of ['I want to receive money', 'receive USDC on Celo', 'add money to my wallet', 'deposit in my savings vault', 'I deposited on Friday', 'deposit money in a bank near me', 'a ton of money', 'I want to receive on Monday']) {
+      expect(bridge(t), t).toBe('none');
+    }
+  });
+});

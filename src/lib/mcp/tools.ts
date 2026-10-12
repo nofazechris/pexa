@@ -206,7 +206,7 @@ export const TOOLS: ToolDef[] = [
   tool({
     name: 'get_deposit_details',
     description:
-      'Get the details for the user to ADD MONEY / FUND / DEPOSIT / TOP UP their account: their Celo wallet address to receive USDC into (they send USDC on Celo to it, or scan the QR the app shows). Use this whenever the user wants to put money in — never treat "fund/deposit/add money" as a send. Naira funding is separate and coming soon.',
+      'Get the details for the user to ADD MONEY / FUND / DEPOSIT / TOP UP their account: their Celo wallet address to receive USDC into (they send USDC on Celo to it, or scan the QR the app shows). Use this whenever the user wants to put money in — never treat "fund/deposit/add money" as a send. Naira funding is separate and coming soon. This is ONLY for receiving on Celo: if the user names another network (Arc, Arbitrum, Base, Ethereum, Solana…), do not use it — the app answers those itself.',
     schema: z.object({}),
     handler: async (ctx) => {
       const wallet = await getWalletByUserId(ctx.userId);

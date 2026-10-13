@@ -26,13 +26,12 @@ import { listRecentPeople, resolveRecipient } from '@/lib/contacts/people';
 import { label, lastSeen } from '@/lib/contacts/match';
 import { buildIntro, isIntroRequest, type IntroFeature } from './intro';
 import { ASK_NETWORK_MARKER, chainList, parseBridgeIntent, type BridgeIntent } from '@/lib/bridge/chains';
-import { getBridgeDeposit, getBridgeStatuses } from '@/lib/bridge/service';
+import { getBridgeDeposit } from '@/lib/bridge/service';
 import { whatToCheck } from './check';
-import { parseStatementIntent, type StatementIntent } from '@/lib/statements/period';
+import { parseStatementIntent, periodFromArgs, type StatementIntent } from '@/lib/statements/period';
 import { buildStatement } from '@/lib/statements/build';
-import { money as statementMoney, type StatementData } from '@/lib/statements/format';
-import { composeDepositCheck, mapRelayStatus } from '@/lib/deposits/check-reply';
-import { recentDeposits, scanDeposits } from '@/lib/deposits/service';
+import { statementReply, type StatementData } from '@/lib/statements/format';
+import { depositCheck } from '@/lib/deposits/check';
 import { askSwapAmount, parseSwapIntent, type SwapIntent } from '@/lib/swap/intent';
 import { createSwapPreview, swapsAvailable, type SwapPreview } from '@/lib/swap/service';
 import { AI_DOWN_REPLY, aiBreaker, fastLane, formatBalanceReply, formatRecentReply, modelChain } from './resilience';
@@ -77,6 +76,8 @@ const AGENT_TOOLS = new Set([
   'pause_recurring_payment',
   'cancel_recurring_payment',
   'get_recent_transactions',
+  'get_statement',
+  'check_deposit',
   'get_payment_status',
   'create_payment_preview',
   'create_request',
@@ -107,7 +108,7 @@ const CONFIRM_TOOLS = new Set(['confirm_payment', 'create_buy_usdt_order', 'crea
 
 // CARD tools — informational (no money moves), but the runtime surfaces a rich card instead of
 // letting the model describe the result in prose. e.g. the deposit/receive address + QR.
-const CARD_TOOLS = new Set(['get_deposit_details']);
+const CARD_TOOLS = new Set(['get_deposit_details', 'get_statement']);
 
 // Fiat tools are only offered when the feature is on.
 const FIAT_TOOLS = new Set([
@@ -142,7 +143,8 @@ Reading the conversation (this matters most — be the smart one):
 - Make your best correct guess from context and ACT on it, saying your guess in a few words ("Checking whether your Arc deposit arrived…"). Ask a question only when two readings are genuinely equally likely and acting on the wrong one would cost money.
 - "Check" / "did it arrive?" / "any update?" right after a deposit address, a payment, a conversion or a receipt means "has THAT happened yet?" — read the answer from tools (get_balance, get_recent_transactions) and report it. It never means "look up a seller".
 - Keep context across the whole chat: amounts, people, networks and coins mentioned earlier still apply to later short messages unless the person changes them.
-- Questions about money history ("what did I spend last month", "my receipts", "a statement for the last 30 days") are answered from get_recent_transactions and the saved Buy purchases; the app also builds downloadable statements itself.
+- STATEMENTS: anything like "my statement", "receipts", "my stuff / activity / transactions / history for the past four days", "what did I spend last week", "export / print / download my payments" → call get_statement with the EXACT period they gave (days=4 for "the past four days", days=8 for "the past eight days", days=7 for "last week"; from/to dates for "since Oct 1" or "between the 3rd and the 9th"). Never swap in a different period than the one they asked for. If they named no period, use days=30 and say so in one line. The app turns the result into a card with totals, the list, a spreadsheet download and a print/PDF button — keep your own words to one short sentence. For a quick "show my recent payments" with no period, get_recent_transactions is enough.
+- DID IT ARRIVE: "check", "did it arrive", "any update", "has my money come in" after a deposit address, a bridge or a transfer → call check_deposit and tell them its summary in your own words.
 - What the app handles by itself before you are asked (never claim it can't): getting paid from another network (Arbitrum, Base, Ethereum, Optimism, Polygon, Arc), converting between USDC / USDT / USAT, sending USDC / USDT / USAT to a @username or any 0x wallet address, recurring payments, statements. If the person names a network Pexa doesn't support, say it isn't supported yet and list the ones that are.
 
 Handling anything unfamiliar (be smart, stay honest):
@@ -301,6 +303,12 @@ async function buildRender(ctx: ToolContext, tool: string, args: Record<string, 
     if (!q) return null;
     return { type: 'fiat_quote', quote: presentQuote(q) };
   }
+  if (tool === 'get_statement') {
+    const p = periodFromArgs({ days: typeof args.days === 'number' ? args.days : undefined, from: typeof args.from === 'string' ? args.from : undefined, to: typeof args.to === 'string' ? args.to : undefined }, new Date());
+    if (!p.ok) return null;
+    const data = await buildStatement(ctx.userId, p.period);
+    return { type: 'statement', ...data };
+  }
   if (tool === 'get_deposit_details') {
     const wallet = await getWalletByUserId(ctx.userId);
     if (!wallet) return null;
@@ -335,36 +343,16 @@ const BRIDGE_DEADLINE_MS = 25_000;
 async function handleStatement(ctx: ToolContext, intent: StatementIntent): Promise<AgentTurn> {
   const data = await buildStatement(ctx.userId, intent.period);
   if (data.count === 0) return { reply: `You have no activity for ${intent.period.label} — nothing came in or went out.` };
-  const t = data.totals;
-  const trimmed = data.truncated ? ` (showing the newest ${data.rows.length})` : '';
-  return {
-    reply: `Here’s your statement for ${intent.period.label}: ${data.count} item${data.count === 1 ? '' : 's'}${trimmed} — ${statementMoney(t.moneyIn)} in, ${statementMoney(t.moneyOut)} out. Download it as a spreadsheet or print it as a PDF below.`,
-    action: { tool: 'statement', args: {}, render: { type: 'statement', ...data } },
-  };
+  return { reply: statementReply(intent.period.label, data, !intent.named), action: { tool: 'statement', args: {}, render: { type: 'statement', ...data } } };
 }
 
 /**
- * "check" after a deposit address was shown means "has my money arrived?". Answered from what the chain and Relay actually say:
- * new deposits are scanned first, then the reply is built from the facts (arrived / still converting / nothing yet / a problem).
+ * "check" after a deposit address was shown means "has my money arrived?". Answered from what the chain and Relay actually say
+ * (the same facts the agent's check_deposit tool reads).
  */
 async function handleDepositCheck(ctx: ToolContext): Promise<AgentTurn> {
-  await scanDeposits(ctx.userId); // finds anything new on Celo; never throws
-  const [recent, statuses, wallet] = await Promise.all([recentDeposits(ctx.userId, 5), getBridgeStatuses(ctx.userId).catch(() => []), getWalletByUserId(ctx.userId)]);
-  let balance: string | null = null;
-  try {
-    const usdc = getToken('USDC', activeNetwork.network)?.address;
-    if (wallet && usdc) balance = formatUnits(await getErc20Balance(usdc, wallet.address), 6);
-  } catch {
-    /* the reply simply leaves the balance out */
-  }
-  return {
-    reply: composeDepositCheck({
-      recent: recent.map((d) => ({ amount: d.amount, token: d.token, at: d.at })),
-      bridges: statuses.map((b) => ({ chain: b.chain, state: mapRelayStatus(b.status) })),
-      balance,
-      now: Date.now(),
-    }),
-  };
+  const r = await depositCheck(ctx.userId);
+  return { reply: r.summary };
 }
 
 function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -762,7 +750,14 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
     if (cardCall) {
       const args = parseArgs(cardCall.function.arguments);
       const render = await buildRender(ctx, cardCall.function.name, args);
-      if (render) return { reply: msg.content ?? '', action: { tool: cardCall.function.name, args, render } };
+      if (render) {
+        const said = (msg.content ?? '').trim();
+        const fallback =
+          render.type === 'statement'
+            ? statementReply(render.label, render, args.days === undefined && args.from === undefined)
+            : '';
+        return { reply: said || fallback, action: { tool: cardCall.function.name, args, render } };
+      }
     }
 
     // Otherwise (or on a failed render), run the auto tools and feed results back.

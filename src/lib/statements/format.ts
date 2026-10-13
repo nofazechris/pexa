@@ -126,3 +126,11 @@ th{color:#5B6472;font-weight:600;font-size:11px;text-transform:uppercase;letter-
 <p class="foot">Amounts are in dollar stablecoins (USDC, USDT, USAT) on Celo. Only completed items are added up; pending ones are listed but not counted. ${d.truncated ? `Showing the newest ${d.rows.length} of ${d.count} items. ` : ''}Every on-chain item can be checked on Celoscan.</p>
 </body></html>`;
 }
+
+/** One sentence to go with a statement card. */
+export function statementReply(label: string, d: StatementData, assumedPeriod = false): string {
+  const trimmed = d.truncated ? ` (showing the newest ${d.rows.length})` : '';
+  const assumed = assumedPeriod ? ' I used the last 30 days — tell me if you want a different period.' : '';
+  const when = /^since /i.test(label) ? label : `for ${label}`;
+  return `Here’s your statement ${when}: ${d.count} item${d.count === 1 ? '' : 's'}${trimmed} — ${money(d.totals.moneyIn)} in, ${money(d.totals.moneyOut)} out. Download it as a spreadsheet or print it as a PDF below.${assumed}`;
+}

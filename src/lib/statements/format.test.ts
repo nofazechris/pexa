@@ -79,3 +79,18 @@ describe('statementHtml', () => {
     expect(evil).toContain('&lt;b&gt;x&lt;/b&gt;');
   });
 });
+
+import { statementReply } from './format';
+
+describe('statementReply wording', () => {
+  const s = assembleStatement({ label: 'x', start: START, end: END, username: null, rows: [row({})] });
+  it('reads naturally for each kind of label', () => {
+    expect(statementReply('the last 4 days', s)).toMatch(/^Here’s your statement for the last 4 days: 1 item/);
+    expect(statementReply('since Oct 1', s)).toMatch(/^Here’s your statement since Oct 1: 1 item/);
+    expect(statementReply('Oct 1 – Oct 7', s)).toMatch(/statement for Oct 1 – Oct 7:/);
+  });
+  it('says plainly when it had to assume the period', () => {
+    expect(statementReply('the last 30 days', s, true)).toMatch(/I used the last 30 days — tell me if you want a different period/);
+    expect(statementReply('the last 30 days', s, false)).not.toMatch(/I used/);
+  });
+});

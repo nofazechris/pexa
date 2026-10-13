@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { color } from '@/lib/design/tokens';
 import type { BridgeCardData } from '@/components/auth/useAgentChat';
+import { BRIDGE_CHAINS } from '@/lib/bridge/chains';
 
 /**
  * "Get paid from <network>": the deposit address to send to. Nothing to confirm here — Pexa never moves anything on the
@@ -20,6 +21,8 @@ export function BridgeCard({ data, watch = false, getAccessToken }: { data: Brid
   const [phase, setPhase] = useState<Phase>('idle');
   const [arrived, setArrived] = useState<{ amount: string; token: string } | null>(null);
   const [checking, setChecking] = useState(false);
+  // Cards saved before the network id was stored still know their network's name.
+  const chainId = data.chainId ?? BRIDGE_CHAINS.find((c) => c.label.toLowerCase() === data.chain.toLowerCase())?.chainId;
   const sinceRef = useRef<string>('');
   const startedRef = useRef<number>(0);
   const doneRef = useRef(false);
@@ -38,10 +41,10 @@ Only USDC, and only on ${data.chain}. It reaches me automatically in my Pexa wal
 
   /** One look: has money landed on Celo since the card appeared, and what does the bridge say? Returns true when finished. */
   const check = useCallback(async (): Promise<boolean> => {
-    if (doneRef.current || !sinceRef.current || typeof data.chainId !== 'number') return doneRef.current;
+    if (doneRef.current || !sinceRef.current || typeof chainId !== 'number') return doneRef.current;
     try {
       const token = getAccessToken ? await getAccessToken() : null;
-      const res = await fetch(`/api/bridge/status?chainId=${data.chainId}&since=${encodeURIComponent(sinceRef.current)}`, { headers: token ? { authorization: `Bearer ${token}` } : {}, cache: 'no-store' });
+      const res = await fetch(`/api/bridge/status?chainId=${chainId}&since=${encodeURIComponent(sinceRef.current)}`, { headers: token ? { authorization: `Bearer ${token}` } : {}, cache: 'no-store' });
       if (!res.ok) return false;
       const d = (await res.json()) as { deposits?: Array<{ amount: string; token: string }>; state?: string };
       const first = d.deposits?.[0];
@@ -56,7 +59,7 @@ Only USDC, and only on ${data.chain}. It reaches me automatically in my Pexa wal
       /* try again on the next tick */
     }
     return false;
-  }, [data.chainId, getAccessToken]);
+  }, [chainId, getAccessToken]);
 
   // Start watching when this is the live card; stop after it arrives or 20 minutes.
   useEffect(() => {

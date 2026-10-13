@@ -462,7 +462,7 @@ function ChatRow({ m, onConfirm, onCancel, onRetry, onTry, watchBridge, getAcces
         {m.type === 'error' ? <ErrorCard m={m} onRetry={onRetry} /> : null}
         {m.type === 'receive' ? <ReceiveCard m={m} getAccessToken={getAccessToken} /> : null}
         {m.type === 'statement' && m.statement ? <StatementCard data={m.statement} /> : null}
-        {m.type === 'bridge' && m.bridge ? <BridgeCard data={m.bridge} watch={Boolean(watchBridge) && typeof m.bridge.chainId === 'number'} getAccessToken={getAccessToken} /> : null}
+        {m.type === 'bridge' && m.bridge ? <BridgeCard data={m.bridge} watch={Boolean(watchBridge)} getAccessToken={getAccessToken} /> : null}
         {m.type === 'intro' && onTry ? <IntroCard m={m} onTry={onTry} /> : null}
       </div>
     </div>

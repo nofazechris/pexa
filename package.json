@@ -15,6 +15,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "wallets:audit": "node scripts/wallet-audit.mjs",
+    "agent:eval": "vitest run -c vitest.eval.config.ts",
     "buy:report": "node scripts/buy-report.mjs"
   },
   "dependencies": {

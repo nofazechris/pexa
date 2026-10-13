@@ -282,3 +282,22 @@ describe('sending USDT / USAT, including to a wallet outside Pexa', () => {
     expect(askWho('5', [])).toMatch(/wallet address/);
   });
 });
+
+describe('a number of days is never an amount, and statements are never sends (the "past 7 days" bug)', () => {
+  it.each([
+    'give me my transactions for the past 7 days',
+    'give me my receipts for the last 3 days',
+    'send me my statement for the past 14 days',
+    'show me what I paid in the last 30 days',
+    'pay history for the past 2 weeks',
+    'send me my activity for 4 days',
+  ])('not a send: %s', (t) => expect(parseSendSlots([u(t)]).wantsSend, t).toBe(false));
+
+  it('an amount followed by a time unit is not money, but real amounts still are', () => {
+    expect(extractAmount('in the past 7 days')).toBeNull();
+    expect(extractAmount('every 2 weeks')).toBeNull();
+    expect(extractAmount('send 7 usdc to joyful')).toBe('7');
+    expect(extractAmount('send $7 to joyful')).toBe('7');
+    expect(extractAmount('send 7 to joyful')).toBe('7');
+  });
+});

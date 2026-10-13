@@ -42,7 +42,7 @@ const SEND_VERB = /\b(send|pay|transfer|give|wire|remit)\b/i;
 // A repeating payment can be asked for without a send verb: "set up a recurring payment", "autopay joyful $5".
 const RECURRING_REQUEST = /\b(recurring payment|standing order|auto-?pay|subscription|set up (?:a )?recurring)\b/i;
 // Things that look like a send but are something else (other tools handle them).
-const NOT_A_PLAIN_SEND = /\b(request|invoice|bill|naira|ngn|bank|withdraw|swap|convert|vault|save|saving|deposit|fund|buy|sell|schedule|rule)\b|₦/i;
+const NOT_A_PLAIN_SEND = /\b(request|invoice|bill|naira|ngn|bank|withdraw|swap|convert|statements?|receipts?|history|transactions?|activity|vault|save|saving|deposit|fund|buy|sell|schedule|rule)\b|₦/i;
 
 const ASKED_WHO = /\b(who|which|whom|username|recipient|send (?:it )?to)\b[^?]*\?/i;
 const ASKED_HOW_MUCH = /\bhow much\b[^?]*\?|\bwhat amount\b[^?]*\?/i;
@@ -72,7 +72,7 @@ function cleanName(raw: string | undefined): string | null {
 
 /** The amount stated in one message, if any. Digits ("1", "$5", "2.5 usdc") or a few number words ("one usdc"). */
 export function extractAmount(text: string): string | null {
-  const digits = /(?<![\w@.#-])\$?\s?(\d{1,9}(?:\.\d{1,6})?)(?![\w.]*\d)(?=\s*(?:usdc|usdt|usat|usd|dollars?|bucks?)?\b)/i.exec(text);
+  const digits = /(?<![\w@.#-])\$?\s?(\d{1,9}(?:\.\d{1,6})?)(?![\w.]*\d)(?!\s*(?:days?|weeks?|months?|years?|hours?|minutes?|mins?|times|x)\b)(?=\s*(?:usdc|usdt|usat|usd|dollars?|bucks?)?\b)/i.exec(text);
   if (digits && !ADDRESS.test(text.slice(Math.max(0, digits.index - 2), digits.index + digits[0].length + 2))) {
     const n = Number(digits[1]);
     if (n > 0) return String(n);
@@ -260,7 +260,7 @@ function distinctAmounts(text: string): string[] {
  * understand "the guy I paid yesterday", so they get the stronger model (the cheap one fumbles them).
  */
 export function isMoneyConversation(messages: readonly TurnMessage[]): boolean {
-  return messages.slice(-4).some((m) => /\b(send|sending|sent|pay|paid|transfer|request|beneficiar\w*|recents?|contacts?|who did i|usernames?)\b/i.test(m.content));
+  return messages.slice(-4).some((m) => /\b(send|sending|sent|pay|paid|transfer|request|beneficiar\w*|recents?|contacts?|who did i|usernames?|statements?|receipts?|history|transactions?|deposits?|deposited|arriv\w*|spent|spend|activity|bridge|convert|swap|balance|stuff|check)\b/i.test(m.content));
 }
 
 const TYPED_YES = /^\s*(yes|yeah|yep|yup|ok|okay|sure|confirm|do it|go ahead|send it|proceed|approve|please do|yes please)\W*$/i;

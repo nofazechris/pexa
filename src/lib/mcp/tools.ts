@@ -22,6 +22,9 @@ import { verifyPayoutAccount, listPayoutAccounts, createPayout } from '@/lib/fia
 import { presentQuote, presentOrder, presentPayoutAccount } from '@/lib/fiat/present';
 import { syncComplianceProfile } from '@/lib/fiat/compliance';
 import { formatKoboToNgn, formatUnitsToUsdt } from '@/lib/fiat/units';
+import { periodFromArgs } from '@/lib/statements/period';
+import { buildStatement } from '@/lib/statements/build';
+import { depositCheck } from '@/lib/deposits/check';
 
 /**
  * MCP tool surface (§ integrations).
@@ -396,6 +399,42 @@ export const TOOLS: ToolDef[] = [
     handler: async (ctx, args) => {
       const rows = await listPayments(ctx.userId, args.limit ?? 10);
       return { transactions: rows };
+    },
+  }),
+
+  tool({
+    name: 'get_statement',
+    description:
+      "The person's STATEMENT of money in and out — also called receipts, history, transactions, activity, \"my stuff\", spending summary, export, print — for ANY period they ask for. Pass the EXACT period: days=4 for \"the past four days\", days=7 for \"the last week\", days=8 for \"past 8 days\"; or from/to (YYYY-MM-DD) for \"since Oct 1\" or \"between the 3rd and the 9th\". If they named no period use days=30 and tell them that is what you used. It covers payments sent and received, deposits from outside Pexa, conversions and Buy purchases. The app shows the person a card with totals, the list, Download (CSV) and Print/PDF, so keep your own reply to one short sentence.",
+    schema: z.object({
+      days: z.number().int().min(1).max(366).optional().describe('A rolling window ending now, e.g. 4 for the past four days.'),
+      from: z.string().optional().describe('Start date, YYYY-MM-DD.'),
+      to: z.string().optional().describe('End date, YYYY-MM-DD (inclusive).'),
+    }),
+    handler: async (ctx, args) => {
+      const p = periodFromArgs(args, new Date());
+      if (!p.ok) throw new ToolError('invalid_period', p.error);
+      const data = await buildStatement(ctx.userId, p.period);
+      return {
+        period: p.period.label,
+        items: data.count,
+        moneyInUsd: data.totals.moneyIn,
+        moneyOutUsd: data.totals.moneyOut,
+        netUsd: data.totals.net,
+        newest: data.rows.slice(0, 10).map((r) => ({ date: r.at.slice(0, 10), type: r.kind, description: r.description, amountUsd: r.amount, status: r.status })),
+        note: 'The app shows the full statement with download and print buttons.',
+      };
+    },
+  }),
+
+  tool({
+    name: 'check_deposit',
+    description:
+      "Check whether money the person is WAITING FOR has arrived in their wallet — \"did my deposit come in?\", \"has it arrived?\", a bare \"check\" or \"any update?\" right after a deposit address, a bridge from another network or a transfer was shown. Reads the chain and the bridge's own status. Report the 'summary' to the person in your own words; never claim arrival without it.",
+    schema: z.object({}),
+    handler: async (ctx) => {
+      const r = await depositCheck(ctx.userId);
+      return { arrived: r.arrived, summary: r.summary, latestDeposits: r.facts.recent.slice(0, 3), bridges: r.facts.bridges, usdcBalance: r.facts.balance };
     },
   }),
 

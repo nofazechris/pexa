@@ -17,6 +17,8 @@ export interface ChatLike {
   swap?: { amountIn?: string; from?: string; to?: string; expectedOut?: string };
   swapResult?: { ok?: boolean; amountOut?: string | null; error?: string };
   statement?: { label?: string; count?: number };
+  research?: { title?: string; estimate?: string; cap?: string };
+  researchResult?: { request?: { kind?: string; what?: string; place?: string }; items?: { handle?: string | null; name?: string; verdictLabel?: string }[] };
   result?: { status?: string };
   title?: string;
 }
@@ -58,6 +60,14 @@ export function describeCard(m: ChatLike): string | null {
       return '[Showed a list of what Pexa can do]';
     case 'statement':
       return `[Showed a statement${m.statement?.label ? ` for ${m.statement.label}` : ''}${typeof m.statement?.count === 'number' ? ` with ${m.statement.count} items` : ''}, with Download and Print buttons]`;
+    case 'research_plan':
+      return `[Showed a plan to search for “${m.research?.title ?? 'a vendor'}” — about ${m.research?.estimate ?? '?'}, never more than ${m.research?.cap ?? '?'}${m.status === 'awaiting' ? ' — waiting for the person to tap Approve' : m.status === 'cancelled' ? ' — it was cancelled' : ''}]`;
+    case 'research_result': {
+      const r = m.researchResult;
+      const who = (r?.items ?? []).slice(0, 5).map((i) => `${i.handle ?? i.name ?? 'someone'} (${(i.verdictLabel ?? '').toLowerCase()})`).join(', ');
+      const kind = r?.request?.kind === 'hire' ? 'hiring' : 'vendor';
+      return `[Showed a ${kind} shortlist for ${r?.request?.what ?? 'what they asked'}${r?.request?.place ? ` in ${r.request.place}` : ''}: ${who || 'nobody found'}. The cards show each one’s facts and a message to send them]`;
+    }
     case 'error':
       return `[Showed an error: ${clip(m.title ?? 'something went wrong', 80)}]`;
     default:

@@ -25,6 +25,7 @@ import { formatKoboToNgn, formatUnitsToUsdt } from '@/lib/fiat/units';
 import { periodFromArgs } from '@/lib/statements/period';
 import { buildStatement } from '@/lib/statements/build';
 import { depositCheck } from '@/lib/deposits/check';
+import { createResearch, normalizeRequest } from '@/lib/research/service';
 
 /**
  * MCP tool surface (§ integrations).
@@ -640,6 +641,25 @@ export const TOOLS: ToolDef[] = [
       "Get the user's Buy spending guardrails and usage: whether autonomous buying is on, their auto-buy limit, daily budget, how much was spent today, and their wallet balance. Use it to explain why Pexa asked for approval or to tell the user how much room is left.",
     schema: z.object({}),
     handler: async (ctx) => getSpending(ctx.userId),
+  }),
+
+  tool({
+    name: 'plan_research',
+    description:
+      "Plan a search for a seller to buy from, or a person to hire, using Buy's live Instagram and LinkedIn data. It buys NOTHING: it shows the person a plan card with the cost and a budget; they tap Approve, and only then are small lookups bought (typically 2–10 cents total) and a ranked shortlist shown with plain-words verdicts. Use it when the person wants to FIND a vendor/seller/plug/shop to buy something from (kind \"vendors\"), or to FIND someone to hire — designer, developer, tailor, photographer, braider… (kind \"hire\"). You need both what they want and a city/area: if the place is missing, ask which city BEFORE calling this. For kind \"hire\": source \"linkedin\" for professionals (developer, accountant, marketer, designer), \"instagram\" for trades and creators (tailor, braider, makeup artist, photographer, caterer). Do NOT use this to check one specific named account (that is the check-before-you-pay lookup).",
+    schema: z.object({
+      kind: z.enum(['vendors', 'hire']),
+      what: z.string().min(2).max(80).describe('What they want, in a few words: "sneakers", "wigs", "graphic designer".'),
+      place: z.string().min(2).max(60).describe('City or area, e.g. "Lagos". Ask the person if they have not said.'),
+      source: z.enum(['instagram', 'linkedin']).optional().describe('Only for kind "hire".'),
+    }),
+    handler: async (ctx, args) => {
+      const req = normalizeRequest(args);
+      if (!req.ok) throw new ToolError('needs_details', req.message);
+      const made = await createResearch(ctx.userId, req.request);
+      if (!made.ok) throw new ToolError('research_unavailable', made.message);
+      return { plan: made.plan, note: 'Nothing was bought. The person must tap Approve on the plan card.' };
+    },
   }),
 
   // --- Fiat / NGN↔USDT (autonomous money). Same policy + authorization model as payments: the

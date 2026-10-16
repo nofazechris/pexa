@@ -10,7 +10,7 @@ for (const line of readFileSync(new URL('../../../../.env', import.meta.url), 'u
 type Msg = { role: 'user' | 'assistant'; content: string };
 interface Turn {
   reply: string;
-  action?: { tool: string; render: { type: string; label?: string; count?: number; startIso?: string; endIso?: string } };
+  action?: { tool: string; render: { type: string; label?: string; count?: number; startIso?: string; endIso?: string; request?: { kind: string; source: string; what: string; place: string } } };
 }
 
 /** How many days a statement card actually covers (so "two weeks" and "14 days" are the same thing). */
@@ -32,6 +32,15 @@ const ARC_CONVO: Msg[] = [
 ];
 const noSeller = (t: Turn) => (/instagram|seller|vendor|scam|legit|handle/i.test(t.reply) ? `answered about a seller: "${t.reply.slice(0, 100)}"` : null);
 const aboutArrival = (t: Turn) => (/arriv|deposit|not yet|balance|landed|received/i.test(t.reply) ? noSeller(t) : `didn't talk about the deposit: "${t.reply.slice(0, 120)}"`);
+
+const plan = (kind: string, source: string, place: RegExp) => (t: Turn) => {
+  const r = t.action?.render;
+  if (r?.type !== 'research_plan' || !r.request) return `no research plan card (said: "${t.reply.slice(0, 90)}")`;
+  if (r.request.kind !== kind) return `wrong kind: ${r.request.kind}`;
+  if (r.request.source !== source) return `wrong source: ${r.request.source}`;
+  return place.test(r.request.place) ? null : `wrong place: "${r.request.place}"`;
+};
+const asksCity = (t: Turn) => (t.action ? `should have asked for the city, but showed a ${t.action.render.type} card` : /city|where|which (?:area|part|town)|location/i.test(t.reply) ? null : `did not ask for a city: "${t.reply.slice(0, 100)}"`);
 
 const CASES: Case[] = [
   { name: 'statement: "my stuff for the past four days"', messages: [{ role: 'user', content: 'I need my stuff for the past four days' }], check: statementDays(4) },
@@ -62,6 +71,31 @@ const CASES: Case[] = [
   { name: 'routing: "I want to receive on arc" → deposit card', messages: [{ role: 'user', content: 'I want to receive on arc' }], check: (t) => (t.action?.render.type === 'bridge' ? null : `no bridge card: "${t.reply.slice(0, 100)}"`) },
   { name: 'routing: unknown network is called unsupported', messages: [{ role: 'user', content: 'I want to receive on zora' }], check: (t) => (/isn.t supported/i.test(t.reply) ? null : `did not say unsupported: "${t.reply.slice(0, 100)}"`) },
   { name: 'context: "check" with nothing on screen is not a seller check', messages: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'Hi! How can I help with your money today?' }, { role: 'user', content: 'check' }], check: noSeller },
+  { name: 'find: sneaker vendor in Lagos → vendors plan', messages: [{ role: 'user', content: 'find me a sneaker vendor in Lagos' }], check: plan('vendors', 'instagram', /lagos/i) },
+  { name: 'find: "who sells good wigs in Abuja?" → vendors plan', messages: [{ role: 'user', content: 'who sells good wigs in Abuja?' }], check: plan('vendors', 'instagram', /abuja/i) },
+  { name: 'find: graphic designer in Nairobi → hire on LinkedIn', messages: [{ role: 'user', content: 'I need a graphic designer in Nairobi' }], check: plan('hire', 'linkedin', /nairobi/i) },
+  { name: 'find: tailor in Yaba → hire on Instagram', messages: [{ role: 'user', content: 'find me a good tailor in Yaba' }], check: plan('hire', 'instagram', /yaba/i) },
+  { name: 'find: no city → asks which city', messages: [{ role: 'user', content: 'I need a graphic designer' }], check: asksCity },
+  { name: 'find: "near me" → asks which city', messages: [{ role: 'user', content: 'find me a phone plug near me' }], check: asksCity },
+  {
+    name: 'find: the city arrives in the next message',
+    messages: [
+      { role: 'user', content: 'I need a graphic designer' },
+      { role: 'assistant', content: 'Sure — which city should I look in?' },
+      { role: 'user', content: 'Lagos' },
+    ],
+    check: plan('hire', 'linkedin', /lagos/i),
+  },
+  {
+    name: 'find: the "Check closer" button looks the account up on Instagram',
+    messages: [{ role: 'user', content: 'Check the Instagram account @lagos_kicks before I pay: is it legit?' }],
+    check: (t) => (t.action?.render.type === 'buy_quote' ? null : `did not set up the lookup (said: "${t.reply.slice(0, 100)}")`),
+  },
+  {
+    name: 'find: "is @x legit?" stays a single-account check',
+    messages: [{ role: 'user', content: 'is @lagos_kicks legit?' }],
+    check: (t) => (t.action?.render.type === 'research_plan' ? 'treated a single account as a search' : null),
+  },
 ];
 
 const OUT = process.env.EVAL_OUT;
@@ -74,7 +108,7 @@ describe('agent evaluation (live)', () => {
   it('runs every case and reports', async () => {
     if (OUT) writeFileSync(OUT, '');
     const { getDb, schema } = await import('@/lib/db');
-    const { eq } = await import('drizzle-orm');
+    const { eq, and } = await import('drizzle-orm');
     const { runAgentTurn } = await import('@/lib/agent/runtime');
     // A flaky connection is not the agent being unintelligent: retry lookups, and retry a case whose answer was an infrastructure failure.
     const retry = async <T,>(fn: () => Promise<T>, tries = 6): Promise<T> => {
@@ -112,6 +146,8 @@ describe('agent evaluation (live)', () => {
       else failures.push(`${c.name} — ${why}`);
       log(`${why === null ? 'PASS' : 'FAIL'}  ${c.name}  (${Date.now() - t0}ms)${why ? `\n        ${why}` : `\n        said: ${said.slice(0, 110)}`}`);
     }
+    // The eval only ever makes plans (nothing is bought); tidy them away.
+    await retry(() => getDb().delete(schema.researchSessions).where(and(eq(schema.researchSessions.userId, prof.userId), eq(schema.researchSessions.status, 'PLANNED'))));
     log(`\n${pass}/${CASES.length} passed`);
     expect(failures, failures.join('\n')).toEqual([]);
   });

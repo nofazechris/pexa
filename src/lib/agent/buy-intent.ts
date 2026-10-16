@@ -15,6 +15,19 @@ const AFFIRMATION = /^(?:yes|yeah|yep|yup|y|ok|okay|sure|please|please do|do it|
 
 export type TurnMessage = { role: 'user' | 'assistant'; content: string };
 
+const FIND_VERB = /\b(find|finding|looking for|look for|searching for|search for|recommend|suggest|who sells|who can|where (?:can|do) i (?:buy|get)|i need|i want|need a|get me|best)\b/i;
+const FIND_NOUN = /\b(vendors?|sellers?|plugs?|shops?|stores?|suppliers?|dealers?|merchants?|tailors?|seamstress(?:es)?|designers?|developers?|programmers?|photographers?|videographers?|freelancers?|braiders?|hair ?stylists?|barbers?|make-?up artists?|caterers?|accountants?|marketers?|editors?|writers?|plumbers?|electricians?|mechanics?|hire|someone to)\b/i;
+const ABOUT_ONE_ACCOUNT = /\b(legit|scam|scammer|safe|trust|real or fake|fake)\b|@\w/i;
+
+/**
+ * "Find me a sneaker vendor in Lagos", "I need a graphic designer": discovery, which the agent answers with the research
+ * plan — not by searching the catalog for a service, and not the "is @x legit?" check on one named account.
+ */
+export function isFindRequest(text: string): boolean {
+  if (ABOUT_ONE_ACCOUNT.test(text)) return false;
+  return /\bwho sells\b/i.test(text) || (FIND_VERB.test(text) && FIND_NOUN.test(text));
+}
+
 export function isBuyIntent(text: string): boolean {
   return PLATFORM.test(text) || X_PHRASES.test(text) || OTHER.test(text) || (CROWD.test(text) && /\b(x|twitter|reddit|online|social)\b/i.test(text));
 }
@@ -27,6 +40,7 @@ export function shouldForceBuySearch(messages: readonly TurnMessage[]): boolean 
   const users = messages.filter((m) => m.role === 'user');
   const last = users[users.length - 1]?.content?.trim() ?? '';
   if (!last) return false;
+  if (isFindRequest(last)) return false; // the agent plans a research instead of searching the catalog
   if (isBuyIntent(last)) return true;
   if (AFFIRMATION.test(last)) {
     const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')?.content ?? '';
@@ -43,7 +57,7 @@ export function shouldForceBuySearch(messages: readonly TurnMessage[]): boolean 
  */
 export function isBuyConversation(messages: readonly TurnMessage[]): boolean {
   const recent = messages.slice(-6);
-  if (recent.some((m) => isBuyIntent(m.content))) return true;
+  if (recent.some((m) => isBuyIntent(m.content) || (m.role === 'user' && isFindRequest(m.content)) || /\[Showed a (?:vendor|hiring) shortlist/i.test(m.content))) return true;
   const last = messages[messages.length - 1]?.content ?? '';
   // Asking about past purchases ("receipt for that", "what did it find") is Buy territory too.
   return /\bapproved the purchase\b/i.test(last) || /\b(receipts?|(?:my|past|previous|last) (?:purchases?|buys?)|what did (?:it|that|you) (?:find|buy|get))\b/i.test(last);

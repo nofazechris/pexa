@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { BuyResult, BuyTypedData } from './useBuy';
 import { carryOverSummary, historyForAgent, type ChatLike } from '@/lib/conversations/describe';
 import type { StatementData } from '@/lib/statements/format';
+import type { ResearchPlanView, ResearchResult } from '@/lib/research/types';
+import type { ResearchOutcome, ResearchProgress } from './useResearch';
 
 /**
  * Pexa's agent chat — the primary surface. Every message goes to the server-side tool-calling agent
@@ -42,6 +44,7 @@ export interface PendingActionView {
     | ({ type: 'statement' } & StatementData)
     | ({ type: 'swap_preview' } & SwapCardData)
     | ({ type: 'recurring_preview' } & RecurringCardData)
+    | ({ type: 'research_plan' } & ResearchPlanView)
     | { type: 'buy_quote'; purchaseId: string; service: string; price: string; priceAtomic: string; token: string; detail: string; expiresAt: string; from: string; typedData: BuyTypedData; note: string };
 }
 
@@ -122,8 +125,12 @@ export interface RecurringCardData {
 export interface ChatMessage {
   id: number;
   role: 'user' | 'agent';
-  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge' | 'swap_preview' | 'swap_receipt' | 'statement';
+  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge' | 'swap_preview' | 'swap_receipt' | 'statement' | 'research_plan' | 'research_result';
   text?: string;
+  /** A "find me a vendor / someone to hire" plan waiting for the budget to be approved, how far it has got, and its shortlist. */
+  research?: ResearchPlanView;
+  researchProgress?: ResearchProgress;
+  researchResult?: ResearchResult;
   /** The "what I can do" list, each with a tap-to-try sentence. */
   intro?: IntroFeatureView[];
   /** A deposit address for bringing USDC from another network. */
@@ -184,6 +191,10 @@ export interface AgentChatDeps {
   }>;
   /** Approve a Buy purchase: sign with the user's wallet, pay, and wait for the recorded result. */
   executeBuy?: (args: { purchaseId: string; from: string; typedData: BuyTypedData }) => Promise<BuyResult>;
+  /** Run an approved research: the server picks each lookup inside the budget, the user's wallet signs each. */
+  executeResearch?: (sessionId: string, onProgress: (p: ResearchProgress) => void) => Promise<ResearchOutcome>;
+  /** Decline a research plan (best effort). */
+  cancelResearch?: (sessionId: string) => Promise<void>;
   /** Run a confirmed conversion: the wallet signs, the server verifies on-chain. */
   executeSwap?: (swapId: string, from: string) => Promise<SwapOutcome>;
   /** Drop a quoted conversion (best effort). */
@@ -301,6 +312,10 @@ export function useAgentChat(deps: AgentChatDeps) {
           const { type: _s, ...card } = action.render;
           void _s;
           push({ role: 'agent', type: 'swap_preview', swap: card, status: 'awaiting' });
+        } else if (action.render.type === 'research_plan') {
+          const { type: _rp, ...card } = action.render;
+          void _rp;
+          push({ role: 'agent', type: 'research_plan', research: card, status: 'awaiting' });
         } else if (action.render.type === 'intro') {
           push({ role: 'agent', type: 'intro', intro: action.render.features });
         } else if (action.render.type === 'recurring_preview') {
@@ -401,6 +416,29 @@ export function useAgentChat(deps: AgentChatDeps) {
             setAgentState('error');
           }
         }
+      } else if (m.type === 'research_plan' && m.research) {
+        const plan = m.research;
+        if (!d.executeResearch) {
+          setStatus(id, 'failed');
+          push({ role: 'agent', type: 'error', title: 'Searching isn’t available here.', hint: 'Nothing was charged.' });
+          setAgentState('error');
+        } else {
+          const r = await d.executeResearch(plan.sessionId, (p) => setMessages((prev) => prev.map((x) => (x.id === id ? { ...x, researchProgress: p } : x))));
+          if (r.ok) {
+            setMessages((prev) => prev.map((x) => (x.id === id ? { ...x, researchProgress: undefined } : x)));
+            push({ role: 'agent', type: 'research_result', researchResult: r.result });
+            setAgentState('success');
+          } else if (r.final) {
+            setStatus(id, 'failed');
+            push({ role: 'agent', type: 'error', title: 'The search stopped.', hint: r.error });
+            setAgentState('error');
+          } else {
+            // Paused (signing declined, a dropped connection): the card gets its button back, so it can be resumed.
+            setStatus(id, 'awaiting');
+            push({ role: 'agent', type: 'error', title: 'The search paused.', hint: r.error });
+            setAgentState('error');
+          }
+        }
       } else if (m.type === 'fiat_quote' && m.execTool) {
         const r = await d.executeAction({ tool: m.execTool, args: m.execArgs ?? {} });
         if (r.ok) {
@@ -426,8 +464,9 @@ export function useAgentChat(deps: AgentChatDeps) {
       const m = messages.find((x) => x.id === id);
       if (m?.type === 'buy_quote' && m.buy) void depsRef.current.cancelBuy?.(m.buy.purchaseId);
       if (m?.type === 'swap_preview' && m.swap) void depsRef.current.cancelSwap?.(m.swap.swapId);
+      if (m?.type === 'research_plan' && m.research) void depsRef.current.cancelResearch?.(m.research.sessionId);
       setStatus(id, 'cancelled');
-      push({ role: 'agent', type: 'text', text: m?.type === 'buy_quote' ? 'Cancelled. Nothing was charged.' : m?.type === 'recurring_preview' ? 'Cancelled. Nothing was set up.' : m?.type === 'swap_preview' ? 'Cancelled. Nothing was converted.' : 'Cancelled. Nothing was sent.' });
+      push({ role: 'agent', type: 'text', text: m?.type === 'buy_quote' || m?.type === 'research_plan' ? 'Cancelled. Nothing was charged.' : m?.type === 'recurring_preview' ? 'Cancelled. Nothing was set up.' : m?.type === 'swap_preview' ? 'Cancelled. Nothing was converted.' : 'Cancelled. Nothing was sent.' });
       setAgentState('idle');
     },
     [messages, push, setStatus],

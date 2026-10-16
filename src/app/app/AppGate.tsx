@@ -12,6 +12,7 @@ import { useActivity } from '@/components/auth/useActivity';
 import { useRequests } from '@/components/auth/useRequests';
 import { useRecurring } from '@/components/auth/useRecurring';
 import { useBuy, type BuyTypedData } from '@/components/auth/useBuy';
+import { useResearch, type ResearchProgress } from '@/components/auth/useResearch';
 import { useSwap } from '@/components/auth/useSwap';
 import { useConversations } from '@/components/auth/useConversations';
 import type { PendingActionView, AgentFailReason } from '@/components/auth/useAgentChat';
@@ -43,6 +44,7 @@ export default function AppGate() {
   const { items: requests, markPaid: markRequestPaid, refresh: refreshRequests, cancel: cancelRequest, decline: declineRequest } = useRequests();
   const { items: recurring, setPaused: setRecurringPaused, cancel: cancelRecurring, refresh: refreshRecurring } = useRecurring();
   const { executeBuy, cancelBuy } = useBuy();
+  const { executeResearch, cancelResearch } = useResearch(executeBuy);
   const { executeSwap, cancelSwap } = useSwap();
   const conversations = useConversations();
   const router = useRouter();
@@ -81,6 +83,14 @@ export default function AppGate() {
         return r;
       },
       cancelBuy,
+      // Run an approved research (find a vendor / someone to hire): the user's wallet signs each small lookup inside the budget.
+      executeResearch: async (sessionId: string, onProgress: (p: ResearchProgress) => void) => {
+        const r = await executeResearch(sessionId, onProgress);
+        refreshBalance();
+        refreshActivity();
+        return r;
+      },
+      cancelResearch,
       // Convert USDC ⇄ USDT ⇄ USAT: the wallet signs what the server prepared; balances refresh when it lands.
       executeSwap: async (swapId: string, from: string) => {
         const r = await executeSwap(swapId, from);
@@ -176,7 +186,7 @@ export default function AppGate() {
         }
       },
     }),
-    [pay, refreshBalance, refreshActivity, refreshRequests, refreshRecurring, markRequestPaid, setRecurringPaused, cancelRecurring, getAccessToken, executeBuy, cancelBuy, executeSwap, cancelSwap],
+    [pay, refreshBalance, refreshActivity, refreshRequests, refreshRecurring, markRequestPaid, setRecurringPaused, cancelRecurring, getAccessToken, executeBuy, cancelBuy, executeResearch, cancelResearch, executeSwap, cancelSwap],
   );
 
   useEffect(() => {
@@ -268,6 +278,8 @@ export default function AppGate() {
       executeSend={hooks.executeSend}
       executeBuy={hooks.executeBuy}
       cancelBuy={hooks.cancelBuy}
+      executeResearch={hooks.executeResearch}
+      cancelResearch={hooks.cancelResearch}
       executeSwap={hooks.executeSwap}
       cancelSwap={hooks.cancelSwap}
       createRecurring={hooks.createRecurring}

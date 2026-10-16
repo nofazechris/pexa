@@ -561,6 +561,38 @@ export const buyPurchases = pgTable(
 );
 
 /**
+ * One "find me a vendor / someone to hire" research: a handful of small Buy purchases made under a budget the user approved
+ * once. The purchases themselves are `buy_purchases` rows (each signed by the user's own wallet); this row remembers the
+ * request, the budget, which purchases belong to it, and the shortlist it produced.
+ *
+ *   PLANNED    shown to the user, nothing bought   |  RUNNING  approved, purchases in progress
+ *   DONE       finished (the result is stored)     |  FAILED   couldn't get any result (nothing charged for failures)
+ *   CANCELLED  the user declined
+ */
+export const researchSessions = pgTable(
+  'research_sessions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    source: text('source').notNull(),
+    what: text('what').notNull(),
+    place: text('place').notNull().default(''),
+    /** The most this research may spend, in atomic units (6 decimals). */
+    capAtomic: text('cap_atomic').notNull(),
+    status: text('status').notNull().default('PLANNED'),
+    /** The purchases made for it, in order: [{ purchaseId, role, ref }] (JSON). */
+    stepsJson: text('steps_json').notNull().default('[]'),
+    resultJson: text('result_json'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('research_sessions_user_created_idx').on(t.userId, t.createdAt)],
+);
+
+/**
  * Saved agent chats, so a conversation survives a reload and can be continued later. The whole message
  * list is one JSON document (cards included); money cards are stored without any signing data and are
  * restored inert — an old Approve/Confirm card can never be tapped again. Capped in size server-side.
@@ -691,6 +723,7 @@ export type BridgeAddressRow = typeof bridgeAddresses.$inferSelect;
 export type WalletDepositRow = typeof walletDeposits.$inferSelect;
 export type BuySettingsRow = typeof buySettings.$inferSelect;
 export type BuyPurchaseRow = typeof buyPurchases.$inferSelect;
+export type ResearchSessionRow = typeof researchSessions.$inferSelect;
 export type ReferralCodeRow = typeof referralCodes.$inferSelect;
 export type ReferralRow = typeof referrals.$inferSelect;
 export type UserRow = typeof users.$inferSelect;

@@ -32,6 +32,8 @@ import { parseStatementIntent, periodFromArgs, type StatementIntent } from '@/li
 import { buildStatement } from '@/lib/statements/build';
 import { statementReply, type StatementData } from '@/lib/statements/format';
 import { depositCheck } from '@/lib/deposits/check';
+import { createResearch, normalizeRequest } from '@/lib/research/service';
+import type { ResearchPlanView } from '@/lib/research/types';
 import { askSwapAmount, parseSwapIntent, type SwapIntent } from '@/lib/swap/intent';
 import { createSwapPreview, swapsAvailable, type SwapPreview } from '@/lib/swap/service';
 import { AI_DOWN_REPLY, aiBreaker, fastLane, formatBalanceReply, formatRecentReply, modelChain } from './resilience';
@@ -64,6 +66,7 @@ const AGENT_TOOLS = new Set([
   'buy_poll_result',
   'buy_list_purchases',
   'buy_get_spending',
+  'plan_research',
   'get_profile',
   'get_balance',
   'get_deposit_details',
@@ -101,6 +104,7 @@ const BUY_TOOLS = new Set([
   'buy_poll_result',
   'buy_list_purchases',
   'buy_get_spending',
+  'plan_research',
 ]);
 
 // EXECUTE tools — intercepted for explicit user confirmation, never auto-run by the model.
@@ -108,7 +112,7 @@ const CONFIRM_TOOLS = new Set(['confirm_payment', 'create_buy_usdt_order', 'crea
 
 // CARD tools — informational (no money moves), but the runtime surfaces a rich card instead of
 // letting the model describe the result in prose. e.g. the deposit/receive address + QR.
-const CARD_TOOLS = new Set(['get_deposit_details', 'get_statement']);
+const CARD_TOOLS = new Set(['get_deposit_details', 'get_statement', 'plan_research']);
 
 // Fiat tools are only offered when the feature is on.
 const FIAT_TOOLS = new Set([
@@ -169,6 +173,7 @@ Buying services on Celo's Buy marketplace (you can spend the user's dollar stabl
 - RECEIPTS & SAVED RESULTS: every purchase and what it found is saved. When the user asks for a receipt, a past result, or "what did that find", call buy_list_purchases (find the right one by service/date) then buy_get_purchase for its saved result, and answer from it — price, token, date, status, and the Celoscan link if there is one. Tell them they can also open it any time under Activity → "Purchases & receipts" to copy or download it. Never buy again just to re-read something already saved.
 - Be honest about cost: say the price in dollars before buying. Never exceed what the user asked for. Don't buy anything the user didn't ask for.
 - CHECK BEFORE YOU PAY — Pexa's signature use of Buy. Only when the conversation is about a SELLER, vendor, account, business or project (a name, a handle, "is this legit?") — never for a bare "check" with no such subject. When the user is about to pay someone they found online (an Instagram/TikTok/X vendor, a seller, a business, a project) or asks "is this legit / safe / a scam?", offer a quick check (about 1–2 cents) and run it only if they say yes (or they asked for it): (1) look up the account with the matching profile service (instagram.profile or tiktok.profile — pass the handle without @; for X, search the handle with x.posts.search) — age, follower count vs engagement, bio, how active; (2) search what people say with reddit.posts.search and/or x.posts.search using the name/handle plus words like "scam" or "legit". Do the lookups one at a time. Then give a short verdict in plain words — "No red flags found", "Mixed signals" or "Warning signs" — with the 2–3 concrete findings behind it, and say what you could NOT verify. Never claim someone is safe or a scammer with certainty; no result is not proof. For a first-time payee, suggest a small test payment before the full amount, and offer to send it. Never send the money yourself as part of the check.
+- FIND A VENDOR / FIND SOMEONE TO HIRE — the other signature use of Buy. When the person wants to FIND a seller to buy from ("who sells sneakers in Lagos?", "find me a wig vendor in Abuja", "I need a plug for phones") or someone to HIRE ("I need a graphic designer", "find a tailor in Yaba", "a photographer near me") → call plan_research. You need what they want AND a city or area: if the place is missing (including "near me" — you can't see where they are), ask ONE short question for the city, then call it. Use kind "vendors" for things to buy; kind "hire" for people — source "linkedin" for professionals (developers, designers, accountants, marketers, virtual assistants), source "instagram" for trades and creators (tailors, braiders, makeup artists, photographers, caterers, barbers). plan_research buys NOTHING: the app shows a plan card with the cost and a budget; the person taps Approve and the app runs the lookups itself and shows the ranked shortlist. So after calling it, say ONE short sentence and do not state prices (the card does). Do NOT use buy_search_catalog / buy_purchase for these requests. This is different from "is @x legit?" about ONE named account, which is CHECK BEFORE YOU PAY. (A @handle next to words like legit / scam / safe / trust / "before I pay" is a social-media account, NOT a Pexa user: never look it up with find_contact or find_people — look it up on the platform the person named, or on Instagram if they didn't name one.) When the shortlist is on screen ("[Showed a shortlist …]" in the notes), answer follow-ups from the notes: which one to pick, what to ask the vendor, how to pay safely — and offer to check one account more deeply (that is CHECK BEFORE YOU PAY) or to send a small test payment if they give you a wallet address or @username. Most vendors on Instagram don't take crypto: be honest that they may need to give a USDT/USDC address on Celo (or an alternative), and never imply Pexa can pay a bank account or Instagram handle directly.
 - Summarize search results for a person, not a developer: lead with the answer, quote at most a short phrase, name sources (platform, rough date), skip IDs and URLs unless asked.
 
 Automations (programmable money rules):
@@ -226,7 +231,9 @@ export interface PendingAction {
         from: string;
         typedData: AuthorizationTypedData;
         note: string;
-      };
+      }
+    /** A "find me a vendor / someone to hire" plan: nothing is bought until the user approves its budget. */
+    | ({ type: 'research_plan' } & ResearchPlanView);
 }
 
 export interface AgentTurn {
@@ -308,6 +315,12 @@ async function buildRender(ctx: ToolContext, tool: string, args: Record<string, 
     if (!p.ok) return null;
     const data = await buildStatement(ctx.userId, p.period);
     return { type: 'statement', ...data };
+  }
+  if (tool === 'plan_research') {
+    const req = normalizeRequest(args);
+    if (!req.ok) return null; // the tool itself will tell the model what's missing
+    const made = await createResearch(ctx.userId, req.request);
+    return made.ok ? { type: 'research_plan', ...made.plan } : null;
   }
   if (tool === 'get_deposit_details') {
     const wallet = await getWalletByUserId(ctx.userId);
@@ -755,7 +768,9 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
         const fallback =
           render.type === 'statement'
             ? statementReply(render.label, render, args.days === undefined && args.from === undefined)
-            : '';
+            : render.type === 'research_plan'
+              ? `I can search for that. It costs about ${render.estimate} and never more than ${render.cap} — approve it below and I’ll run it.`
+              : '';
         return { reply: said || fallback, action: { tool: cardCall.function.name, args, render } };
       }
     }

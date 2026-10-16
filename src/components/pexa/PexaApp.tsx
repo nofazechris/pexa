@@ -10,6 +10,7 @@ import { AgentPayments } from '@/components/app/AgentPayments';
 import { ShareLink } from '@/components/pexa/ShareLink';
 import { BuyPage } from '@/components/pexa/BuyPage';
 import { BuyQuoteCard, BuyResultCard } from '@/components/pexa/BuyCards';
+import { ResearchPlanCard, ResearchResultCard } from '@/components/pexa/ResearchCards';
 import { ConversionsPanel, SwapPreviewCard, SwapReceiptCard } from '@/components/pexa/SwapCards';
 import { RecurringPreviewCard, RecurringReceiptCard } from '@/components/pexa/RecurringCards';
 import { ContinueCard, HistorySheet } from '@/components/pexa/ChatHistory';
@@ -80,6 +81,8 @@ export interface PexaAppProps {
   executeSend: AgentChatDeps['executeSend'];
   executeBuy?: AgentChatDeps['executeBuy'];
   cancelBuy?: AgentChatDeps['cancelBuy'];
+  executeResearch?: AgentChatDeps['executeResearch'];
+  cancelResearch?: AgentChatDeps['cancelResearch'];
   executeSwap?: AgentChatDeps['executeSwap'];
   cancelSwap?: AgentChatDeps['cancelSwap'];
   createRecurring?: AgentChatDeps['createRecurring'];
@@ -121,13 +124,15 @@ export function PexaApp(props: PexaAppProps) {
       executeSend: props.executeSend,
       executeBuy: props.executeBuy,
       cancelBuy: props.cancelBuy,
+      executeResearch: props.executeResearch,
+      cancelResearch: props.cancelResearch,
       executeSwap: props.executeSwap,
       cancelSwap: props.cancelSwap,
       createRecurring: props.createRecurring,
       saveConversation: props.conversations?.save,
       loadConversation: props.conversations?.load,
     }),
-    [props.sendToAgent, props.executeAction, props.executeSend, props.executeBuy, props.cancelBuy, props.executeSwap, props.cancelSwap, props.createRecurring, props.conversations],
+    [props.sendToAgent, props.executeAction, props.executeSend, props.executeBuy, props.cancelBuy, props.executeResearch, props.cancelResearch, props.executeSwap, props.cancelSwap, props.createRecurring, props.conversations],
   );
   const chat = useAgentChat(deps);
 
@@ -459,6 +464,8 @@ function ChatRow({ m, onConfirm, onCancel, onRetry, onTry, watchBridge, getAcces
         {m.type === 'swap_receipt' ? <SwapReceiptCard m={m} /> : null}
         {m.type === 'buy_quote' ? <BuyQuoteCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
         {m.type === 'buy_result' ? <BuyResultCard m={m} /> : null}
+        {m.type === 'research_plan' ? <ResearchPlanCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
+        {m.type === 'research_result' ? <ResearchResultCard m={m} onTry={onTry} /> : null}
         {m.type === 'error' ? <ErrorCard m={m} onRetry={onRetry} /> : null}
         {m.type === 'receive' ? <ReceiveCard m={m} getAccessToken={getAccessToken} /> : null}
         {m.type === 'statement' && m.statement ? <StatementCard data={m.statement} /> : null}

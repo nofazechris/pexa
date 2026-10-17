@@ -9,66 +9,6 @@ import { distanceText } from '@/lib/geo/place';
 const PLATFORM_NAME = { instagram: 'Instagram', x: 'X', linkedin: 'LinkedIn' } as const;
 
 /**
- * Shown when the assistant asks where the person is: one tap shares an AREA NAME ("Yaba, Lagos") worked out from the phone's
- * position. The position is rounded and never stored; typing a city instead always works.
- */
-export function AskLocationCard({ onShare, getAccessToken }: { onShare: (label: string) => void; getAccessToken?: () => Promise<string | null> }) {
-  const [state, setState] = useState<'idle' | 'locating' | 'done' | 'denied' | 'failed'>('idle');
-  const [label, setLabel] = useState('');
-
-  const share = () => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      setState('failed');
-      return;
-    }
-    setState('locating');
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const token = await getAccessToken?.();
-          const res = await fetch('/api/geo/reverse', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
-            body: JSON.stringify({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-          });
-          const data = (await res.json().catch(() => ({}))) as { label?: string };
-          if (res.ok && data.label) {
-            setLabel(data.label);
-            setState('done');
-            onShare(data.label);
-          } else setState('failed');
-        } catch {
-          setState('failed');
-        }
-      },
-      (err) => setState(err.code === 1 ? 'denied' : 'failed'),
-      { enableHighAccuracy: false, timeout: 12_000, maximumAge: 300_000 },
-    );
-  };
-
-  return (
-    <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '14px', padding: '13px 14px', maxWidth: '380px' }}>
-      {state === 'done' ? (
-        <div style={{ fontSize: '13.5px', color: color.mutedStrong }}>Using your area: <strong style={{ color: color.ink }}>{label}</strong></div>
-      ) : (
-        <>
-          <button onClick={share} disabled={state === 'locating'} style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '14px', fontWeight: 500, padding: 'var(--pp-btn-y) 15px', borderRadius: '11px', cursor: state === 'locating' ? 'default' : 'pointer', opacity: state === 'locating' ? 0.7 : 1 }}>
-            {state === 'locating' ? 'Finding your area…' : '📍 Use my location'}
-          </button>
-          <div style={{ fontSize: '12px', color: state === 'denied' || state === 'failed' ? color.warning : color.faint, marginTop: '9px', lineHeight: 1.5 }}>
-            {state === 'denied'
-              ? 'Location is switched off for this site, so I can’t see where you are. Type your city or neighbourhood instead.'
-              : state === 'failed'
-                ? 'I couldn’t work out your area. Type your city or neighbourhood instead.'
-                : 'Only your neighbourhood name (like “Yaba, Lagos”) is used — not your exact position — and it isn’t stored. Or just type your city.'}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-/**
  * Chat cards for "find me a vendor / someone to hire". The plan card is the one human checkpoint: it states the cost and the
  * most it can ever cost, and nothing is bought until it is approved. The result card is a ranked shortlist whose every line
  * is a fact read from the profile — with the honest limits written on it.

@@ -302,7 +302,18 @@ export interface LiPerson {
   followers: number | null;
   experienceCount: number | null;
   currentRole: string | null;
+  /** When the profile was created (LinkedIn's own record). */
+  joined: Date | null;
+  verified: boolean | null;
+  openToWork: boolean | null;
+  /** Services they list, and skills — what they say they do. */
+  services: string[];
+  skills: string[];
+  recommendations: number | null;
 }
+
+const stringList = (v: Json): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, 12) : []);
+const namedList = (v: Json): string[] => (Array.isArray(v) ? v.map((x) => (isObj(x) ? asText(x.name) : typeof x === 'string' ? x : null)).filter((x): x is string => Boolean(x)).slice(0, 12) : []);
 
 const LI_URL = ['linkedinUrl', 'profileUrl', 'url', 'link', 'publicProfileUrl'] as const;
 
@@ -337,6 +348,12 @@ export function liPeople(output: Json): LiPerson[] {
       followers: asNumber(findKey(o, ['followerCount', 'followersCount', 'followers'], 2)),
       experienceCount: Array.isArray(exp) ? exp.length : null,
       currentRole: asText(findKey(o, ['currentPosition', 'currentJob', 'currentRole', 'currentCompany', 'companyName'], 2)),
+      joined: asDate(findKey(o, ['registeredAt'], 1)),
+      verified: asBool(findKey(o, ['verified'], 1)),
+      openToWork: asBool(findKey(o, ['openToWork'], 1)),
+      services: stringList(findKey(o, ['servicesList'], 2)),
+      skills: namedList(findKey(o, ['skills'], 1)),
+      recommendations: asNumber(findKey(o, ['receivedRecommendations'], 2)),
     });
   }
   return out;

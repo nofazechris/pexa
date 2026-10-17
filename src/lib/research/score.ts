@@ -201,10 +201,10 @@ export function scoreX(p: XPerson, ask: { what: string; place: string }, kind: R
 // --- LinkedIn ------------------------------------------------------------------------------------------------
 
 /** A LinkedIn person, against what was asked for and where. */
-export function scoreLinkedIn(p: LiPerson, ask: { what: string; place: string }): ResearchItem {
+export function scoreLinkedIn(p: LiPerson, ask: { what: string; place: string }, now: Date = new Date()): ResearchItem {
   const signals: Signal[] = [];
   const stats: string[] = [];
-  const haystack = `${p.headline ?? ''} ${p.about ?? ''} ${p.currentRole ?? ''}`.toLowerCase();
+  const haystack = `${p.headline ?? ''} ${p.about ?? ''} ${p.currentRole ?? ''} ${p.services.join(' ')} ${p.skills.join(' ')}`.toLowerCase();
   const wanted = words(ask.what);
   const hits = wanted.filter((w) => haystack.includes(w));
 
@@ -224,6 +224,15 @@ export function scoreLinkedIn(p: LiPerson, ask: { what: string; place: string })
     stats.push(`${compact(p.followers)} followers`);
   }
   if (p.about && p.about.length > 60) signals.push({ tone: 'good', text: 'Has a written summary of their work.' });
+  if (p.verified) signals.push({ tone: 'good', text: 'Verified profile.' });
+  if (p.joined) {
+    const years = (now.getTime() - p.joined.getTime()) / (365 * 86_400_000);
+    if (years >= 2) signals.push({ tone: 'good', text: `On LinkedIn since ${p.joined.getUTCFullYear()}.` });
+    else if (years < 0.5) signals.push({ tone: 'warn', text: 'Brand-new profile.' });
+  }
+  if (p.recommendations !== null && p.recommendations > 0) signals.push({ tone: 'good', text: `${p.recommendations} recommendation${p.recommendations === 1 ? '' : 's'} from colleagues or clients.` });
+  if (p.services.length) signals.push({ tone: 'info', text: `Offers: ${p.services.slice(0, 4).join(', ')}.` });
+  if (p.openToWork) signals.push({ tone: 'good', text: 'Open to work — likely available.' });
   if (p.experienceCount !== null) {
     if (p.experienceCount >= 2) signals.push({ tone: 'good', text: `${p.experienceCount} past roles listed.` });
     else if (p.experienceCount === 0) signals.push({ tone: 'warn', text: 'No work history listed.' });

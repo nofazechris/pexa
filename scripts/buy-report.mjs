@@ -54,17 +54,38 @@ const short = (a) => (a ? a.slice(0, 6) + '…' + a.slice(-4) : '');
 const usd = (atomic) => (Number(atomic) / 1e6).toFixed(Number(atomic) % 10000 === 0 ? 2 : 4);
 const addrTopic = (t) => '0x' + String(t).slice(26).toLowerCase();
 
-async function rpc(method, params) {
-  const res = await fetch(RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+// Public RPCs sit behind load balancers: one node can briefly not know a transaction another node has. Ask several in turn.
+const RPCS = [...new Set([RPC, 'https://forno.celo.org', 'https://1rpc.io/celo', 'https://rpc.ankr.com/celo'])];
+
+async function rpcAt(url, method, params) {
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(15000) });
   const j = await res.json();
   if (j.error) throw new Error(j.error.message);
   return j.result;
 }
 
+/** The receipt from the first node that has it. `reached` = how many nodes answered at all (null result or not). */
+async function receiptOf(hash) {
+  let reached = 0;
+  for (const url of RPCS) {
+    try {
+      const r = await retry(() => rpcAt(url, 'eth_getTransactionReceipt', [hash]), 2);
+      reached++;
+      if (r) return { receipt: r, reached };
+    } catch {
+      /* this node is down or rate-limiting: try the next */
+    }
+  }
+  return { receipt: null, reached };
+}
+
 /** Did this transaction succeed AND really move `amount` of `token` from `from` to `to`? */
 async function verifyTx(p) {
-  const receipt = await retry(() => rpc('eth_getTransactionReceipt', [p.tx_hash]));
-  if (!receipt) return { ok: false, why: 'transaction not found on Celo' };
+  const { receipt, reached } = await receiptOf(p.tx_hash);
+  if (!receipt) {
+    // Only "not found" if nodes actually answered; if none could be reached, we simply couldn't check.
+    return reached ? { ok: false, why: `not found on ${reached} Celo node(s)` } : { ok: null, why: 'could not reach a Celo node to check' };
+  }
   if (receipt.status !== '0x1') return { ok: false, why: 'transaction reverted' };
   const token = (TOKENS[p.pay_token] ?? '').toLowerCase();
   if (!token) return { ok: false, why: 'unknown token' };
@@ -113,7 +134,7 @@ for (const r of rows) {
     tx: r.tx_hash,
     celoscan: `https://celoscan.io/tx/${r.tx_hash}`,
     verified: v ? v.ok : null,
-    verifyNote: v && !v.ok ? v.why : null,
+    verifyNote: v && v.ok !== true ? v.why : null,
   });
 }
 
@@ -138,6 +159,7 @@ const summary = {
   lastPurchase: purchases[purchases.length - 1]?.when ?? null,
   verifiedOnChain: VERIFY ? purchases.filter((p) => p.verified).length : 'not checked (run with --verify)',
   failedVerification: VERIFY ? purchases.filter((p) => p.verified === false).length : null,
+  unchecked: VERIFY ? purchases.filter((p) => p.verified === null).length : null,
 };
 
 if (AS_JSON) {
@@ -157,7 +179,7 @@ if (AS_JSON) {
   console.log(`Period             ${summary.firstPurchase?.slice(0, 10) ?? '—'} → ${summary.lastPurchase?.slice(0, 10) ?? '—'}`);
   console.log(`Buy payee          ${summary.buyPayee.join(', ') || '—'}`);
   console.log(`Services           ${Object.entries(byService).map(([k, v]) => `${k} ×${v}`).join(', ') || '—'}`);
-  console.log(`On-chain check     ${VERIFY ? `${summary.verifiedOnChain} verified, ${summary.failedVerification} failed` : 'skipped (add --verify to check every transaction)'}`);
+  console.log(`On-chain check     ${VERIFY ? `${summary.verifiedOnChain} verified, ${summary.failedVerification} failed${summary.unchecked ? `, ${summary.unchecked} could not be checked` : ''}` : 'skipped (add --verify to check every transaction)'}`);
   console.log('\n' + 'WHEN (UTC)'.padEnd(17) + 'SERVICE'.padEnd(22) + 'AMOUNT'.padEnd(14) + 'PAYER'.padEnd(14) + 'TX'.padEnd(14) + (VERIFY ? 'VERIFIED' : ''));
   for (const p of purchases) {
     console.log(
@@ -166,7 +188,7 @@ if (AS_JSON) {
         `$${p.amount} ${p.token}`.padEnd(14) +
         short(p.payer).padEnd(14) +
         short(p.tx).padEnd(14) +
-        (VERIFY ? (p.verified ? 'yes' : `NO — ${p.verifyNote}`) : ''),
+        (VERIFY ? (p.verified === true ? 'yes' : p.verified === null ? `not checked — ${p.verifyNote}` : `NO — ${p.verifyNote}`) : ''),
     );
   }
   console.log('\nEvery row is a public Celo transaction: ' + (purchases[0]?.celoscan ?? 'https://celoscan.io/tx/<hash>'));

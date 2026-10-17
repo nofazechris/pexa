@@ -268,7 +268,7 @@ export function assemble(req: ResearchRequest, steps: readonly StepState[], reas
   const items: ResearchItem[] = [];
 
   if (req.source === 'linkedin') {
-    items.push(...paidOutputs(steps, 'search').flatMap((s) => liPeople(s.output)).map((p) => scoreLinkedIn(p, { what: req.what, place: req.place })));
+    items.push(...paidOutputs(steps, 'search').flatMap((s) => liPeople(s.output)).map((p) => scoreLinkedIn(p, { what: req.what, place: req.place }, now)));
     notes.push('Ask for past work or a reference before you pay anyone you haven’t met.');
   } else {
     const found = foundAccounts(steps);

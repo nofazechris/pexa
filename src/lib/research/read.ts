@@ -102,6 +102,87 @@ export function findList(value: Json, isItem: (item: Record<string, Json>) => bo
   return best;
 }
 
+// --- Contact details and places the account published itself ------------------------------------------------
+
+export interface Contact {
+  /** As written, e.g. "+234 801 234 5678". */
+  phone: string | null;
+  /** Digits for a tel: link ("+2348012345678"). */
+  tel: string | null;
+  /** A wa.me link, only when the number is international or the account gave a WhatsApp link. */
+  whatsapp: string | null;
+  email: string | null;
+  website: string | null;
+}
+
+export const NO_CONTACT: Contact = { phone: null, tel: null, whatsapp: null, email: null, website: null };
+
+const PHONE_KEYS = ['publicPhoneNumber', 'contactPhoneNumber', 'businessPhoneNumber', 'phoneNumber', 'phone', 'mobile'] as const;
+const PHONE_CC_KEYS = ['publicPhoneCountryCode', 'phoneCountryCode'] as const;
+const EMAIL_KEYS = ['publicEmail', 'businessEmail', 'contactEmail', 'email'] as const;
+const PHONE_RE = /\+?\d[\d\s().-]{7,18}\d/g;
+const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/;
+const WA_RE = /(?:wa\.me\/|api\.whatsapp\.com\/send\?phone=|whatsapp\.com\/send\?phone=)\+?(\d{8,15})/i;
+
+interface Phone {
+  shown: string;
+  digits: string;
+  intl: boolean;
+}
+
+/** A string that is really a phone number — not a date, a count, or a run of one digit. */
+function plausiblePhone(raw: string): Phone | null {
+  const shown = raw.trim().replace(/\s+/g, ' ');
+  if (/^\d{4}[-./]\d{1,2}[-./]\d{1,2}/.test(shown)) return null;
+  const digits = shown.replace(/\D/g, '');
+  if (digits.length < 9 || digits.length > 15 || /^(\d)\1+$/.test(digits)) return null;
+  const intl = shown.startsWith('+');
+  if (!intl && !digits.startsWith('0') && digits.length < 10) return null;
+  return { shown, digits, intl };
+}
+
+/** What an account published for being contacted: fields first (business accounts), then what its bio says. */
+export function contactFrom(obj: Json, bio: string | null, website: string | null): Contact {
+  const field = asText(findKey(obj, PHONE_KEYS, 4));
+  const cc = asText(findKey(obj, PHONE_CC_KEYS, 4))?.replace(/\D/g, '');
+  let phone: Phone | null = null;
+  if (field) {
+    const withCc = cc && !field.startsWith('+') && !field.replace(/\D/g, '').startsWith(cc) ? `+${cc} ${field}` : field;
+    phone = plausiblePhone(withCc);
+  }
+  if (!phone && bio) {
+    for (const m of bio.matchAll(PHONE_RE)) {
+      phone = plausiblePhone(m[0]);
+      if (phone) break;
+    }
+  }
+  const email = asText(findKey(obj, EMAIL_KEYS, 4)) ?? bio?.match(EMAIL_RE)?.[0] ?? null;
+  const waDigits = `${website ?? ''} ${bio ?? ''}`.match(WA_RE)?.[1];
+  const whatsapp = waDigits ? `https://wa.me/${waDigits}` : phone?.intl ? `https://wa.me/${phone.digits}` : null;
+  const site = website && /^https?:\/\//i.test(website) && !WA_RE.test(website) ? website.slice(0, 200) : null;
+  return {
+    phone: phone?.shown ?? null,
+    tel: phone ? (phone.intl ? `+${phone.digits}` : phone.digits) : null,
+    whatsapp,
+    email: email && EMAIL_RE.test(email) ? email.slice(0, 120) : null,
+    website: site,
+  };
+}
+
+const CITY_KEYS = ['cityName', 'city', 'publicCity', 'addressCity'] as const;
+const STREET_KEYS = ['addressStreet', 'street', 'streetAddress'] as const;
+const LOC_KEYS = ['location', 'locationName', 'geoLocationName'] as const;
+const BIO_PLACE_RE = /(?:📍|📌|located (?:in|at)|based in|find us (?:in|at)|we are (?:in|at)|shop (?:in|at)|available in)\s*:?\s*([^\n|•·#@]{3,60})/i;
+
+/** Where an account says it is: a business address or city field, else a 📍 / "based in" line in the bio. */
+export function placeFrom(obj: Json, bio: string | null): string | null {
+  const parts = [asText(findKey(obj, STREET_KEYS, 4)), asText(findKey(obj, CITY_KEYS, 4)), asText(findKey(obj, LOC_KEYS, 4))].filter((p): p is string => Boolean(p));
+  const fromFields = parts.length ? [...new Set(parts)].join(', ').slice(0, 100) : null;
+  if (fromFields) return fromFields;
+  const m = bio?.match(BIO_PLACE_RE);
+  return m ? m[1].replace(/[\s.,;:!-]+$/, '').trim().slice(0, 60) || null : null;
+}
+
 // --- Instagram ----------------------------------------------------------------------------------------------
 
 const USERNAME = ['username', 'userName', 'handle', 'screenName'] as const;
@@ -168,6 +249,10 @@ export interface IgProfile {
   business: boolean | null;
   category: string | null;
   website: string | null;
+  /** Where the account says it is (a business address, city, or a 📍 line in the bio). */
+  location: string | null;
+  /** Phone, email and links the account itself published. */
+  contact: Contact;
   recent: IgPost[];
 }
 
@@ -195,6 +280,8 @@ export function igProfile(output: Json): IgProfile | null {
     business: asBool(findKey(output, BUSINESS, 4)),
     category: asText(findKey(output, CATEGORY, 4)),
     website: asText(findKey(output, WEBSITE, 4)),
+    location: placeFrom(output, asText(findKey(output, BIO, 4))),
+    contact: contactFrom(output, asText(findKey(output, BIO, 4)), asText(findKey(output, WEBSITE, 4))),
     recent: media.slice(0, 12).map((m) => ({
       at: asDate(findKey(m, TIME_KEYS, 1)),
       likes: asNumber(findKey(m, LIKE_KEYS, 1)),
@@ -250,6 +337,50 @@ export function liPeople(output: Json): LiPerson[] {
       followers: asNumber(findKey(o, ['followerCount', 'followersCount', 'followers'], 2)),
       experienceCount: Array.isArray(exp) ? exp.length : null,
       currentRole: asText(findKey(o, ['currentPosition', 'currentJob', 'currentRole', 'currentCompany', 'companyName'], 2)),
+    });
+  }
+  return out;
+}
+
+// --- X (Twitter) people --------------------------------------------------------------------------------------
+
+export interface XPerson {
+  username: string;
+  name: string | null;
+  bio: string | null;
+  /** The location the person typed into their profile, e.g. "Lagos, Nigeria". */
+  location: string | null;
+  followers: number | null;
+  following: number | null;
+  posts: number | null;
+  verified: boolean | null;
+  joined: Date | null;
+  contact: Contact;
+}
+
+/** People found by an X people search, in the order the search gave them. */
+export function xPeople(output: Json): XPerson[] {
+  const list = findList(output, (o) => typeof findKey(o, USERNAME, 2) === 'string' && (findKey(o, ['description', 'bio', 'followersCount', 'followers_count', 'followerCount'], 2) !== undefined));
+  const seen = new Set<string>();
+  const out: XPerson[] = [];
+  for (const o of list) {
+    const raw = asText(findKey(o, USERNAME, 2));
+    if (!raw) continue;
+    const username = cleanHandle(raw);
+    if (!/^[a-z0-9_]{1,15}$/.test(username) || seen.has(username)) continue;
+    seen.add(username);
+    const bio = asText(findKey(o, ['description', 'bio', 'biography'], 2));
+    out.push({
+      username,
+      name: asText(findKey(o, ['name', 'displayName', 'fullName'], 2)),
+      bio,
+      location: asText(findKey(o, ['location', 'locationName'], 2)),
+      followers: asNumber(findKey(o, ['followersCount', 'followers_count', 'followerCount', 'followers'], 2)),
+      following: asNumber(findKey(o, ['friendsCount', 'friends_count', 'followingCount', 'following'], 2)),
+      posts: asNumber(findKey(o, ['statusesCount', 'statuses_count', 'tweetCount', 'postsCount', 'tweets'], 2)),
+      verified: asBool(findKey(o, ['isBlueVerified', 'is_blue_verified', 'verified', 'isVerified'], 2)),
+      joined: asDate(findKey(o, ['createdAt', 'created_at', 'joinedAt', 'joined'], 2)),
+      contact: contactFrom(o, bio, null),
     });
   }
   return out;

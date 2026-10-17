@@ -5,7 +5,8 @@
  *
  * Pure: `now` is passed in.
  */
-import type { IgCandidate, IgProfile, LiPerson } from './read';
+import { nearness as nearnessOf, placeParts, type Nearness } from '@/lib/geo/place';
+import { NO_CONTACT, type Contact, type IgCandidate, type IgProfile, type LiPerson, type XPerson } from './read';
 import type { ResearchItem, ResearchKind, Signal, Verdict } from './types';
 
 export function compact(n: number): string {
@@ -45,14 +46,58 @@ function decide(signals: readonly Signal[]): Verdict {
 
 const CONTACT = /(\+?\d[\d\s().-]{8,}\d|[\w.+-]+@[\w-]+\.[\w.]+|whats ?app|wa\.me|\bdm\b|\border\b|\bcall\b|\bbook\b)/i;
 
+/** Words that mean something in a request ("designers" → "designer"). */
+const words = (s: string) =>
+  s
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3 && !['and', 'the', 'for', 'with', 'who', 'sells', 'selling'].includes(w))
+    .map((w) => (w.length > 4 ? w.replace(/(?:es|s)$/, '') : w));
+
+// --- where they are ------------------------------------------------------------------------------------------
+
+interface Where {
+  location: string | null;
+  nearness: Nearness;
+  signals: Signal[];
+}
+
+/**
+ * Where someone is, by name: the place they wrote down if they wrote one, otherwise whether their bio mentions the person's
+ * area or city. Distance comes later (it needs a lookup); this part only compares names.
+ */
+export function whereIs(explicit: string | null, bio: string | null, place: string): Where {
+  const city = placeParts(place).slice(-1)[0] ?? place;
+  if (explicit) {
+    const n = nearnessOf(explicit, place);
+    const text = n === 'area' ? `Based in ${explicit} — your area.` : n === 'city' ? `Based in ${explicit}.` : `Based in ${explicit}, not ${city}.`;
+    return { location: explicit, nearness: n, signals: [{ tone: 'info', text }] };
+  }
+  const fromBio = nearnessOf(bio, place);
+  if (fromBio === 'area' || fromBio === 'city') {
+    return { location: null, nearness: fromBio, signals: [{ tone: 'info', text: `Bio mentions ${fromBio === 'area' ? 'your area' : city}.` }] };
+  }
+  return { location: null, nearness: 'unknown', signals: [{ tone: 'info', text: 'No location on the profile — ask where they are.' }] };
+}
+
+const asContact = (c: Contact | undefined) => c ?? NO_CONTACT;
+
+// --- Instagram -----------------------------------------------------------------------------------------------
+
 /** An Instagram account, from what its profile lookup showed. `profile` is null when the lookup couldn't be read. */
-export function scoreInstagram(candidate: IgCandidate, profile: IgProfile | null, now: Date): ResearchItem {
+export function scoreInstagram(candidate: IgCandidate, profile: IgProfile | null, now: Date, place = ''): ResearchItem {
   const handle = candidate.username;
-  const base = { name: profile?.fullName ?? candidate.fullName ?? `@${handle}`, handle: `@${handle}`, url: `https://www.instagram.com/${handle}/`, headline: (profile?.bio ?? candidate.bio)?.slice(0, 140) ?? null };
+  const base = {
+    platform: 'instagram' as const,
+    name: profile?.fullName ?? candidate.fullName ?? `@${handle}`,
+    handle: `@${handle}`,
+    url: `https://www.instagram.com/${handle}/`,
+    headline: (profile?.bio ?? candidate.bio)?.slice(0, 140) ?? null,
+  };
 
   if (!profile) {
     const stats = candidate.followers !== null ? [`${compact(candidate.followers)} followers`] : [];
-    return { ...base, verdict: 'unknown', verdictLabel: verdictLabel('vendors', 'unknown'), stats, signals: [{ tone: 'info', text: 'I didn’t look inside this account, so I can’t say how active or real it is.' }], checked: false };
+    return { ...base, verdict: 'unknown', verdictLabel: verdictLabel('vendors', 'unknown'), location: null, nearness: 'unknown', distanceKm: null, contact: NO_CONTACT, stats, signals: [{ tone: 'info', text: 'I didn’t look inside this account, so I can’t say how active or real it is.' }], checked: false };
   }
 
   const signals: Signal[] = [];
@@ -91,21 +136,69 @@ export function scoreInstagram(candidate: IgCandidate, profile: IgProfile | null
   }
 
   if (profile.business || profile.category) signals.push({ tone: 'good', text: `Set up as a business${profile.category ? ` (${profile.category})` : ''}.` });
-  if (profile.bio && CONTACT.test(profile.bio)) signals.push({ tone: 'good', text: 'Contact or ordering details in the bio.' });
+  const contact = asContact(profile.contact);
+  if (contact.phone || contact.email || (profile.bio && CONTACT.test(profile.bio))) signals.push({ tone: 'good', text: 'Contact or ordering details are published.' });
   if (followers !== null && profile.following !== null && followers < 1000 && profile.following > followers * 5) {
     signals.push({ tone: 'info', text: 'Follows far more accounts than follow them.' });
   }
 
-  const verdict = decide(signals);
-  return { ...base, verdict, verdictLabel: verdictLabel('vendors', verdict), stats, signals, checked: true };
+  const verdict = decide(signals); // location notes are information only: they never change the verdict
+  const where = whereIs(profile.location, profile.bio ?? candidate.bio, place);
+  return { ...base, verdict, verdictLabel: verdictLabel('vendors', verdict), location: where.location, nearness: where.nearness, distanceKm: null, contact, stats, signals: [...signals, ...where.signals], checked: true };
 }
 
-const words = (s: string) =>
-  s
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((w) => w.length >= 3 && !['and', 'the', 'for', 'with', 'who', 'sells', 'selling'].includes(w))
-    .map((w) => (w.length > 4 ? w.replace(/(?:es|s)$/, '') : w)); // "designers" matches "designer"
+// --- X -------------------------------------------------------------------------------------------------------
+
+/** An X account, from what the people search showed (it carries the profile, so no extra lookup is needed). */
+export function scoreX(p: XPerson, ask: { what: string; place: string }, kind: ResearchKind, now: Date): ResearchItem {
+  const signals: Signal[] = [];
+  const stats: string[] = [];
+  if (p.followers !== null) stats.push(`${compact(p.followers)} followers`);
+  if (p.posts !== null) stats.push(`${compact(p.posts)} posts`);
+  if (p.joined) stats.push(`on X since ${p.joined.getUTCFullYear()}`);
+
+  const wanted = words(ask.what);
+  const hay = `${p.bio ?? ''} ${p.name ?? ''}`.toLowerCase();
+  const hits = wanted.filter((w) => hay.includes(w));
+  if (wanted.length) {
+    if (hits.length) signals.push({ tone: 'good', text: `Bio mentions ${hits.slice(0, 3).join(', ')}.` });
+    else signals.push({ tone: 'info', text: `Bio doesn’t say “${ask.what}”.` });
+  }
+  if (p.verified) signals.push({ tone: 'good', text: 'Verified account.' });
+  if (p.joined) {
+    const days = Math.floor((now.getTime() - p.joined.getTime()) / 86_400_000);
+    if (days >= 365) signals.push({ tone: 'good', text: `Account is ${Math.floor(days / 365)}+ year${days >= 730 ? 's' : ''} old.` });
+    else if (days < 90) signals.push({ tone: 'warn', text: 'Brand-new account.' });
+  }
+  if (p.posts !== null) {
+    if (p.posts >= 200) signals.push({ tone: 'good', text: `${compact(p.posts)} posts — actively used.` });
+    else if (p.posts < 10) signals.push({ tone: 'warn', text: `Only ${p.posts} post${p.posts === 1 ? '' : 's'}.` });
+  }
+  if (p.followers !== null && p.followers < 20) signals.push({ tone: 'warn', text: 'Hardly any followers.' });
+  else if (p.followers !== null && p.followers >= 1000) signals.push({ tone: 'good', text: `${compact(p.followers)} followers.` });
+  if (p.contact.phone || p.contact.email) signals.push({ tone: 'good', text: 'Contact details are published.' });
+
+  const verdict = decide(signals);
+  const where = whereIs(p.location, p.bio, ask.place);
+  return {
+    platform: 'x',
+    name: p.name ?? `@${p.username}`,
+    handle: `@${p.username}`,
+    url: `https://x.com/${p.username}`,
+    headline: p.bio?.slice(0, 140) ?? null,
+    verdict,
+    verdictLabel: verdictLabel(kind, verdict),
+    location: where.location,
+    nearness: where.nearness,
+    distanceKm: null,
+    contact: p.contact,
+    stats,
+    signals: [...signals, ...where.signals],
+    checked: true,
+  };
+}
+
+// --- LinkedIn ------------------------------------------------------------------------------------------------
 
 /** A LinkedIn person, against what was asked for and where. */
 export function scoreLinkedIn(p: LiPerson, ask: { what: string; place: string }): ResearchItem {
@@ -119,12 +212,9 @@ export function scoreLinkedIn(p: LiPerson, ask: { what: string; place: string })
     if (hits.length) signals.push({ tone: 'good', text: `Profile mentions ${hits.slice(0, 3).join(', ')}.` });
     else signals.push({ tone: 'warn', text: `Nothing in the profile says “${ask.what}”.` });
   }
-  if (ask.place) {
-    const loc = (p.location ?? '').toLowerCase();
-    const placeWords = words(ask.place);
-    if (loc && placeWords.some((w) => loc.includes(w))) signals.push({ tone: 'good', text: `Based in ${p.location}.` });
-    else if (loc) signals.push({ tone: 'info', text: `Based in ${p.location}, not ${ask.place}.` });
-  }
+  const near = nearnessOf(p.location, ask.place);
+  if (near === 'area' || near === 'city') signals.push({ tone: 'good', text: `Based in ${p.location}.` });
+  else if (p.location) signals.push({ tone: 'info', text: `Based in ${p.location}, not ${placeParts(ask.place).slice(-1)[0] ?? ask.place}.` });
   if (p.location) stats.push(p.location);
   if (p.connections !== null) {
     stats.push(`${p.connections >= 500 ? '500+' : compact(p.connections)} connections`);
@@ -140,5 +230,45 @@ export function scoreLinkedIn(p: LiPerson, ask: { what: string; place: string })
   }
 
   const verdict = decide(signals);
-  return { name: p.name, handle: null, url: p.url, headline: p.headline?.slice(0, 140) ?? null, verdict, verdictLabel: verdictLabel('hire', verdict), stats, signals, checked: true };
+  return {
+    platform: 'linkedin',
+    name: p.name,
+    handle: null,
+    url: p.url,
+    headline: p.headline?.slice(0, 140) ?? null,
+    verdict,
+    verdictLabel: verdictLabel('hire', verdict),
+    location: p.location,
+    nearness: near,
+    distanceKm: null,
+    contact: NO_CONTACT,
+    stats,
+    signals,
+    checked: true,
+  };
+}
+
+// --- ordering ------------------------------------------------------------------------------------------------
+
+/** How near, as one number: a measured distance if there is one, else a guess from names alone. Unknown places sort last. */
+function proximity(i: ResearchItem): number {
+  if (i.distanceKm !== null) return i.distanceKm;
+  return { area: 2, city: 15, unknown: 9_000, other: 5_000 }[i.nearness];
+}
+
+/**
+ * Best first. Anything that doesn't look worrying (solid or mixed) comes before anything that does, and unchecked accounts come
+ * last. Among the decent ones the closest wins: same neighbourhood or a few km, then the wider city, then farther or unknown —
+ * and within each of those, the stronger verdict, then the shorter distance.
+ */
+export function rankItems(items: readonly ResearchItem[]): ResearchItem[] {
+  const tier = (i: ResearchItem) => (i.verdict === 'careful' ? 1 : i.verdict === 'unknown' ? 2 : 0);
+  const bucket = (i: ResearchItem) => {
+    const d = proximity(i);
+    return d < 6 ? 0 : d < 30 ? 1 : 2;
+  };
+  return items
+    .map((item, i) => ({ item, i }))
+    .sort((a, b) => tier(a.item) - tier(b.item) || bucket(a.item) - bucket(b.item) || verdictRank(a.item.verdict) - verdictRank(b.item.verdict) || proximity(a.item) - proximity(b.item) || a.i - b.i)
+    .map((x) => x.item);
 }

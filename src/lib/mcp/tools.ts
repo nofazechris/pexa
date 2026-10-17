@@ -650,7 +650,7 @@ export const TOOLS: ToolDef[] = [
     schema: z.object({
       kind: z.enum(['vendors', 'hire']),
       what: z.string().min(2).max(80).describe('What they want, in a few words: "sneakers", "wigs", "graphic designer".'),
-      place: z.string().min(2).max(60).describe('City or area, e.g. "Lagos". Ask the person if they have not said.'),
+      place: z.string().min(2).max(60).describe('The place exactly as the person gave it: a city alone ("Lagos", "Abuja") is ENOUGH — call this straight away, never ask for a more specific area. A neighbourhood plus city ("Yaba, Lagos") is better and is used to rank by distance. Only when they gave no place at all, or said "near me" / "closest to me", do NOT call this: ask "Which area or city are you in?" (the app shows a "Use my location" button) and wait. After they use it you will receive a message like "My area is Yaba, Lagos" — use exactly that as the place.'),
       source: z.enum(['instagram', 'linkedin']).optional().describe('Only for kind "hire".'),
     }),
     handler: async (ctx, args) => {

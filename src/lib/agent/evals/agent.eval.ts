@@ -40,7 +40,7 @@ const plan = (kind: string, source: string, place: RegExp) => (t: Turn) => {
   if (r.request.source !== source) return `wrong source: ${r.request.source}`;
   return place.test(r.request.place) ? null : `wrong place: "${r.request.place}"`;
 };
-const asksCity = (t: Turn) => (t.action ? `should have asked for the city, but showed a ${t.action.render.type} card` : /city|where|which (?:area|part|town)|location/i.test(t.reply) ? null : `did not ask for a city: "${t.reply.slice(0, 100)}"`);
+const asksCity = (t: Turn) => (t.action && t.action.render.type !== 'ask_location' ? `should have asked for the city, but showed a ${t.action.render.type} card` : /city|where|which (?:area|part|town)|location/i.test(t.reply) ? null : `did not ask for a city: "${t.reply.slice(0, 100)}"`);
 
 const CASES: Case[] = [
   { name: 'statement: "my stuff for the past four days"', messages: [{ role: 'user', content: 'I need my stuff for the past four days' }], check: statementDays(4) },
@@ -77,6 +77,21 @@ const CASES: Case[] = [
   { name: 'find: tailor in Yaba → hire on Instagram', messages: [{ role: 'user', content: 'find me a good tailor in Yaba' }], check: plan('hire', 'instagram', /yaba/i) },
   { name: 'find: no city → asks which city', messages: [{ role: 'user', content: 'I need a graphic designer' }], check: asksCity },
   { name: 'find: "near me" → asks which city', messages: [{ role: 'user', content: 'find me a phone plug near me' }], check: asksCity },
+  {
+    name: 'find: "closest to me" → asks, and offers the Use-my-location button',
+    messages: [{ role: 'user', content: 'I need the best graphic designer close to me' }],
+    check: (t) => (t.action?.render.type === 'ask_location' ? asksCity(t) : `no location button (action: ${t.action?.render.type ?? 'none'}, said: "${t.reply.slice(0, 90)}")`),
+  },
+  {
+    name: 'find: "My area is Yaba, Lagos" (the button’s message) → plan for Yaba',
+    messages: [
+      { role: 'user', content: 'I need the best graphic designer close to me' },
+      { role: 'assistant', content: 'Which area or city are you in?' },
+      { role: 'assistant', content: '[Showed a button for the person to share their area (a neighbourhood name, not exact coordinates), because the assistant asked where they are]' },
+      { role: 'user', content: 'My area is Yaba, Lagos' },
+    ],
+    check: plan('hire', 'linkedin', /yaba/i),
+  },
   {
     name: 'find: the city arrives in the next message',
     messages: [

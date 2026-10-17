@@ -45,6 +45,7 @@ export interface PendingActionView {
     | ({ type: 'swap_preview' } & SwapCardData)
     | ({ type: 'recurring_preview' } & RecurringCardData)
     | ({ type: 'research_plan' } & ResearchPlanView)
+    | { type: 'ask_location' }
     | { type: 'buy_quote'; purchaseId: string; service: string; price: string; priceAtomic: string; token: string; detail: string; expiresAt: string; from: string; typedData: BuyTypedData; note: string };
 }
 
@@ -125,7 +126,7 @@ export interface RecurringCardData {
 export interface ChatMessage {
   id: number;
   role: 'user' | 'agent';
-  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge' | 'swap_preview' | 'swap_receipt' | 'statement' | 'research_plan' | 'research_result';
+  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge' | 'swap_preview' | 'swap_receipt' | 'statement' | 'research_plan' | 'research_result' | 'ask_location';
   text?: string;
   /** A "find me a vendor / someone to hire" plan waiting for the budget to be approved, how far it has got, and its shortlist. */
   research?: ResearchPlanView;
@@ -312,6 +313,8 @@ export function useAgentChat(deps: AgentChatDeps) {
           const { type: _s, ...card } = action.render;
           void _s;
           push({ role: 'agent', type: 'swap_preview', swap: card, status: 'awaiting' });
+        } else if (action.render.type === 'ask_location') {
+          push({ role: 'agent', type: 'ask_location' });
         } else if (action.render.type === 'research_plan') {
           const { type: _rp, ...card } = action.render;
           void _rp;

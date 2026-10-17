@@ -60,6 +60,8 @@ export function describeCard(m: ChatLike): string | null {
       return '[Showed a list of what Pexa can do]';
     case 'statement':
       return `[Showed a statement${m.statement?.label ? ` for ${m.statement.label}` : ''}${typeof m.statement?.count === 'number' ? ` with ${m.statement.count} items` : ''}, with Download and Print buttons]`;
+    case 'ask_location':
+      return '[Showed a button for the person to share their area (a neighbourhood name, not exact coordinates), because the assistant asked where they are]';
     case 'research_plan':
       return `[Showed a plan to search for “${m.research?.title ?? 'a vendor'}” — about ${m.research?.estimate ?? '?'}, never more than ${m.research?.cap ?? '?'}${m.status === 'awaiting' ? ' — waiting for the person to tap Approve' : m.status === 'cancelled' ? ' — it was cancelled' : ''}]`;
     case 'research_result': {

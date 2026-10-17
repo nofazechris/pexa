@@ -50,6 +50,34 @@ export function shouldForceBuySearch(messages: readonly TurnMessage[]): boolean 
   return false;
 }
 
+const SOCIAL_WORDS = /\b(instagram|insta|tiktok|twitter|x|youtube|linkedin|reddit|ig)\b/i;
+const TRUST_WORDS = /\b(legit|scam|scammer|safe|trust|trustworthy|real or fake|fake|before i pay|vendor|seller)\b/i;
+
+/**
+ * "Check the Instagram account @lagos_kicks before I pay: is it legit?" — a @handle next to a social network or a trust question
+ * is a social account, not a Pexa user. On such a turn the people-lookup tools are taken away, so the model can't answer "no one
+ * called that on Pexa".
+ */
+export function isSocialAccountCheck(text: string): boolean {
+  if (!/@[\w.]{2,}/.test(text)) return false;
+  if (/\b(send|transfer|request|invoice)\b/i.test(text)) return false;
+  return SOCIAL_WORDS.test(text) || TRUST_WORDS.test(text);
+}
+
+const ASKS_PLACE = /\b(city|area|neighbou?rhood|location|which (?:part|town|state)|where (?:are you|should|do you|in))\b/i;
+
+/**
+ * Should the reply to a "find me a vendor / someone to hire" request carry a "Use my location" button? True when the agent is asking
+ * where, and the person's recent message was a find request. The button shares only an area name, never coordinates.
+ */
+export function shouldOfferLocation(messages: readonly TurnMessage[], reply: string): boolean {
+  if (!reply.includes('?') || !ASKS_PLACE.test(reply)) return false;
+  return messages
+    .filter((m) => m.role === 'user')
+    .slice(-2)
+    .some((m) => isFindRequest(m.content));
+}
+
 /**
  * Is this conversation about Buy? Looks at the last few messages (so "yes", "their instagram is @x" and the
  * hidden "I approved the purchase" follow-up all count) — these turns use a stronger model, because Buy

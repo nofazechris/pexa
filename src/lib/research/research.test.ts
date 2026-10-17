@@ -90,6 +90,8 @@ describe('scoring', () => {
 
 const REQ: ResearchRequest = { kind: 'vendors', source: 'instagram', what: 'sneakers', place: 'Lagos' };
 const step = (over: Partial<StepState>): StepState => ({ role: 'search', ref: null, outcome: 'PAID', priceAtomic: 7000n, ...over });
+/** An X people search that was paid for and found nobody. */
+const X0 = step({ role: 'xsearch', priceAtomic: 5000n, output: { results: [] } });
 const searchOut = { users: ['a', 'b', 'c', 'd'].map((u) => ({ username: u + '_kicks', full_name: u + ' kicks' })) };
 
 describe('the plan', () => {
@@ -98,8 +100,8 @@ describe('the plan', () => {
     expect(dollars(60000n)).toBe('$0.06');
     expect(dollars(103000n)).toBe('$0.103');
     const p = describePlan(REQ);
-    expect(p).toMatchObject({ estimate: '$0.022', cap: '$0.06' });
-    expect(describePlan({ ...REQ, kind: 'hire', source: 'linkedin', what: 'graphic designer' })).toMatchObject({ estimate: '$0.103', cap: '$0.15' });
+    expect(p).toMatchObject({ estimate: '$0.027', cap: '$0.08' });
+    expect(describePlan({ ...REQ, kind: 'hire', source: 'linkedin', what: 'graphic designer' })).toMatchObject({ estimate: '$0.108', cap: '$0.15' });
     expect(capFor(REQ)).toBeLessThanOrEqual(250_000n);
   });
   it('can only ever spend on its own services', () => {
@@ -112,8 +114,16 @@ describe('deciding what to buy next', () => {
     const n = decideNext(REQ, []);
     expect(n).toMatchObject({ action: 'buy', role: 'search', capabilityId: SERVICE.igSearch, input: { queryParams: { keyword: 'sneakers Lagos' } } });
   });
-  it('after a search, looks inside the best few accounts one by one, then stops', () => {
-    const steps: StepState[] = [step({ output: searchOut })];
+  it('after the Instagram search comes an X people search for the same words', () => {
+    const n = decideNext(REQ, [step({ output: searchOut })]);
+    expect(n).toMatchObject({ action: 'buy', role: 'xsearch', capabilityId: SERVICE.xSearch, input: { query: 'sneakers Lagos', type: 'people' } });
+  });
+  it('the place is searched as written, commas removed', () => {
+    const n = decideNext({ ...REQ, place: 'Yaba, Lagos' }, []);
+    expect(n).toMatchObject({ input: { queryParams: { keyword: 'sneakers Yaba Lagos' } } });
+  });
+  it('then looks inside the best few accounts one by one, then stops', () => {
+    const steps: StepState[] = [step({ output: searchOut }), X0];
     const seen: string[] = [];
     for (let i = 0; i < 10; i++) {
       const n = decideNext(REQ, steps);
@@ -130,29 +140,30 @@ describe('deciding what to buy next', () => {
   });
   it('tries one wider search if the first found nobody, but not a third', () => {
     const empty = step({ output: { users: [] } });
-    const n = decideNext(REQ, [empty]);
+    const n = decideNext(REQ, [empty, X0]);
     expect(n).toMatchObject({ role: 'fallback', capabilityId: SERVICE.igGeneral });
-    expect(decideNext(REQ, [empty, step({ role: 'fallback', output: { users: [] } })])).toEqual({ action: 'finish', reason: 'done' });
+    expect(decideNext(REQ, [empty, X0, step({ role: 'fallback', output: { users: [] } })])).toEqual({ action: 'finish', reason: 'done' });
   });
   it('gives up cleanly when searches failed', () => {
     const f = step({ outcome: 'FAILED', priceAtomic: 0n });
-    expect(decideNext(REQ, [f, { ...f, role: 'fallback' }])).toEqual({ action: 'finish', reason: 'search_failed' });
+    expect(decideNext(REQ, [f, X0, { ...f, role: 'fallback' }])).toEqual({ action: 'finish', reason: 'search_failed' });
   });
   it('a vet that failed is skipped, not retried', () => {
-    const steps: StepState[] = [step({ output: searchOut }), step({ role: 'vet', ref: 'a_kicks', outcome: 'FAILED', priceAtomic: 0n })];
+    const steps: StepState[] = [step({ output: searchOut }), X0, step({ role: 'vet', ref: 'a_kicks', outcome: 'FAILED', priceAtomic: 0n })];
     const n = decideNext(REQ, steps);
     expect(n).toMatchObject({ role: 'vet' });
     expect((n as { ref: string }).ref).not.toBe('a_kicks');
   });
   it('stops at once if any payment is uncertain, and at the purchase limit', () => {
     expect(decideNext(REQ, [step({ outcome: 'UNCERTAIN' })])).toEqual({ action: 'finish', reason: 'uncertain' });
-    expect(decideNext(REQ, Array.from({ length: 6 }, () => step({})))).toEqual({ action: 'finish', reason: 'limit' });
+    expect(decideNext(REQ, Array.from({ length: 7 }, () => step({})))).toEqual({ action: 'finish', reason: 'limit' });
   });
-  it('LinkedIn is one search and done', () => {
+  it('LinkedIn is one search plus an X people search, then done', () => {
     const li: ResearchRequest = { kind: 'hire', source: 'linkedin', what: 'graphic designer', place: 'Lagos' };
     const n = decideNext(li, []);
     expect(n).toMatchObject({ action: 'buy', capabilityId: SERVICE.liSearch, input: { maxResults: 5, body: { search: 'graphic designer', locations: ['Lagos'] } } });
-    expect(decideNext(li, [step({})])).toEqual({ action: 'finish', reason: 'done' });
+    expect(decideNext(li, [step({})])).toMatchObject({ action: 'buy', role: 'xsearch' });
+    expect(decideNext(li, [step({}), X0])).toEqual({ action: 'finish', reason: 'done' });
   });
   it('ranks public, relevant, verified accounts first', () => {
     const r = rankCandidates(
@@ -171,6 +182,7 @@ describe('the answer', () => {
   it('ranks checked accounts, says what was not checked, and totals the cost', () => {
     const steps: StepState[] = [
       step({ output: searchOut }),
+      X0,
       step({ role: 'vet', ref: 'a_kicks', priceAtomic: 5000n, output: { username: 'a_kicks', follower_count: 50000, media_count: 3, recent_media: [{ taken_at: daysAgo(300), like_count: 5 }, { taken_at: daysAgo(310), like_count: 4 }, { taken_at: daysAgo(320), like_count: 6 }] } }),
       step({ role: 'vet', ref: 'b_kicks', priceAtomic: 5000n, output: { username: 'b_kicks', biography: 'DM to order', follower_count: 3000, media_count: 120, is_business: true, recent_media: [{ taken_at: daysAgo(1), like_count: 150, comment_count: 12 }, { taken_at: daysAgo(4), like_count: 160, comment_count: 9 }, { taken_at: daysAgo(8), like_count: 140, comment_count: 8 }] } }),
     ];
@@ -178,8 +190,8 @@ describe('the answer', () => {
     expect(r.items.map((i) => i.handle)).toEqual(['@b_kicks', '@a_kicks']);
     expect(r.items[0].verdict).toBe('solid');
     expect(r.items[1].verdict).toBe('careful');
-    expect(r.spent).toBe('$0.017');
-    expect(r.notes.join(' ')).toMatch(/2 more accounts/);
+    expect(r.spent).toBe('$0.022');
+    expect(r.notes.join(' ')).toMatch(/2 more Instagram accounts/);
     expect(r.notes.join(' ')).toMatch(/test payment/);
     expect(r.summary).toMatch(/@b_kicks/);
   });
@@ -188,7 +200,7 @@ describe('the answer', () => {
     expect(r.items).toHaveLength(0);
   });
   it('says plainly when nothing was found or a search failed', () => {
-    expect(assemble(REQ, [step({ output: { users: [] } })], 'done', NOW).summary).toMatch(/didn’t find accounts/);
+    expect(assemble(REQ, [step({ output: { users: [] } })], 'done', NOW).summary).toMatch(/didn’t find anyone/);
     expect(assemble(REQ, [step({ outcome: 'FAILED', priceAtomic: 0n })], 'search_failed', NOW).summary).toMatch(/weren’t charged/);
   });
   it('flags an uncertain payment first', () => {
@@ -229,12 +241,12 @@ describe('normalizeRequest', () => {
 describe('an answer that cannot be read', () => {
   const big = { data: { something: 'x'.repeat(400) } };
   it('stops instead of paying again for a wider search', () => {
-    expect(decideNext(REQ, [step({ output: big })])).toEqual({ action: 'finish', reason: 'unreadable' });
+    expect(decideNext(REQ, [step({ output: big }), X0])).toEqual({ action: 'finish', reason: 'unreadable' });
     const li: ResearchRequest = { kind: 'hire', source: 'linkedin', what: 'graphic designer', place: 'Lagos' };
-    expect(decideNext(li, [step({ output: big })])).toEqual({ action: 'finish', reason: 'unreadable' });
+    expect(decideNext(li, [step({ output: big }), X0])).toEqual({ action: 'finish', reason: 'unreadable' });
   });
   it('but a genuinely empty answer still gets the one wider search', () => {
-    expect(decideNext(REQ, [step({ output: { users: [] } })])).toMatchObject({ action: 'buy', role: 'fallback' });
+    expect(decideNext(REQ, [step({ output: { users: [] } }), X0])).toMatchObject({ action: 'buy', role: 'fallback' });
   });
   it('says so plainly', () => {
     const r = assemble(REQ, [step({ output: big })], 'unreadable', NOW);

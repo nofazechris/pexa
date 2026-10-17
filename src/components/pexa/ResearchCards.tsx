@@ -4,6 +4,69 @@ import { useState } from 'react';
 import { color } from '@/lib/design/tokens';
 import type { ChatMessage } from '@/components/auth/useAgentChat';
 import type { ResearchItem, ResearchResult, Verdict } from '@/lib/research/types';
+import { distanceText } from '@/lib/geo/place';
+
+const PLATFORM_NAME = { instagram: 'Instagram', x: 'X', linkedin: 'LinkedIn' } as const;
+
+/**
+ * Shown when the assistant asks where the person is: one tap shares an AREA NAME ("Yaba, Lagos") worked out from the phone's
+ * position. The position is rounded and never stored; typing a city instead always works.
+ */
+export function AskLocationCard({ onShare, getAccessToken }: { onShare: (label: string) => void; getAccessToken?: () => Promise<string | null> }) {
+  const [state, setState] = useState<'idle' | 'locating' | 'done' | 'denied' | 'failed'>('idle');
+  const [label, setLabel] = useState('');
+
+  const share = () => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setState('failed');
+      return;
+    }
+    setState('locating');
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const token = await getAccessToken?.();
+          const res = await fetch('/api/geo/reverse', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+            body: JSON.stringify({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+          });
+          const data = (await res.json().catch(() => ({}))) as { label?: string };
+          if (res.ok && data.label) {
+            setLabel(data.label);
+            setState('done');
+            onShare(data.label);
+          } else setState('failed');
+        } catch {
+          setState('failed');
+        }
+      },
+      (err) => setState(err.code === 1 ? 'denied' : 'failed'),
+      { enableHighAccuracy: false, timeout: 12_000, maximumAge: 300_000 },
+    );
+  };
+
+  return (
+    <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '14px', padding: '13px 14px', maxWidth: '380px' }}>
+      {state === 'done' ? (
+        <div style={{ fontSize: '13.5px', color: color.mutedStrong }}>Using your area: <strong style={{ color: color.ink }}>{label}</strong></div>
+      ) : (
+        <>
+          <button onClick={share} disabled={state === 'locating'} style={{ border: 'none', background: color.primary, color: '#fff', fontSize: '14px', fontWeight: 500, padding: 'var(--pp-btn-y) 15px', borderRadius: '11px', cursor: state === 'locating' ? 'default' : 'pointer', opacity: state === 'locating' ? 0.7 : 1 }}>
+            {state === 'locating' ? 'Finding your area…' : '📍 Use my location'}
+          </button>
+          <div style={{ fontSize: '12px', color: state === 'denied' || state === 'failed' ? color.warning : color.faint, marginTop: '9px', lineHeight: 1.5 }}>
+            {state === 'denied'
+              ? 'Location is switched off for this site, so I can’t see where you are. Type your city or neighbourhood instead.'
+              : state === 'failed'
+                ? 'I couldn’t work out your area. Type your city or neighbourhood instead.'
+                : 'Only your neighbourhood name (like “Yaba, Lagos”) is used — not your exact position — and it isn’t stored. Or just type your city.'}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 /**
  * Chat cards for "find me a vendor / someone to hire". The plan card is the one human checkpoint: it states the cost and the
@@ -117,7 +180,20 @@ function ItemRow({ item, r, onTry }: { item: ResearchItem; r: ResearchResult; on
         <span style={{ marginLeft: 'auto', fontSize: '12px', fontWeight: 600, color: tone.fg, whiteSpace: 'nowrap' }}>{item.verdictLabel}</span>
       </div>
       {item.headline ? <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '5px', lineHeight: 1.45, wordBreak: 'break-word' }}>{item.headline}</div> : null}
-      {item.stats.length ? <div style={{ fontFamily: MONO, fontSize: '11.5px', color: color.mutedStrong, marginTop: '7px' }}>{item.stats.join(' · ')}</div> : null}
+      {item.stats.length ? <div style={{ fontFamily: MONO, fontSize: '11.5px', color: color.mutedStrong, marginTop: '7px' }}>{[PLATFORM_NAME[item.platform], ...item.stats].join(' · ')}</div> : null}
+      {item.location || item.distanceKm !== null || item.nearness === 'area' ? (
+        <div style={{ fontSize: '13px', color: color.ink, marginTop: '8px', fontWeight: 500 }}>
+          📍 {item.location ?? 'Your area'}
+          {item.distanceKm !== null ? <span style={{ color: color.mutedStrong, fontWeight: 400 }}> · {distanceText(item.distanceKm)}</span> : item.nearness === 'area' ? <span style={{ color: color.mutedStrong, fontWeight: 400 }}> · in your area</span> : null}
+        </div>
+      ) : null}
+      {item.contact.phone || item.contact.email ? (
+        <div style={{ fontSize: '13px', color: color.ink, marginTop: '5px', wordBreak: 'break-word' }}>
+          {item.contact.phone ? <>📞 {item.contact.phone}</> : null}
+          {item.contact.phone && item.contact.email ? <span style={{ color: color.faint }}> · </span> : null}
+          {item.contact.email ? <>✉️ {item.contact.email}</> : null}
+        </div>
+      ) : null}
       <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
         {item.signals.map((s) => (
           <li key={s.text} style={{ display: 'flex', gap: '7px', fontSize: '12.5px', lineHeight: 1.45, color: s.tone === 'warn' ? 'var(--pp-danger-text)' : color.ink }}>
@@ -127,6 +203,16 @@ function ItemRow({ item, r, onTry }: { item: ResearchItem; r: ResearchResult; on
         ))}
       </ul>
       <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap', marginTop: '11px' }}>
+        {item.contact.tel ? (
+          <a href={`tel:${item.contact.tel}`} style={{ ...btn, textDecoration: 'none', display: 'inline-block' }}>
+            Call
+          </a>
+        ) : null}
+        {item.contact.whatsapp ? (
+          <a href={item.contact.whatsapp} target="_blank" rel="noopener noreferrer" style={{ ...btn, textDecoration: 'none', display: 'inline-block' }}>
+            WhatsApp
+          </a>
+        ) : null}
         {item.url ? (
           <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ ...btn, textDecoration: 'none', display: 'inline-block' }}>
             Open profile
@@ -136,7 +222,7 @@ function ItemRow({ item, r, onTry }: { item: ResearchItem; r: ResearchResult; on
           {copied ? 'Copied' : 'Copy a message to send'}
         </button>
         {item.handle && onTry ? (
-          <button onClick={() => onTry(`Check the Instagram account ${item.handle} before I pay: is it legit?`)} style={btn}>
+          <button onClick={() => onTry(`Check the ${PLATFORM_NAME[item.platform]} account ${item.handle} before I pay: is it legit?`)} style={btn}>
             Check closer
           </button>
         ) : null}

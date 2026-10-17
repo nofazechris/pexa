@@ -1,5 +1,5 @@
 import 'server-only';
-import { isBuyConversation, shouldForceBuySearch } from './buy-intent';
+import { isBuyConversation, isSocialAccountCheck, shouldForceBuySearch, shouldOfferLocation } from './buy-intent';
 import OpenAI from 'openai';
 import { z } from 'zod';
 import { formatUnits, parseUnits } from 'viem';
@@ -107,6 +107,9 @@ const BUY_TOOLS = new Set([
   'plan_research',
 ]);
 
+// Tools that look people up inside Pexa (not on social networks).
+const PEOPLE_TOOLS = new Set(['find_contact', 'find_people', 'list_recent_people', 'save_beneficiary', 'remove_beneficiary']);
+
 // EXECUTE tools — intercepted for explicit user confirmation, never auto-run by the model.
 const CONFIRM_TOOLS = new Set(['confirm_payment', 'create_buy_usdt_order', 'create_sell_usdt_order']);
 
@@ -173,7 +176,7 @@ Buying services on Celo's Buy marketplace (you can spend the user's dollar stabl
 - RECEIPTS & SAVED RESULTS: every purchase and what it found is saved. When the user asks for a receipt, a past result, or "what did that find", call buy_list_purchases (find the right one by service/date) then buy_get_purchase for its saved result, and answer from it — price, token, date, status, and the Celoscan link if there is one. Tell them they can also open it any time under Activity → "Purchases & receipts" to copy or download it. Never buy again just to re-read something already saved.
 - Be honest about cost: say the price in dollars before buying. Never exceed what the user asked for. Don't buy anything the user didn't ask for.
 - CHECK BEFORE YOU PAY — Pexa's signature use of Buy. Only when the conversation is about a SELLER, vendor, account, business or project (a name, a handle, "is this legit?") — never for a bare "check" with no such subject. When the user is about to pay someone they found online (an Instagram/TikTok/X vendor, a seller, a business, a project) or asks "is this legit / safe / a scam?", offer a quick check (about 1–2 cents) and run it only if they say yes (or they asked for it): (1) look up the account with the matching profile service (instagram.profile or tiktok.profile — pass the handle without @; for X, search the handle with x.posts.search) — age, follower count vs engagement, bio, how active; (2) search what people say with reddit.posts.search and/or x.posts.search using the name/handle plus words like "scam" or "legit". Do the lookups one at a time. Then give a short verdict in plain words — "No red flags found", "Mixed signals" or "Warning signs" — with the 2–3 concrete findings behind it, and say what you could NOT verify. Never claim someone is safe or a scammer with certainty; no result is not proof. For a first-time payee, suggest a small test payment before the full amount, and offer to send it. Never send the money yourself as part of the check.
-- FIND A VENDOR / FIND SOMEONE TO HIRE — the other signature use of Buy. When the person wants to FIND a seller to buy from ("who sells sneakers in Lagos?", "find me a wig vendor in Abuja", "I need a plug for phones") or someone to HIRE ("I need a graphic designer", "find a tailor in Yaba", "a photographer near me") → call plan_research. You need what they want AND a city or area: if the place is missing (including "near me" — you can't see where they are), ask ONE short question for the city, then call it. Use kind "vendors" for things to buy; kind "hire" for people — source "linkedin" for professionals (developers, designers, accountants, marketers, virtual assistants), source "instagram" for trades and creators (tailors, braiders, makeup artists, photographers, caterers, barbers). plan_research buys NOTHING: the app shows a plan card with the cost and a budget; the person taps Approve and the app runs the lookups itself and shows the ranked shortlist. So after calling it, say ONE short sentence and do not state prices (the card does). Do NOT use buy_search_catalog / buy_purchase for these requests. This is different from "is @x legit?" about ONE named account, which is CHECK BEFORE YOU PAY. (A @handle next to words like legit / scam / safe / trust / "before I pay" is a social-media account, NOT a Pexa user: never look it up with find_contact or find_people — look it up on the platform the person named, or on Instagram if they didn't name one.) When the shortlist is on screen ("[Showed a shortlist …]" in the notes), answer follow-ups from the notes: which one to pick, what to ask the vendor, how to pay safely — and offer to check one account more deeply (that is CHECK BEFORE YOU PAY) or to send a small test payment if they give you a wallet address or @username. Most vendors on Instagram don't take crypto: be honest that they may need to give a USDT/USDC address on Celo (or an alternative), and never imply Pexa can pay a bank account or Instagram handle directly.
+- FIND A VENDOR / FIND SOMEONE TO HIRE — the other signature use of Buy. When the person wants to FIND a seller to buy from ("who sells sneakers in Lagos?", "find me a wig vendor in Abuja", "I need a plug for phones") or someone to HIRE ("I need a graphic designer", "find a tailor in Yaba", "a photographer near me") → call plan_research. You need what they want AND a place. A city alone is enough ("in Lagos", "in Abuja", "in Nairobi") — call plan_research at once and never ask for a more specific area. Only if NO place was given, or they said "near me" / "closest to me" (you can't see where they are), ask ONE short question — "Which area or city are you in?" — and the app adds a "Use my location" button under it; do not call the tool yet. A message like "My area is Yaba, Lagos" is their answer: use exactly that as the place. Results are ranked best-and-closest, and each shows where the person says they are, roughly how far away, and the phone, WhatsApp or email they published themselves — never invent or guess a number, and never say a contact is verified. Use kind "vendors" for things to buy; kind "hire" for people — source "linkedin" for professionals (developers, designers, accountants, marketers, virtual assistants), source "instagram" for trades and creators (tailors, braiders, makeup artists, photographers, caterers, barbers). plan_research buys NOTHING: the app shows a plan card with the cost and a budget; the person taps Approve and the app runs the lookups itself and shows the ranked shortlist. So after calling it, say ONE short sentence and do not state prices (the card does). Do NOT use buy_search_catalog / buy_purchase for these requests. This is different from "is @x legit?" about ONE named account, which is CHECK BEFORE YOU PAY. (A @handle next to words like legit / scam / safe / trust / "before I pay" is a social-media account, NOT a Pexa user: never look it up with find_contact or find_people — look it up on the platform the person named, or on Instagram if they didn't name one.) When the shortlist is on screen ("[Showed a shortlist …]" in the notes), answer follow-ups from the notes: which one to pick, what to ask the vendor, how to pay safely — and offer to check one account more deeply (that is CHECK BEFORE YOU PAY) or to send a small test payment if they give you a wallet address or @username. Most vendors on Instagram don't take crypto: be honest that they may need to give a USDT/USDC address on Celo (or an alternative), and never imply Pexa can pay a bank account or Instagram handle directly.
 - Summarize search results for a person, not a developer: lead with the answer, quote at most a short phrase, name sources (platform, rough date), skip IDs and URLs unless asked.
 
 Automations (programmable money rules):
@@ -233,7 +236,9 @@ export interface PendingAction {
         note: string;
       }
     /** A "find me a vendor / someone to hire" plan: nothing is bought until the user approves its budget. */
-    | ({ type: 'research_plan' } & ResearchPlanView);
+    | ({ type: 'research_plan' } & ResearchPlanView)
+    /** A button that shares the person's area ("Yaba, Lagos") — never their coordinates — when the agent has asked where. */
+    | { type: 'ask_location' };
 }
 
 export interface AgentTurn {
@@ -675,11 +680,13 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
   // A plain "send N USDC to someone" is read by the app itself, not left to the model: it takes the amount and
   // the person from the conversation, asks only for what is missing (once), and shows the Confirm card.
   // Typing "yes" under a Confirm card must not build another card — money only moves on the tap.
-  const typed = replyToTypedAnswer(input.messages);
+  // "Check @x on Instagram before I pay: is it legit?" is a question about an account, not a payment to it.
+  const aboutAnAccount = last?.role === 'user' && isSocialAccountCheck(last.content);
+  const typed = aboutAnAccount ? null : replyToTypedAnswer(input.messages);
   if (typed) return { reply: typed };
 
   const sendSlots = parseSendSlots(input.messages);
-  if (sendSlots.wantsSend) {
+  if (!aboutAnAccount && sendSlots.wantsSend) {
     try {
       const turn = await handleSend(ctx, sendSlots);
       if (turn) return turn;
@@ -712,7 +719,9 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
     ...(dynamic.length ? [{ role: 'system' as const, content: dynamic.join('\n\n') }] : []),
     ...input.messages.map((m) => ({ role: m.role, content: m.content }) as OpenAI.Chat.Completions.ChatCompletionMessageParam),
   ];
-  const tools = toolDefs();
+  // A @handle next to Instagram / "is it legit?" is a social account, not a Pexa user: take the people-lookup tools away for the turn.
+  const lastText = last?.role === 'user' ? last.content : '';
+  const tools = isSocialAccountCheck(lastText) ? toolDefs().filter((t) => t.type !== 'function' || !PEOPLE_TOOLS.has(t.function.name)) : toolDefs();
   // Plain Buy requests (social data, flights, browser, compute, "what can I buy") open with a catalog search,
   // whatever the model feels like doing. Free and read-only; purchases still go through price + approval.
   const forceBuySearch = buyAvailable() && shouldForceBuySearch(input.messages);
@@ -747,7 +756,10 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
     if (!msg) return { reply: "Sorry — I couldn't process that." };
 
     const calls = (msg.tool_calls ?? []).filter((c) => c.type === 'function');
-    if (calls.length === 0) return { reply: msg.content ?? '' };
+    if (calls.length === 0) {
+      const reply = msg.content ?? '';
+      return shouldOfferLocation(input.messages, reply) ? { reply, action: { tool: 'plan_research', args: {}, render: { type: 'ask_location' } } } : { reply };
+    }
 
     // A money-moving call → stop and hand back a confirmation card (never executed by the model).
     const confirmCall = calls.find((c) => CONFIRM_TOOLS.has(c.function.name));

@@ -4,7 +4,10 @@ import { getDb, schema } from '@/lib/db';
 import type { ResearchSessionRow } from '@/lib/db/schema';
 import { buyAvailable, cancelPurchase, getApprovalPayload, getPurchase, preparePurchase } from '@/lib/buy/service';
 import { parseMaybeJson } from '@/lib/buy/slim';
-import { ALLOWED_SERVICES, RESEARCH_HARD_CAP_ATOMIC, assemble, capFor, decideNext, describePlan, dollars, type StepRole, type StepState } from './engine';
+import { geocode } from '@/lib/geo/service';
+import { haversineKm, placeParts } from '@/lib/geo/place';
+import { ALLOWED_SERVICES, RESEARCH_HARD_CAP_ATOMIC, assemble, buildSummary, capFor, decideNext, describePlan, dollars, type FinishReason, type StepRole, type StepState } from './engine';
+import { rankItems } from './score';
 import type { ResearchKind, ResearchPlanView, ResearchRequest, ResearchResult, ResearchSource } from './types';
 
 /**
@@ -81,9 +84,29 @@ export async function getResearchResult(userId: string, id: string): Promise<Res
   }
 }
 
-async function finish(row: ResearchSessionRow, states: StepState[], reason: Parameters<typeof assemble>[2], extraNote?: string): Promise<Advance> {
+/**
+ * Add "about N km away" to the shortlist where we can: the person's area and the place a profile states are both looked up, and
+ * only when the stated place is specific enough to measure to (not just a country, not just the same city by name). Anything
+ * that fails or takes too long simply gets no distance — the shortlist is shown either way.
+ */
+async function addDistances(result: ResearchResult): Promise<void> {
+  const origin = result.request.place ? await geocode(result.request.place) : null;
+  if (!origin || !origin.precise) return;
+  const todo = result.items.filter((i) => i.location && i.nearness !== 'area' && !(i.nearness === 'city' && placeParts(i.location).length < 2)).slice(0, 5);
+  for (const item of todo) {
+    const there = await geocode(item.location as string);
+    if (there?.precise) item.distanceKm = Math.round(haversineKm(origin, there) * 10) / 10;
+  }
+}
+
+async function finish(row: ResearchSessionRow, states: StepState[], reason: FinishReason, extraNote?: string): Promise<Advance> {
   const result = assemble(requestOf(row), states, reason, new Date());
   if (extraNote) result.notes.unshift(extraNote);
+  if (result.items.length) {
+    await Promise.race([addDistances(result), new Promise((r) => setTimeout(r, 9000))]).catch(() => undefined);
+    result.items = rankItems(result.items);
+    result.summary = buildSummary(result.request, result.items, reason);
+  }
   const failed = reason === 'search_failed' && result.items.length === 0;
   await getDb()
     .update(schema.researchSessions)

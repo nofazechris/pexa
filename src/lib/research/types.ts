@@ -19,7 +19,19 @@ export interface Signal {
   text: string;
 }
 
+export type Platform = 'instagram' | 'x' | 'linkedin';
+
+/** How to reach them — only what they published on their own profile. */
+export interface ItemContact {
+  phone: string | null;
+  tel: string | null;
+  whatsapp: string | null;
+  email: string | null;
+  website: string | null;
+}
+
 export interface ResearchItem {
+  platform: Platform;
   name: string;
   /** @handle for Instagram accounts. */
   handle: string | null;
@@ -27,6 +39,13 @@ export interface ResearchItem {
   headline: string | null;
   verdict: Verdict;
   verdictLabel: string;
+  /** Where they say they are, as written on the profile ("Surulere, Lagos"). */
+  location: string | null;
+  /** By name alone: their neighbourhood, the same city, somewhere else, or not stated. */
+  nearness: 'area' | 'city' | 'other' | 'unknown';
+  /** Straight-line distance from the person's area, when both places could be pinned down. */
+  distanceKm: number | null;
+  contact: ItemContact;
   /** Short facts: "12.4K followers", "last post 3 days ago". */
   stats: string[];
   signals: Signal[];

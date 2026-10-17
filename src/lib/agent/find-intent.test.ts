@@ -10,6 +10,10 @@ describe('isFindRequest', () => {
     'recommend a photographer near Ikeja',
     'I want to hire someone to build a website',
     'find an instagram seller for phones in Lagos',
+    'graphic designer near me',
+    'closest designer to me',
+    'tailor nearby',
+    'best photographer around me',
   ])('%s → find', (t) => expect(isFindRequest(t)).toBe(true));
 
   it.each([

@@ -6,6 +6,17 @@ const source = (what: string, model?: string) => {
   return r.ok ? r.request.source : 'rejected';
 };
 
+describe('a place that is not a place', () => {
+  it.each(['me', 'near me', 'Near Me', 'closest to me', 'nearby', 'here', 'my area', 'around me', 'where I am'])('"%s" is not usable: the person is asked where they are', (place) => {
+    const r = normalizeRequest({ kind: 'hire', what: 'designer', place });
+    expect(r).toMatchObject({ ok: false, message: expect.stringMatching(/city or area/i) });
+  });
+  it('real places still pass', () => {
+    expect(normalizeRequest({ kind: 'hire', what: 'designer', place: 'Yaba, Lagos' })).toMatchObject({ ok: true });
+    expect(normalizeRequest({ kind: 'hire', what: 'designer', place: 'near Yaba' })).toMatchObject({ ok: true });
+  });
+});
+
 describe('where people to hire are looked up', () => {
   it.each(['tailor', 'a good seamstress', 'braider', 'makeup artist', 'photographer', 'caterer', 'barber', 'fashion designer', 'plumber', 'DJ', 'hair stylist'])('%s → Instagram, whatever the model says', (what) => {
     expect(source(what, 'linkedin')).toBe('instagram');

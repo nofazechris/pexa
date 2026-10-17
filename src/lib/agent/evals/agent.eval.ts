@@ -83,6 +83,16 @@ const CASES: Case[] = [
     check: (t) => (t.action?.render.type === 'ask_location' ? asksCity(t) : `no location button (action: ${t.action?.render.type ?? 'none'}, said: "${t.reply.slice(0, 90)}")`),
   },
   {
+    name: 'find: "graphic designer near me" (no verb) → asks, with the button',
+    messages: [{ role: 'user', content: 'graphic designer near me' }],
+    check: (t) => (t.action?.render.type === 'ask_location' ? asksCity(t) : `no location button (action: ${t.action?.render.type ?? 'none'}, said: "${t.reply.slice(0, 90)}")`),
+  },
+  {
+    name: 'find: "closest designer to me" never becomes a plan with "me" as the place',
+    messages: [{ role: 'user', content: 'closest designer to me' }],
+    check: (t) => (t.action?.render.type === 'research_plan' ? `made a plan for place "${t.action.render.request?.place}"` : t.action?.render.type === 'ask_location' ? null : `no location button (said: "${t.reply.slice(0, 90)}")`),
+  },
+  {
     name: 'find: "My area is Yaba, Lagos" (the button’s message) → plan for Yaba',
     messages: [
       { role: 'user', content: 'I need the best graphic designer close to me' },

@@ -11,6 +11,9 @@ export function normalizeRequest(input: { kind?: unknown; source?: unknown; what
   const what = typeof input.what === 'string' ? clean(input.what, 80) : '';
   // "lagos" → "Lagos", "abuja nigeria" → "Abuja Nigeria".
   const place = typeof input.place === 'string' ? clean(input.place, 60).replace(/(^|\s)([a-z])/g, (_m, sp: string, c: string) => sp + c.toUpperCase()) : '';
+  // "near me" / "closest" / "here" is not a place the search can use — the person still has to say (or share) where they are.
+  const placeIsVague = /^(?:me|my area|my city|my location|near me|nearby|near by|around me|close to me|closest to me|closest|nearest|here|current location|where i am|your area)$/i.test(place.trim());
+  if (placeIsVague) return { ok: false, message: 'Which city or area are you in? I need a place to search near.' };
   if (what.length < 2) return { ok: false, message: 'What are you looking for? For example “sneakers” or “a graphic designer”.' };
   if (!place) return { ok: false, message: 'Which city or area? Results are far better with a place, e.g. Lagos.' };
   // Sellers are found on Instagram. People to hire: LinkedIn for professionals, Instagram for trades and creators — decided here

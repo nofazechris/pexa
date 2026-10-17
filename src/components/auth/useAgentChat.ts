@@ -338,7 +338,7 @@ export function useAgentChat(deps: AgentChatDeps) {
             execArgs: action.args,
             status: 'awaiting',
           });
-        } else {
+        } else if (action.render.type === 'fiat_quote') {
           const q = action.render.quote;
           push({
             role: 'agent',

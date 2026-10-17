@@ -17,6 +17,7 @@ export type TurnMessage = { role: 'user' | 'assistant'; content: string };
 
 const FIND_VERB = /\b(find|finding|looking for|look for|searching for|search for|recommend|suggest|who sells|who can|where (?:can|do) i (?:buy|get)|i need|i want|need a|get me|best)\b/i;
 const FIND_NOUN = /\b(vendors?|sellers?|plugs?|shops?|stores?|suppliers?|dealers?|merchants?|tailors?|seamstress(?:es)?|designers?|developers?|programmers?|photographers?|videographers?|freelancers?|braiders?|hair ?stylists?|barbers?|make-?up artists?|caterers?|accountants?|marketers?|editors?|writers?|plumbers?|electricians?|mechanics?|hire|someone to)\b/i;
+const NEAR_ME = /\b(near me|nearby|near by|close to me|closest to me|closest|nearest|around me|in my area|near my)\b/i;
 const ABOUT_ONE_ACCOUNT = /\b(legit|scam|scammer|safe|trust|real or fake|fake)\b|@\w/i;
 
 /**
@@ -25,7 +26,8 @@ const ABOUT_ONE_ACCOUNT = /\b(legit|scam|scammer|safe|trust|real or fake|fake)\b
  */
 export function isFindRequest(text: string): boolean {
   if (ABOUT_ONE_ACCOUNT.test(text)) return false;
-  return /\bwho sells\b/i.test(text) || (FIND_VERB.test(text) && FIND_NOUN.test(text));
+  // "designer near me" has no verb, but a service or seller plus "near me" is still a request to find one.
+  return /\bwho sells\b/i.test(text) || ((FIND_VERB.test(text) || NEAR_ME.test(text)) && FIND_NOUN.test(text));
 }
 
 export function isBuyIntent(text: string): boolean {

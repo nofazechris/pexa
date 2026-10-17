@@ -16,6 +16,16 @@ const PLATFORM_NAME = { instagram: 'Instagram', x: 'X', linkedin: 'LinkedIn' } a
 
 const MONO = 'var(--font-geist-mono),monospace';
 
+function Icon({ kind }: { kind: 'pin' | 'phone' | 'mail' }) {
+  const common = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true, style: { flexShrink: 0 } } as const;
+  if (kind === 'pin') return <svg {...common}><path d="M12 21s7-5.2 7-11a7 7 0 10-14 0c0 5.8 7 11 7 11z" /><circle cx="12" cy="10" r="2.5" /></svg>;
+  if (kind === 'phone') return <svg {...common}><path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2z" /></svg>;
+  return <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 7l9 6 9-6" /></svg>;
+}
+
+const fiveStars = (n: number) => (n / 20).toFixed(1);
+const PART_NAME = { trust: 'Trust', fit: 'Fit', nearby: 'Near', price: 'Price' } as const;
+
 function Label({ children }: { children: string }) {
   return <div style={{ fontFamily: MONO, fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>{children}</div>;
 }
@@ -103,7 +113,7 @@ function ItemRow({ item, r, onTry }: { item: ResearchItem; r: ResearchResult; on
   const tone = TONE[item.verdict];
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(outreachMessage(r, item));
+      await navigator.clipboard.writeText(item.negotiation?.message ?? outreachMessage(r, item));
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch {
@@ -117,21 +127,57 @@ function ItemRow({ item, r, onTry }: { item: ResearchItem; r: ResearchResult; on
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
         <span style={{ fontSize: '14.5px', fontWeight: 600, color: color.ink, wordBreak: 'break-word' }}>{item.handle ?? item.name}</span>
         {item.handle && item.name !== item.handle ? <span style={{ fontSize: '13px', color: color.mutedStrong }}>{item.name}</span> : null}
-        <span style={{ marginLeft: 'auto', fontSize: '12px', fontWeight: 600, color: tone.fg, whiteSpace: 'nowrap' }}>{item.verdictLabel}</span>
+        <span style={{ marginLeft: 'auto', textAlign: 'right', whiteSpace: 'nowrap', lineHeight: 1.15 }}>
+          {item.rating ? (
+            <span style={{ display: 'block', color: tone.fg }}>
+              <span style={{ fontSize: '20px', fontWeight: 700, letterSpacing: '-.03em', fontVariantNumeric: 'tabular-nums' }}>{fiveStars(item.rating.overall)}</span>
+              <span style={{ fontSize: '11.5px', fontWeight: 500 }}> / 5</span>
+            </span>
+          ) : null}
+          <span style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: tone.fg }}>{item.verdictLabel}</span>
+        </span>
       </div>
       {item.headline ? <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '5px', lineHeight: 1.45, wordBreak: 'break-word' }}>{item.headline}</div> : null}
       {item.stats.length ? <div style={{ fontFamily: MONO, fontSize: '11.5px', color: color.mutedStrong, marginTop: '7px' }}>{[PLATFORM_NAME[item.platform], ...item.stats].join(' · ')}</div> : null}
+      {item.rating ? (
+        <div style={{ fontFamily: MONO, fontSize: '11px', color: color.mutedStrong, marginTop: '6px' }}>
+          {(['trust', 'fit', 'nearby', 'price'] as const)
+            .filter((k) => item.rating![k] !== null)
+            .map((k) => `${PART_NAME[k]} ${fiveStars(item.rating![k] as number)}`)
+            .join(' · ')}
+        </div>
+      ) : null}
+      {item.prices ? (
+        <div style={{ fontSize: '13px', color: color.ink, marginTop: '8px' }}>
+          <span style={{ fontWeight: 500 }}>{item.prices.matched ? 'Price for this' : 'Prices seen (mixed items)'} {item.prices.text}</span>
+          {item.prices.vsMarket ? (
+            <span style={{ color: item.prices.vsMarket.kind === 'above' ? 'var(--pp-danger-text)' : item.prices.vsMarket.kind === 'below' ? color.success : color.mutedStrong, fontWeight: 500 }}>
+              {' '}· {item.prices.vsMarket.kind === 'near' ? 'about the usual price' : `${Math.abs(item.prices.vsMarket.percent)}% ${item.prices.vsMarket.kind === 'above' ? 'above' : 'below'} usual`}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {item.location || item.distanceKm !== null || item.nearness === 'area' ? (
-        <div style={{ fontSize: '13px', color: color.ink, marginTop: '8px', fontWeight: 500 }}>
-          📍 {item.location ?? 'Your area'}
-          {item.distanceKm !== null ? <span style={{ color: color.mutedStrong, fontWeight: 400 }}> · {distanceText(item.distanceKm)}</span> : item.nearness === 'area' ? <span style={{ color: color.mutedStrong, fontWeight: 400 }}> · in your area</span> : null}
+        <div style={{ fontSize: '13px', color: color.ink, marginTop: '8px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Icon kind="pin" />
+          <span>{item.location ?? 'Your area'}
+          {item.distanceKm !== null ? <span style={{ color: color.mutedStrong, fontWeight: 400 }}> · {distanceText(item.distanceKm)}</span> : item.nearness === 'area' ? <span style={{ color: color.mutedStrong, fontWeight: 400 }}> · in your area</span> : null}</span>
         </div>
       ) : null}
       {item.contact.phone || item.contact.email ? (
-        <div style={{ fontSize: '13px', color: color.ink, marginTop: '5px', wordBreak: 'break-word' }}>
-          {item.contact.phone ? <>📞 {item.contact.phone}</> : null}
-          {item.contact.phone && item.contact.email ? <span style={{ color: color.faint }}> · </span> : null}
-          {item.contact.email ? <>✉️ {item.contact.email}</> : null}
+        <div style={{ fontSize: '13px', color: color.ink, marginTop: '5px', wordBreak: 'break-word', display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
+          {item.contact.phone ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <Icon kind="phone" />
+              {item.contact.phone}
+            </span>
+          ) : null}
+          {item.contact.email ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <Icon kind="mail" />
+              {item.contact.email}
+            </span>
+          ) : null}
         </div>
       ) : null}
       <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -142,6 +188,13 @@ function ItemRow({ item, r, onTry }: { item: ResearchItem; r: ResearchResult; on
           </li>
         ))}
       </ul>
+      {item.negotiation ? (
+        <div style={{ marginTop: '10px', background: color.surface, border: `1px solid ${color.borderFaint}`, borderRadius: '11px', padding: '10px 11px' }}>
+          <div style={{ fontFamily: MONO, fontSize: '10px', letterSpacing: '.12em', color: color.faint }}>NEGOTIATE</div>
+          <div style={{ fontSize: '12.5px', lineHeight: 1.5, color: color.ink, marginTop: '5px' }}>{item.negotiation.tip}</div>
+          {item.negotiation.offer ? <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '4px' }}>Opening offer: <strong style={{ color: color.ink }}>{item.negotiation.offer}</strong></div> : null}
+        </div>
+      ) : null}
       <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap', marginTop: '11px' }}>
         {item.contact.tel ? (
           <a href={`tel:${item.contact.tel}`} style={{ ...btn, textDecoration: 'none', display: 'inline-block' }}>
@@ -159,7 +212,7 @@ function ItemRow({ item, r, onTry }: { item: ResearchItem; r: ResearchResult; on
           </a>
         ) : null}
         <button onClick={copy} style={btn}>
-          {copied ? 'Copied' : 'Copy a message to send'}
+          {copied ? 'Copied' : item.negotiation ? 'Copy negotiation message' : 'Copy a message to send'}
         </button>
         {item.handle && onTry ? (
           <button onClick={() => onTry(`Check the ${PLATFORM_NAME[item.platform]} account ${item.handle} before I pay: is it legit?`)} style={btn}>
@@ -179,6 +232,13 @@ export function ResearchResultCard({ m, onTry }: { m: ChatMessage; onTry?: (text
       <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '14px 16px' }}>
         <Label>{r.request.kind === 'hire' ? 'SHORTLIST · PEOPLE TO HIRE' : 'SHORTLIST · VENDORS'}</Label>
         <div style={{ fontSize: '14.5px', lineHeight: 1.5, marginTop: '8px', color: color.ink }}>{r.summary}</div>
+        {r.market ? (
+          <div style={{ fontSize: '13px', color: color.ink, marginTop: '10px', paddingTop: '10px', borderTop: `1px solid ${color.borderFaint}` }}>
+            <span style={{ color: color.mutedStrong }}>Typical price for {r.request.what}: </span>
+            <strong>{r.market.text}</strong>
+            <span style={{ color: color.mutedStrong }}> · usually around {r.market.middle} (from {r.market.n} published prices)</span>
+          </div>
+        ) : null}
         <div style={{ fontFamily: MONO, fontSize: '11.5px', color: color.faint, marginTop: '8px' }}>Cost of this search: {r.spent} · receipts saved under Purchases</div>
       </div>
       {r.items.map((item) => (

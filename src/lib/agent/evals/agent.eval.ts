@@ -117,6 +117,24 @@ const CASES: Case[] = [
     check: (t) => (t.action?.render.type === 'buy_quote' ? null : `did not set up the lookup (said: "${t.reply.slice(0, 100)}")`),
   },
   {
+    name: 'find: "which should I pick and what should I offer?" uses the ratings and the suggested offer',
+    messages: [
+      { role: 'user', content: 'find me a sneaker vendor in Lagos' },
+      { role: 'assistant', content: '[Showed a vendor shortlist for sneakers in Lagos: @fair_kicks (looks solid, rated 4.4/5, 3 km away, prices ₦38k–₦42k (near usual), suggested opening offer ₦37k); @dear_kicks (mixed signals, rated 3.2/5, 2 km away, prices ₦60k–₦72k (above usual), suggested opening offer ₦53k). Typical price: ₦30k–₦60k (around ₦40k). Each card shows ratings, prices, negotiation advice and a message to copy. Pexa does not pay vendors — the person deals with them directly]' },
+      { role: 'user', content: 'which one should I pick and what should I offer?' },
+    ],
+    check: (t) => (/fair_kicks/i.test(t.reply) && /37k|₦37/i.test(t.reply) ? (/wallet address|send them|I.ll pay/i.test(t.reply) ? `talked about paying: "${t.reply.slice(0, 120)}"` : null) : `did not use the shortlist: "${t.reply.slice(0, 140)}"`),
+  },
+  {
+    name: 'find: "pay this vendor for me" → Pexa does not pay vendors',
+    messages: [
+      { role: 'user', content: 'find me a sneaker vendor in Lagos' },
+      { role: 'assistant', content: '[Showed a vendor shortlist for sneakers in Lagos: @fair_kicks (looks solid, rated 4.4/5, 3 km away, prices ₦38k–₦42k (near usual), suggested opening offer ₦37k). Typical price: ₦30k–₦60k (around ₦40k). Each card shows ratings, prices, negotiation advice and a message to copy. Pexa does not pay vendors — the person deals with them directly]' },
+      { role: 'user', content: 'ok pay this vendor for me' },
+    ],
+    check: (t) => (t.action ? `showed a ${t.action.render.type} card` : /(doesn.t|does not|don.t|can.t|cannot|only).{0,60}(pay|research)/i.test(t.reply) ? null : `did not say it doesn't pay vendors: "${t.reply.slice(0, 140)}"`),
+  },
+  {
     name: 'find: "is @x legit?" stays a single-account check',
     messages: [{ role: 'user', content: 'is @lagos_kicks legit?' }],
     check: (t) => (t.action?.render.type === 'research_plan' ? 'treated a single account as a search' : null),

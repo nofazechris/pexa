@@ -7,7 +7,9 @@
  */
 import { nearness as nearnessOf, placeParts, type Nearness } from '@/lib/geo/place';
 import { NO_CONTACT, type Contact, type IgCandidate, type IgProfile, type LiPerson, type XPerson } from './read';
-import type { ResearchItem, ResearchKind, Signal, Verdict } from './types';
+import { currencyForPlace, extractPrices, rangeText, summarize, type PricePoint } from './price';
+import { fitScore, initialRating, trustScore } from './rate';
+import type { ItemPrices, ResearchItem, ResearchKind, Signal, Verdict } from './types';
 
 export function compact(n: number): string {
   if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, '')}M`;
@@ -54,6 +56,20 @@ const words = (s: string) =>
     .filter((w) => w.length >= 3 && !['and', 'the', 'for', 'with', 'who', 'sells', 'selling'].includes(w))
     .map((w) => (w.length > 4 ? w.replace(/(?:es|s)$/, '') : w));
 
+/** The prices found in some text, summarised (null when there are none). */
+export function itemPrices(points: readonly PricePoint[], matched: boolean): ItemPrices | null {
+  const s = summarize(points);
+  if (!s) return null;
+  return { currency: s.currency, low: s.low, median: s.median, high: s.high, n: s.n, points: points.filter((p) => p.currency === s.currency).map((p) => p.amount).slice(0, 24), matched, text: rangeText(s), vsMarket: null };
+}
+
+/** How many of the words asked for appear in the text. */
+function wordHits(text: string, what: string): { hits: number; wanted: number } {
+  const wanted = words(what);
+  const hay = text.toLowerCase();
+  return { hits: wanted.filter((w) => hay.includes(w)).length, wanted: wanted.length };
+}
+
 // --- where they are ------------------------------------------------------------------------------------------
 
 interface Where {
@@ -85,7 +101,7 @@ const asContact = (c: Contact | undefined) => c ?? NO_CONTACT;
 // --- Instagram -----------------------------------------------------------------------------------------------
 
 /** An Instagram account, from what its profile lookup showed. `profile` is null when the lookup couldn't be read. */
-export function scoreInstagram(candidate: IgCandidate, profile: IgProfile | null, now: Date, place = ''): ResearchItem {
+export function scoreInstagram(candidate: IgCandidate, profile: IgProfile | null, now: Date, place = '', what = ''): ResearchItem {
   const handle = candidate.username;
   const base = {
     platform: 'instagram' as const,
@@ -97,7 +113,7 @@ export function scoreInstagram(candidate: IgCandidate, profile: IgProfile | null
 
   if (!profile) {
     const stats = candidate.followers !== null ? [`${compact(candidate.followers)} followers`] : [];
-    return { ...base, verdict: 'unknown', verdictLabel: verdictLabel('vendors', 'unknown'), location: null, nearness: 'unknown', distanceKm: null, contact: NO_CONTACT, stats, signals: [{ tone: 'info', text: 'I didn’t look inside this account, so I can’t say how active or real it is.' }], checked: false };
+    return { ...base, verdict: 'unknown', verdictLabel: verdictLabel('vendors', 'unknown'), location: null, nearness: 'unknown', distanceKm: null, contact: NO_CONTACT, stats, signals: [{ tone: 'info', text: 'I didn’t look inside this account, so I can’t say how active or real it is.' }], checked: false, rating: null, prices: null, negotiation: null };
   }
 
   const signals: Signal[] = [];
@@ -144,7 +160,16 @@ export function scoreInstagram(candidate: IgCandidate, profile: IgProfile | null
 
   const verdict = decide(signals); // location notes are information only: they never change the verdict
   const where = whereIs(profile.location, profile.bio ?? candidate.bio, place);
-  return { ...base, verdict, verdictLabel: verdictLabel('vendors', verdict), location: where.location, nearness: where.nearness, distanceKm: null, contact, stats, signals: [...signals, ...where.signals], checked: true };
+  const captions = profile.recent.map((p) => p.caption).filter((c): c is string => Boolean(c));
+  // Prices in posts that name what was asked for are comparable between sellers; a seller's other items (slides next to sneakers) are not.
+  const cur = currencyForPlace(place);
+  const wantedWords = words(what);
+  const fromCaptions = captions.map((c) => ({ pts: extractPrices(c, cur), hit: wantedWords.length > 0 && wantedWords.some((w) => c.toLowerCase().includes(w)) }));
+  const matchedPts = fromCaptions.filter((c) => c.hit).flatMap((c) => c.pts);
+  const allPts = [...fromCaptions.flatMap((c) => c.pts), ...extractPrices(profile.bio, cur)];
+  const prices = itemPrices(matchedPts.length ? matchedPts : allPts, matchedPts.length > 0);
+  const { hits, wanted } = wordHits(`${handle} ${profile.fullName ?? candidate.fullName ?? ''} ${profile.bio ?? ''} ${profile.category ?? ''} ${captions.join(' ')}`, what);
+  return { ...base, verdict, verdictLabel: verdictLabel('vendors', verdict), location: where.location, nearness: where.nearness, distanceKm: null, contact, stats, signals: [...signals, ...where.signals], checked: true, rating: initialRating(trustScore(signals), fitScore(hits, wanted)), prices, negotiation: null };
 }
 
 // --- X -------------------------------------------------------------------------------------------------------
@@ -195,6 +220,9 @@ export function scoreX(p: XPerson, ask: { what: string; place: string }, kind: R
     stats,
     signals: [...signals, ...where.signals],
     checked: true,
+    rating: initialRating(trustScore(signals), fitScore(hits.length, wanted.length)),
+    prices: itemPrices(extractPrices(p.bio, currencyForPlace(ask.place)), wanted.length > 0 && hits.length > 0),
+    negotiation: null,
   };
 }
 
@@ -254,6 +282,9 @@ export function scoreLinkedIn(p: LiPerson, ask: { what: string; place: string },
     stats,
     signals,
     checked: true,
+    rating: initialRating(trustScore(signals), fitScore(hits.length, wanted.length)),
+    prices: null,
+    negotiation: null,
   };
 }
 

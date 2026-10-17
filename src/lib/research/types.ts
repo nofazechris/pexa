@@ -30,6 +30,54 @@ export interface ItemContact {
   website: string | null;
 }
 
+/** How good an option someone looks, 0–100, with the parts it is made of (null = not known, so it is left out). */
+export interface Rating {
+  overall: number;
+  /** Does the account look real, active and established? */
+  trust: number | null;
+  /** Does it match what was asked for? */
+  fit: number | null;
+  /** How close they are. */
+  nearby: number | null;
+  /** How their prices compare with what others charge. */
+  price: number | null;
+}
+
+/** Prices a seller published, as written (their currency), with how they compare with the typical price. */
+export interface ItemPrices {
+  currency: string;
+  low: number;
+  median: number;
+  high: number;
+  n: number;
+  /** The amounts found, for pooling into a market price. */
+  points: number[];
+  /** True when these prices come from posts that mention what was asked for, so they can be compared with other sellers' (like with like). */
+  matched: boolean;
+  /** "₦25k–₦60k" */
+  text: string;
+  vsMarket: { kind: 'below' | 'near' | 'above'; percent: number } | null;
+}
+
+/** Help for talking the price down: what to aim for and a message ready to send. */
+export interface Negotiation {
+  tip: string;
+  /** A sensible first offer, e.g. "₦38k" (null when there is nothing to base one on). */
+  offer: string | null;
+  message: string;
+}
+
+/** What things typically cost across the sellers found. */
+export interface MarketPrice {
+  currency: string;
+  low: number;
+  median: number;
+  high: number;
+  n: number;
+  text: string;
+  middle: string;
+}
+
 export interface ResearchItem {
   platform: Platform;
   name: string;
@@ -51,6 +99,9 @@ export interface ResearchItem {
   signals: Signal[];
   /** Whether the account itself was looked at (false: only seen in the search). */
   checked: boolean;
+  rating: Rating | null;
+  prices: ItemPrices | null;
+  negotiation: Negotiation | null;
 }
 
 export interface ResearchResult {
@@ -61,6 +112,8 @@ export interface ResearchResult {
   notes: string[];
   /** What it cost in total, as dollars: "$0.022". */
   spent: string;
+  /** What the item typically costs across the sellers found, when enough prices were published. */
+  market: MarketPrice | null;
 }
 
 export type ResearchStatus = 'PLANNED' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED';

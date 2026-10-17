@@ -7,7 +7,7 @@ import { parseMaybeJson } from '@/lib/buy/slim';
 import { geocode } from '@/lib/geo/service';
 import { haversineKm, placeParts } from '@/lib/geo/place';
 import { ALLOWED_SERVICES, RESEARCH_HARD_CAP_ATOMIC, assemble, buildSummary, capFor, decideNext, describePlan, dollars, type FinishReason, type StepRole, type StepState } from './engine';
-import { rankItems } from './score';
+import { applyRatings, rankByRating } from './rate';
 import type { ResearchKind, ResearchPlanView, ResearchRequest, ResearchResult, ResearchSource } from './types';
 
 /**
@@ -104,8 +104,11 @@ async function finish(row: ResearchSessionRow, states: StepState[], reason: Fini
   if (extraNote) result.notes.unshift(extraNote);
   if (result.items.length) {
     await Promise.race([addDistances(result), new Promise((r) => setTimeout(r, 9000))]).catch(() => undefined);
-    result.items = rankItems(result.items);
-    result.summary = buildSummary(result.request, result.items, reason);
+    // Distances change who is nearest: rate and rank again, then say it.
+    const rated = applyRatings(result.items, { what: result.request.what, place: result.request.place, kind: result.request.kind });
+    result.items = rankByRating(rated.items);
+    result.market = rated.market;
+    result.summary = buildSummary(result.request, result.items, reason, rated.market);
   }
   const failed = reason === 'search_failed' && result.items.length === 0;
   await getDb()

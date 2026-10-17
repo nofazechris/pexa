@@ -66,6 +66,25 @@ export function isSocialAccountCheck(text: string): boolean {
   return SOCIAL_WORDS.test(text) || TRUST_WORDS.test(text);
 }
 
+const PAY_WORDS = /\b(pay|paying|send (?:them )?(?:the )?money|transfer|settle up|checkout|check out|buy (?:it|this|from))\b/i;
+const VENDOR_WORDS = /\b(vendor|seller|plug|shop|store|supplier|designer|tailor|photographer|him|her|them|this one|that one|the first|the second|the top|number \d|option \d)\b/i;
+
+/** The reply when someone asks Pexa to pay a vendor from a shortlist: Pexa researches; the person pays outside Pexa. */
+export const VENDOR_PAY_REPLY =
+  'I can’t pay vendors for you — Pexa is your research agent: it finds sellers, compares what they charge, rates them and helps you negotiate, so you decide before spending your own money. When you’re ready, deal with the seller directly. I can still help you pick, write the message, or check one of them more closely.';
+
+/**
+ * "ok pay this vendor for me" right after a shortlist: a request to pay someone from the results. Pexa doesn't do that — it only
+ * researches. An explicit @username or wallet address means a normal send between people, which is not what this is about.
+ */
+export function isVendorPaymentRequest(messages: readonly TurnMessage[]): boolean {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== 'user') return false;
+  if (!PAY_WORDS.test(last.content) || !VENDOR_WORDS.test(last.content)) return false;
+  if (/@\w{2,}|0x[0-9a-fA-F]{6,}/.test(last.content)) return false;
+  return messages.slice(-8, -1).some((m) => m.role === 'assistant' && /\[Showed a (?:vendor|hiring) shortlist/i.test(m.content));
+}
+
 const ASKS_PLACE = /\b(city|area|neighbou?rhood|location|which (?:part|town|state)|where (?:are you|should|do you|in))\b/i;
 
 /**

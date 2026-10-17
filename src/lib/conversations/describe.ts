@@ -18,7 +18,11 @@ export interface ChatLike {
   swapResult?: { ok?: boolean; amountOut?: string | null; error?: string };
   statement?: { label?: string; count?: number };
   research?: { title?: string; estimate?: string; cap?: string };
-  researchResult?: { request?: { kind?: string; what?: string; place?: string }; items?: { handle?: string | null; name?: string; verdictLabel?: string }[] };
+  researchResult?: {
+    request?: { kind?: string; what?: string; place?: string };
+    market?: { text?: string; middle?: string } | null;
+    items?: { handle?: string | null; name?: string; verdictLabel?: string; rating?: { overall?: number } | null; distanceKm?: number | null; prices?: { text?: string; vsMarket?: { kind?: string; percent?: number } | null } | null; negotiation?: { offer?: string | null } | null }[];
+  };
   result?: { status?: string };
   title?: string;
 }
@@ -66,9 +70,20 @@ export function describeCard(m: ChatLike): string | null {
       return `[Showed a plan to search for “${m.research?.title ?? 'a vendor'}” — about ${m.research?.estimate ?? '?'}, never more than ${m.research?.cap ?? '?'}${m.status === 'awaiting' ? ' — waiting for the person to tap Approve' : m.status === 'cancelled' ? ' — it was cancelled' : ''}]`;
     case 'research_result': {
       const r = m.researchResult;
-      const who = (r?.items ?? []).slice(0, 5).map((i) => `${i.handle ?? i.name ?? 'someone'} (${(i.verdictLabel ?? '').toLowerCase()})`).join(', ');
+      const who = (r?.items ?? [])
+        .slice(0, 5)
+        .map((i) => {
+          const bits = [(i.verdictLabel ?? '').toLowerCase()];
+          if (i.rating?.overall !== undefined) bits.push(`rated ${(i.rating.overall / 20).toFixed(1)}/5`);
+          if (typeof i.distanceKm === 'number') bits.push(`${Math.round(i.distanceKm)} km away`);
+          if (i.prices?.text) bits.push(`prices ${i.prices.text}${i.prices.vsMarket ? ` (${i.prices.vsMarket.kind} usual)` : ''}`);
+          if (i.negotiation?.offer) bits.push(`suggested opening offer ${i.negotiation.offer}`);
+          return `${i.handle ?? i.name ?? 'someone'} (${bits.join(', ')})`;
+        })
+        .join('; ');
       const kind = r?.request?.kind === 'hire' ? 'hiring' : 'vendor';
-      return `[Showed a ${kind} shortlist for ${r?.request?.what ?? 'what they asked'}${r?.request?.place ? ` in ${r.request.place}` : ''}: ${who || 'nobody found'}. The cards show each one’s facts and a message to send them]`;
+      const market = r?.market?.text ? ` Typical price: ${r.market.text} (around ${r.market.middle}).` : '';
+      return `[Showed a ${kind} shortlist for ${r?.request?.what ?? 'what they asked'}${r?.request?.place ? ` in ${r.request.place}` : ''}: ${who || 'nobody found'}.${market} Each card shows ratings, prices, negotiation advice and a message to copy. Pexa does not pay vendors — the person deals with them directly]`;
     }
     case 'error':
       return `[Showed an error: ${clip(m.title ?? 'something went wrong', 80)}]`;

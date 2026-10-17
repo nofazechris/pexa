@@ -180,6 +180,9 @@ describe('ranking: decent and close first', () => {
     stats: [],
     signals: [],
     checked: true,
+    rating: null,
+    prices: null,
+    negotiation: null,
     ...over,
   });
   it('a nearby decent account beats a far solid one; worrying accounts come after decent ones', () => {

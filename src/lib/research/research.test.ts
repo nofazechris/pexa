@@ -192,7 +192,7 @@ describe('the answer', () => {
     expect(r.items[1].verdict).toBe('careful');
     expect(r.spent).toBe('$0.022');
     expect(r.notes.join(' ')).toMatch(/2 more Instagram accounts/);
-    expect(r.notes.join(' ')).toMatch(/test payment/);
+    expect(r.notes.join(' ')).toMatch(/Ask for proof first/);
     expect(r.summary).toMatch(/@b_kicks/);
   });
   it('never claims a verdict for an account it did not look inside', () => {

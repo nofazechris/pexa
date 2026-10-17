@@ -13,9 +13,11 @@ Pexa is a real Buy *buyer*: every paid lookup is an x402 `transferWithAuthorizat
 | Feature | What the user sees | Buy services used |
 | --- | --- | --- |
 | **Check before you pay** | "Is @vendor legit?" → age, activity, follower quality, what people say → plain verdict | `instagram.profile`, `x.posts.search`, `reddit.posts.search` |
-| **Find a vendor / someone to hire** | "Find me a sneaker seller in Lagos" or "a graphic designer close to me" → **one** Approve for a stated budget (≈ $0.03, never more than $0.08) → ranked shortlist with verdicts, location/distance, and the phone / WhatsApp / email each account published | Instagram user search + profile, X people search, LinkedIn people search |
+| **Find, price and rate vendors / people to hire** | "Find me a sneaker seller in Lagos" or "a graphic designer close to me" → **one** Approve for a stated budget (≈ $0.03, never more than $0.08) → a shortlist **rated out of 5** (trust, fit, nearness, price), each seller's published prices compared with what others charge, an opening offer and a ready-to-send negotiation message, plus location/distance and the phone / WhatsApp / email each account published | Instagram user search + profile, X people search, LinkedIn people search |
 | **Ask for anything in the catalog** | "What are people saying about X on Reddit today?" → priced, approved, summarised, receipt saved | any Buy service via search → quote → approve |
 | **External agents** | ChatGPT / Claude use Pexa's tools (incl. `buy_*`) over MCP | `/api/mcp` |
+
+**Pexa researches; it never pays the vendor.** The agent spends a few cents of the user's own money on *information* (Buy lookups) so the user can decide — and haggle — before spending their own money elsewhere. Prices are only compared like-for-like (posts that name the item), a "typical price" needs at least three sellers, and every result says plainly that a public profile can't prove delivery.
 
 **Why it is safe to let an agent spend.** The order of operations is the whole design (`src/lib/buy/service.ts`):
 

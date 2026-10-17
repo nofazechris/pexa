@@ -235,6 +235,8 @@ export interface IgPost {
   at: Date | null;
   likes: number | null;
   comments: number | null;
+  /** The post's caption — where sellers write their prices. */
+  caption: string | null;
 }
 
 export interface IgProfile {
@@ -286,6 +288,7 @@ export function igProfile(output: Json): IgProfile | null {
       at: asDate(findKey(m, TIME_KEYS, 1)),
       likes: asNumber(findKey(m, LIKE_KEYS, 1)),
       comments: asNumber(findKey(m, COMMENT_KEYS, 1)),
+      caption: asText(findKey(m, ['caption', 'captionText', 'text', 'title', 'description'], 2))?.slice(0, 600) ?? null,
     })),
   };
 }

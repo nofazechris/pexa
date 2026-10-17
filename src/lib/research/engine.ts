@@ -5,8 +5,9 @@
  */
 import { nearness } from '@/lib/geo/place';
 import { igCandidates, igProfile, liPeople, xPeople, type IgCandidate, type XPerson } from './read';
-import { rankItems, scoreInstagram, scoreLinkedIn, scoreX } from './score';
-import type { ResearchItem, ResearchRequest, ResearchResult } from './types';
+import { applyRatings, rankByRating, stars } from './rate';
+import { scoreInstagram, scoreLinkedIn, scoreX } from './score';
+import type { MarketPrice, ResearchItem, ResearchRequest, ResearchResult } from './types';
 
 /** The only Buy services research may spend on. Anything else is refused, whatever the model or a poisoned result suggests. */
 export const SERVICE = {
@@ -242,10 +243,10 @@ export function decideNext(req: ResearchRequest, steps: readonly StepState[]): N
 
 const spentOn = (steps: readonly StepState[]) => steps.filter((s) => s.outcome === 'PAID' || s.outcome === 'UNCERTAIN').reduce((a, s) => a + s.priceAtomic, 0n);
 
-const BASE_NOTE = 'A public profile can show an account is active and looks real — it can’t prove they deliver. Start with a small test payment.';
+const BASE_NOTE = 'A public profile can show an account is active and looks real — it can’t prove they deliver. Ask for proof first (a video of the item, a past customer to speak to) and start small. Pexa only does the research; you deal with the seller yourself.';
 
 /** One sentence for the top of the shortlist: how many, and the best one (nearest of the solid ones). */
-export function buildSummary(req: ResearchRequest, items: readonly ResearchItem[], reason: FinishReason): string {
+export function buildSummary(req: ResearchRequest, items: readonly ResearchItem[], reason: FinishReason, market: MarketPrice | null = null): string {
   const where = req.place ? ` in ${req.place}` : '';
   if (!items.length) {
     if (reason === 'unreadable') return `I got a response for ${req.what}${where} but couldn’t read it properly — that’s on my side, not yours. I stopped there so it cost no more.`;
@@ -256,9 +257,11 @@ export function buildSummary(req: ResearchRequest, items: readonly ResearchItem[
   const who = best.handle ?? best.name;
   const km = best.distanceKm !== null ? (best.distanceKm < 1 ? ', under 1 km from you' : `, about ${Math.round(best.distanceKm)} km from you`) : best.nearness === 'area' ? ', in your area' : best.nearness === 'city' ? `, in ${best.location ?? 'your city'}` : '';
   const good = items.some((i) => i.verdict === 'solid');
+  const score = best.rating ? `${stars(best.rating.overall)}/5, ` : '';
+  const typical = market ? ` Typical price: ${market.text}.` : '';
   return good
-    ? `Found ${items.length} for ${req.what}${where}. Best pick: ${who} (${best.verdictLabel.toLowerCase()}${km}).`
-    : `Found ${items.length} for ${req.what}${where}, but none stands out strongly — ${who} is the closest decent option${km}. Go carefully and test with a small payment first.`;
+    ? `Found ${items.length} for ${req.what}${where}. Best rated: ${who} (${score}${best.verdictLabel.toLowerCase()}${km}).${typical}`
+    : `Found ${items.length} for ${req.what}${where}, but none stands out strongly — ${who} rates best (${score}${best.verdictLabel.toLowerCase()}${km}). Go carefully and check before you spend.${typical}`;
 }
 
 /** The shortlist from everything bought, ranked by trust then closeness (by name only — distances are added by the server). */
@@ -275,14 +278,15 @@ export function assemble(req: ResearchRequest, steps: readonly StepState[], reas
     const vetted = new Map<string, ReturnType<typeof igProfile>>();
     for (const s of steps) if (s.role === 'vet' && s.outcome === 'PAID' && s.ref) vetted.set(s.ref, igProfile(s.output));
     const lookedAt = rankCandidates(found, req.what).filter((c) => steps.some((s) => s.role === 'vet' && s.ref === c.username));
-    items.push(...lookedAt.map((c) => scoreInstagram(c, vetted.get(c.username) ?? null, now, req.place)));
+    items.push(...lookedAt.map((c) => scoreInstagram(c, vetted.get(c.username) ?? null, now, req.place, req.what)));
     const unchecked = found.length - lookedAt.length;
     if (unchecked > 0) notes.push(`I found ${unchecked} more Instagram account${unchecked === 1 ? '' : 's'} but only looked inside the top ${lookedAt.length} to keep the cost down. Ask me to look further if you want.`);
     if (lookedAt.some((c) => !vetted.get(c.username))) notes.push('For some Instagram accounts the lookup came back empty, so I can’t say how active they are.');
   }
   items.push(...rankXPeople(foundXPeople(steps), req).slice(0, MAX_X).map((p) => scoreX(p, { what: req.what, place: req.place }, req.kind, now)));
 
-  const ranked = rankItems(items).slice(0, MAX_ITEMS);
+  const rated = applyRatings(items, { what: req.what, place: req.place, kind: req.kind });
+  const ranked = rankByRating(rated.items).slice(0, MAX_ITEMS);
   if (ranked.some((i) => i.contact.phone || i.contact.email)) notes.push('Phone numbers and emails shown are only what each person published on their own profile.');
   if (ranked.length && ranked.every((i) => i.nearness === 'unknown' || i.nearness === 'other')) notes.push('None of them shows a location near you — ask each one where they are before you commit.');
   notes.push(BASE_NOTE);
@@ -290,5 +294,5 @@ export function assemble(req: ResearchRequest, steps: readonly StepState[], reas
   if (reason === 'limit') notes.unshift('I stopped at my purchase limit for one search.');
   if (reason === 'unreadable') notes.unshift('The search did answer, but in a shape I couldn’t read reliably, so I didn’t spend more on it. The raw answer is saved under Purchases.');
 
-  return { request: req, summary: buildSummary(req, ranked, reason), items: ranked, notes, spent };
+  return { request: req, summary: buildSummary(req, ranked, reason, rated.market), items: ranked, notes, spent, market: rated.market };
 }

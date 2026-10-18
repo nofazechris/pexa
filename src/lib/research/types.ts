@@ -1,13 +1,12 @@
 /** Shared shapes for "find a vendor / find someone to hire" research. Plain data: safe to send to the browser. */
 
 export type ResearchKind = 'vendors' | 'hire';
-/** Where the people are looked up: Instagram (sellers, trades, creators) or LinkedIn (professionals). */
-export type ResearchSource = 'instagram' | 'linkedin';
 export type Verdict = 'solid' | 'mixed' | 'careful' | 'unknown';
 
 export interface ResearchRequest {
   kind: ResearchKind;
-  source: ResearchSource;
+  /** Where to look: Instagram, TikTok and/or X for sellers (the person chooses); LinkedIn for professionals. */
+  platforms: Platform[];
   /** What they are looking for, e.g. "sneakers", "graphic designer". */
   what: string;
   /** Where, e.g. "Lagos". Empty when it doesn't matter. */
@@ -19,7 +18,10 @@ export interface Signal {
   text: string;
 }
 
-export type Platform = 'instagram' | 'x' | 'linkedin';
+export type Platform = 'instagram' | 'tiktok' | 'x' | 'linkedin';
+
+/** The social networks a seller search can look on (LinkedIn is for professionals). */
+export type SellerPlatform = 'instagram' | 'tiktok' | 'x';
 
 /** How to reach them — only what they published on their own profile. */
 export interface ItemContact {
@@ -28,6 +30,15 @@ export interface ItemContact {
   whatsapp: string | null;
   email: string | null;
   website: string | null;
+}
+
+/** What earlier Pexa searches and users have said about an account (counts only — no identities). */
+export interface VendorMemoryView {
+  /** In how many earlier searches (by anyone) it came up. */
+  seen: number;
+  good: number;
+  bad: number;
+  scam: number;
 }
 
 /** How good an option someone looks, 0–100, with the parts it is made of (null = not known, so it is left out). */
@@ -102,6 +113,8 @@ export interface ResearchItem {
   rating: Rating | null;
   prices: ItemPrices | null;
   negotiation: Negotiation | null;
+  /** What Pexa has learned about this account from earlier searches and feedback (null when it is new to Pexa). */
+  memory: VendorMemoryView | null;
   /** Does it sell what was asked for? `adjacent` = something nearby (a cleaning service, a repair shop); `unrelated` = not selling it. Only matches are shown. */
   relevance: 'match' | 'adjacent' | 'unrelated';
   /** Why it was left out, in plain words (null for matches). */

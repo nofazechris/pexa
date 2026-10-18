@@ -64,6 +64,8 @@ export function describeCard(m: ChatLike): string | null {
       return '[Showed a list of what Pexa can do]';
     case 'statement':
       return `[Showed a statement${m.statement?.label ? ` for ${m.statement.label}` : ''}${typeof m.statement?.count === 'number' ? ` with ${m.statement.count} items` : ''}, with Download and Print buttons]`;
+    case 'ask_choice':
+      return '[Showed buttons for the person to choose a platform: Instagram, TikTok, X or all three]';
     case 'ask_location':
       return '[Showed a button for the person to share their area (a neighbourhood name, not exact coordinates), because the assistant asked where they are]';
     case 'research_plan':

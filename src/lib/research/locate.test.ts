@@ -145,13 +145,13 @@ describe('X posts', () => {
   });
 });
 
-const REQ: ResearchRequest = { kind: 'hire', source: 'instagram', what: 'graphic designer', place: 'Yaba, Lagos' };
+const REQ: ResearchRequest = { kind: 'hire', platforms: ['instagram', 'x'], what: 'graphic designer', place: 'Yaba, Lagos' };
 const step = (over: Partial<StepState>): StepState => ({ role: 'search', ref: null, outcome: 'PAID', priceAtomic: 7000n, ...over });
 
 describe('the shortlist across Instagram and X', () => {
-  it('buys an X search before looking inside Instagram accounts', () => {
-    const accounts = { users: ['a', 'b', 'c'].map((u) => ({ username: `${u}_design`, full_name: `${u} design` })) };
-    expect(decideNext(REQ, [step({ output: accounts })])).toMatchObject({ role: 'xsearch', capabilityId: SERVICE.xSearch });
+  it('goes to the platforms in the order the person chose', () => {
+    expect(decideNext({ ...REQ, platforms: ['x', 'instagram'] }, [])).toMatchObject({ role: 'xsearch', capabilityId: SERVICE.xSearch });
+    expect(decideNext(REQ, [])).toMatchObject({ role: 'search', capabilityId: SERVICE.igSearch });
   });
   it('X results alone are enough: nothing wider is bought when X found sellers', () => {
     const steps = [step({ output: { users: [{ username: 'a_design' }, { username: 'b_design' }, { username: 'c_design' }] } }), step({ role: 'xsearch', priceAtomic: 5000n, output: xTimeline })];
@@ -195,6 +195,7 @@ describe('ranking: decent and close first', () => {
     rating: null,
     prices: null,
     negotiation: null,
+    memory: null,
     relevance: 'match',
     skipReason: null,
     ...over,

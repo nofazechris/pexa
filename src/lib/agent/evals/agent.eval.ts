@@ -10,7 +10,7 @@ for (const line of readFileSync(new URL('../../../../.env', import.meta.url), 'u
 type Msg = { role: 'user' | 'assistant'; content: string };
 interface Turn {
   reply: string;
-  action?: { tool: string; render: { type: string; label?: string; count?: number; startIso?: string; endIso?: string; request?: { kind: string; source: string; what: string; place: string } } };
+  action?: { tool: string; render: { type: string; label?: string; count?: number; startIso?: string; endIso?: string; request?: { kind: string; platforms: string[]; what: string; place: string }; options?: { label: string; text: string }[] } };
 }
 
 /** How many days a statement card actually covers (so "two weeks" and "14 days" are the same thing). */
@@ -33,11 +33,11 @@ const ARC_CONVO: Msg[] = [
 const noSeller = (t: Turn) => (/instagram|seller|vendor|scam|legit|handle/i.test(t.reply) ? `answered about a seller: "${t.reply.slice(0, 100)}"` : null);
 const aboutArrival = (t: Turn) => (/arriv|deposit|not yet|balance|landed|received/i.test(t.reply) ? noSeller(t) : `didn't talk about the deposit: "${t.reply.slice(0, 120)}"`);
 
-const plan = (kind: string, source: string, place: RegExp) => (t: Turn) => {
+const plan = (kind: string, platforms: string, place: RegExp) => (t: Turn) => {
   const r = t.action?.render;
   if (r?.type !== 'research_plan' || !r.request) return `no research plan card (said: "${t.reply.slice(0, 90)}")`;
   if (r.request.kind !== kind) return `wrong kind: ${r.request.kind}`;
-  if (r.request.source !== source) return `wrong source: ${r.request.source}`;
+  if (r.request.platforms.join(',') !== platforms) return `wrong platforms: ${r.request.platforms.join(',')}`;
   return place.test(r.request.place) ? null : `wrong place: "${r.request.place}"`;
 };
 const asksCity = (t: Turn) => (t.action && t.action.render.type !== 'ask_location' ? `should have asked for the city, but showed a ${t.action.render.type} card` : /city|where|which (?:area|part|town)|location/i.test(t.reply) ? null : `did not ask for a city: "${t.reply.slice(0, 100)}"`);
@@ -71,8 +71,37 @@ const CASES: Case[] = [
   { name: 'routing: "I want to receive on arc" → deposit card', messages: [{ role: 'user', content: 'I want to receive on arc' }], check: (t) => (t.action?.render.type === 'bridge' ? null : `no bridge card: "${t.reply.slice(0, 100)}"`) },
   { name: 'routing: unknown network is called unsupported', messages: [{ role: 'user', content: 'I want to receive on zora' }], check: (t) => (/isn.t supported/i.test(t.reply) ? null : `did not say unsupported: "${t.reply.slice(0, 100)}"`) },
   { name: 'context: "check" with nothing on screen is not a seller check', messages: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'Hi! How can I help with your money today?' }, { role: 'user', content: 'check' }], check: noSeller },
-  { name: 'find: sneaker vendor in Lagos → vendors plan', messages: [{ role: 'user', content: 'find me a sneaker vendor in Lagos' }], check: plan('vendors', 'instagram', /lagos/i) },
-  { name: 'find: "who sells good wigs in Abuja?" → vendors plan', messages: [{ role: 'user', content: 'who sells good wigs in Abuja?' }], check: plan('vendors', 'instagram', /abuja/i) },
+  { name: 'find: sneaker vendor in Lagos on Instagram → vendors plan for Instagram only', messages: [{ role: 'user', content: 'find me a sneaker vendor in Lagos on Instagram' }], check: plan('vendors', 'instagram', /lagos/i) },
+  { name: 'find: "who sells good wigs in Abuja on tiktok?" → TikTok only', messages: [{ role: 'user', content: 'who sells good wigs in Abuja on tiktok?' }], check: plan('vendors', 'tiktok', /abuja/i) },
+  {
+    name: 'find: no platform named → asks which, with Instagram / TikTok / X buttons (X is never added by itself)',
+    messages: [{ role: 'user', content: 'find me a sneaker vendor in Lagos' }],
+    check: (t) => {
+      if (t.action?.render.type === 'research_plan') return `planned without asking which platform: ${JSON.stringify(t.action.render.request?.platforms)}`;
+      if (t.action?.render.type !== 'ask_choice') return `no platform buttons (action: ${t.action?.render.type ?? 'none'}, said: "${t.reply.slice(0, 100)}")`;
+      const labels = (t.action.render.options ?? []).map((o) => o.label).join(',');
+      return /Instagram/.test(labels) && /TikTok/.test(labels) && /X/.test(labels) ? null : `wrong buttons: ${labels}`;
+    },
+  },
+  {
+    name: 'find: tapping "Search TikTok" → plan for TikTok',
+    messages: [
+      { role: 'user', content: 'find me a sneaker vendor in Lagos' },
+      { role: 'assistant', content: 'Which platform should I search for sellers — Instagram, TikTok or X?' },
+      { role: 'assistant', content: '[Showed buttons for the person to choose a platform: Instagram, TikTok, X or all three]' },
+      { role: 'user', content: 'Search TikTok' },
+    ],
+    check: plan('vendors', 'tiktok', /lagos/i),
+  },
+  {
+    name: 'find: tapping "Search Instagram, TikTok and X" → all three, in order',
+    messages: [
+      { role: 'user', content: 'who sells good phones in Abuja?' },
+      { role: 'assistant', content: 'Which platform should I search for sellers — Instagram, TikTok or X?' },
+      { role: 'user', content: 'Search Instagram, TikTok and X' },
+    ],
+    check: plan('vendors', 'instagram,tiktok,x', /abuja/i),
+  },
   { name: 'find: graphic designer in Nairobi → hire on LinkedIn', messages: [{ role: 'user', content: 'I need a graphic designer in Nairobi' }], check: plan('hire', 'linkedin', /nairobi/i) },
   { name: 'find: tailor in Yaba → hire on Instagram', messages: [{ role: 'user', content: 'find me a good tailor in Yaba' }], check: plan('hire', 'instagram', /yaba/i) },
   { name: 'find: no city → asks which city', messages: [{ role: 'user', content: 'I need a graphic designer' }], check: asksCity },

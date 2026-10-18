@@ -14,7 +14,7 @@ import type { ResearchRequest } from './types';
  *   - unrelated accounts must not show up at all.
  */
 const NOW = new Date('2026-10-18T12:00:00Z');
-const REQ: ResearchRequest = { kind: 'vendors', source: 'instagram', what: 'sneakers', place: 'Yaba, Lagos' };
+const REQ: ResearchRequest = { kind: 'vendors', platforms: ['instagram', 'x'], what: 'sneakers', place: 'Yaba, Lagos' };
 const step = (over: Partial<StepState>): StepState => ({ role: 'search', ref: null, outcome: 'PAID', priceAtomic: 7000n, ...over });
 
 // Instagram's user search found ONE account — with the neighbourhood in the keyword.
@@ -111,7 +111,7 @@ describe('replay: the real "sneakers near Yaba" search', () => {
     expect(text).toMatch(/No posts at all/);
     expect(text).toMatch(/Fewer than 100 followers \(68\)/);
     expect(text).toMatch(/replaces an earlier account/);
-    expect(text).toMatch(/packed with search words/);
+    expect(text).toMatch(/written as search words/);
   });
 
   it('a spammy repeat-poster is not "Established": the repeated ad is called out', () => {
@@ -138,11 +138,11 @@ describe('searching better', () => {
     expect(cityOf('Lagos')).toBe('Lagos');
   });
   it('when the first search finds fewer than 3 accounts and X has been tried, it searches again under the second name', () => {
-    const n = decideNext(REQ, [step({ output: igSearch }), step({ role: 'xsearch', priceAtomic: 5000n, output: { timeline: [] } })]);
+    const n = decideNext({ ...REQ, platforms: ['instagram'] }, [step({ output: igSearch })]);
     expect(n).toMatchObject({ action: 'buy', role: 'fallback', input: { queryParams: { keyword: 'sneakers plug Lagos' } } });
   });
   it('the X search asks for selling posts, newest first, in the city', () => {
-    const n = decideNext(REQ, [step({ output: igSearch })]);
+    const n = decideNext({ ...REQ, platforms: ['x'] }, []);
     expect(n).toMatchObject({ role: 'xsearch', input: { type: 'latest' } });
     expect((n as unknown as { input: { query: string } }).input.query).toMatch(/\(sneakers\) \("for sale" OR price OR "dm to order" OR "order now" OR available\) Lagos/);
   });

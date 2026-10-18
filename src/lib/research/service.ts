@@ -6,9 +6,10 @@ import { buyAvailable, cancelPurchase, getApprovalPayload, getPurchase, prepareP
 import { parseMaybeJson } from '@/lib/buy/slim';
 import { geocode } from '@/lib/geo/service';
 import { haversineKm, placeParts } from '@/lib/geo/place';
-import { ALLOWED_SERVICES, RESEARCH_HARD_CAP_ATOMIC, assemble, buildSummary, capFor, decideNext, describePlan, dollars, type FinishReason, type StepRole, type StepState } from './engine';
+import { ALLOWED_SERVICES, RESEARCH_HARD_CAP_ATOMIC, accountKeys, assemble, buildSummary, capFor, decideNext, describePlan, dollars, type FinishReason, type StepRole, type StepState } from './engine';
+import { loadVendorMemory, recordRun } from './memory';
 import { applyRatings, rankByRating } from './rate';
-import type { ResearchKind, ResearchPlanView, ResearchRequest, ResearchResult, ResearchSource } from './types';
+import type { Platform, ResearchKind, ResearchPlanView, ResearchRequest, ResearchResult } from './types';
 
 /**
  * Research runs as a series of small Buy purchases under ONE budget the user approves up front ("up to $0.06"). Every
@@ -32,7 +33,7 @@ export type Advance =
 
 export { normalizeRequest } from './request';
 
-const requestOf = (r: ResearchSessionRow): ResearchRequest => ({ kind: r.kind as ResearchKind, source: r.source as ResearchSource, what: r.what, place: r.place });
+const requestOf = (r: ResearchSessionRow): ResearchRequest => ({ kind: r.kind as ResearchKind, platforms: r.source.split(',').filter(Boolean) as Platform[], what: r.what, place: r.place });
 
 function stepsOf(r: ResearchSessionRow): StepRef[] {
   try {
@@ -60,7 +61,7 @@ export async function createResearch(userId: string, request: ResearchRequest): 
   const cap = text.capAtomic > RESEARCH_HARD_CAP_ATOMIC ? RESEARCH_HARD_CAP_ATOMIC : capFor(request);
   const [row] = await getDb()
     .insert(schema.researchSessions)
-    .values({ userId, kind: request.kind, source: request.source, what: request.what, place: request.place, capAtomic: cap.toString() })
+    .values({ userId, kind: request.kind, source: request.platforms.join(','), what: request.what, place: request.place, capAtomic: cap.toString() })
     .returning();
   return { ok: true, plan: { sessionId: row.id, request, title: text.title, steps: text.steps, estimate: text.estimate, cap: dollars(cap), capAtomic: cap.toString() } };
 }
@@ -100,7 +101,10 @@ async function addDistances(result: ResearchResult): Promise<void> {
 }
 
 async function finish(row: ResearchSessionRow, states: StepState[], reason: FinishReason, extraNote?: string): Promise<Advance> {
-  const result = assemble(requestOf(row), states, reason, new Date());
+  const req = requestOf(row);
+  // What Pexa already knows about these accounts (earlier searches, what people said) goes into their scores…
+  const memory = await loadVendorMemory(accountKeys(req, states));
+  const result = assemble(req, states, reason, new Date(), memory);
   if (extraNote) result.notes.unshift(extraNote);
   if (result.items.length) {
     await Promise.race([addDistances(result), new Promise((r) => setTimeout(r, 9000))]).catch(() => undefined);
@@ -115,6 +119,8 @@ async function finish(row: ResearchSessionRow, states: StepState[], reason: Fini
     .update(schema.researchSessions)
     .set({ status: failed ? 'FAILED' : 'DONE', resultJson: JSON.stringify(result), updatedAt: new Date() })
     .where(and(eq(schema.researchSessions.id, row.id), inArray(schema.researchSessions.status, ['PLANNED', 'RUNNING'])));
+  // …and what this search found is added to what Pexa knows (fails soft: a database hiccup never loses the answer).
+  if (!failed && result.items.length) await recordRun(req, result);
   return failed ? { kind: 'failed', message: result.summary } : { kind: 'done', result };
 }
 
@@ -220,5 +226,8 @@ function labelFor(req: ResearchRequest, step: StepRef | undefined): string {
   const where = req.place ? ` in ${req.place}` : '';
   if (!step) return 'Working…';
   if (step.role === 'vet') return `Checking @${step.ref}`;
-  return req.source === 'linkedin' ? `Searching LinkedIn for ${req.what}${where}` : `Searching Instagram for ${req.what}${where}`;
+  if (step.role === 'tvet') return `Checking TikTok @${step.ref}`;
+  if (step.role === 'xvet') return `Reading @${step.ref}’s recent posts on X`;
+  const name = step.role === 'tsearch' || step.role === 'tsearch2' ? 'TikTok' : step.role === 'xsearch' ? 'X' : step.role === 'lsearch' ? 'LinkedIn' : 'Instagram';
+  return `Searching ${name} for ${req.what}${where}`;
 }

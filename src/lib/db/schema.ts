@@ -593,6 +593,71 @@ export const researchSessions = pgTable(
 );
 
 /**
+ * The memory box, part 1 — what Pexa has learned about individual vendors across everyone's searches. One row per public account
+ * (platform + lowercase handle): how often it came up, how it rated, and what Pexa users said about it. It holds no user identity —
+ * only counts about a public business account — and it feeds back into scoring (reports of a scam cap the score) and the cards.
+ */
+export const vendorMemory = pgTable(
+  'vendor_memory',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    platform: text('platform').notNull(),
+    handle: text('handle').notNull(),
+    timesSeen: integer('times_seen').notNull().default(0),
+    lastVerdict: text('last_verdict'),
+    lastRating: integer('last_rating'),
+    /** Sum of every rating, so the average is ratingSum / ratedCount. */
+    ratingSum: integer('rating_sum').notNull().default(0),
+    ratedCount: integer('rated_count').notNull().default(0),
+    /** What Pexa users said afterwards. */
+    good: integer('good').notNull().default(0),
+    bad: integer('bad').notNull().default(0),
+    scam: integer('scam').notNull().default(0),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('vendor_memory_account_uq').on(t.platform, t.handle)],
+);
+
+/** One person's verdict on one vendor (good lead / bad lead / scam). One per person per vendor, so it can't be stuffed; it is only used to keep `vendor_memory` honest. */
+export const vendorFeedback = pgTable(
+  'vendor_feedback',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    platform: text('platform').notNull(),
+    handle: text('handle').notNull(),
+    kind: text('kind').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('vendor_feedback_uq').on(t.userId, t.platform, t.handle)],
+);
+
+/**
+ * The memory box, part 2 — where the good vendors are. For each kind of thing (category) and city, how each platform has performed:
+ * runs, accounts shown, how many were Established or High risk, and the sum of their ratings. Updated by every finished search with no
+ * input from anyone; read when asking "which platform?" to suggest the one that has worked best here.
+ */
+export const platformStats = pgTable(
+  'platform_stats',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    category: text('category').notNull(),
+    city: text('city').notNull(),
+    platform: text('platform').notNull(),
+    runs: integer('runs').notNull().default(0),
+    shown: integer('shown').notNull().default(0),
+    established: integer('established').notNull().default(0),
+    risky: integer('risky').notNull().default(0),
+    ratingSum: integer('rating_sum').notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('platform_stats_uq').on(t.category, t.city, t.platform)],
+);
+
+/**
  * Saved agent chats, so a conversation survives a reload and can be continued later. The whole message
  * list is one JSON document (cards included); money cards are stored without any signing data and are
  * restored inert — an old Approve/Confirm card can never be tapped again. Capped in size server-side.

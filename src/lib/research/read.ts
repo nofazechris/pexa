@@ -195,7 +195,7 @@ export function placeFrom(obj: Json, bio: string | null): string | null {
 
 // --- Instagram ----------------------------------------------------------------------------------------------
 
-const USERNAME = ['username', 'userName', 'handle', 'screenName'] as const;
+const USERNAME = ['username', 'userName', 'handle', 'screenName', 'uniqueId'] as const;
 const FULLNAME = ['fullName', 'full_name', 'name', 'displayName'] as const;
 const BIO = ['biography', 'bio', 'description', 'about'] as const;
 const FOLLOWERS = ['followerCount', 'followersCount', 'followers', 'edge_followed_by', 'follower_count'] as const;
@@ -265,12 +265,25 @@ export interface IgProfile {
   location: string | null;
   /** Phone, email and links the account itself published. */
   contact: Contact;
+  /** When the account was created, if the network says (TikTok does). */
+  createdAt?: Date | null;
   /** Instagram says the account was created recently. */
   joinedRecently: boolean | null;
   /** Verified through Meta Verified (paid business verification), separate from the blue tick. */
   metaVerified: boolean | null;
   professional: boolean | null;
   recent: IgPost[];
+}
+
+/** A post's caption, in the plain field or in Instagram's graph shape (edge_media_to_caption.edges[0].node.text). */
+function captionOf(post: Record<string, Json>): string | null {
+  const plain = asText(findKey(post, ['caption', 'captionText', 'text', 'title', 'description'], 2));
+  if (plain) return plain.slice(0, 600);
+  const node = findKey(post, ['edge_media_to_caption'], 2);
+  const edges = isObj(node) && Array.isArray(node.edges) ? node.edges : [];
+  const first = edges[0];
+  const text = isObj(first) && isObj(first.node) ? asText(first.node.text) : null;
+  return text ? text.slice(0, 600) : null;
 }
 
 const TIME_KEYS = ['takenAt', 'taken_at', 'taken_at_timestamp', 'timestamp', 'createdAt', 'created_at', 'deviceTimestamp', 'postedAt', 'date'] as const;
@@ -306,7 +319,7 @@ export function igProfile(output: Json): IgProfile | null {
       at: asDate(findKey(m, TIME_KEYS, 1)),
       likes: asNumber(findKey(m, LIKE_KEYS, 1)),
       comments: asNumber(findKey(m, COMMENT_KEYS, 1)),
-      caption: asText(findKey(m, ['caption', 'captionText', 'text', 'title', 'description'], 2))?.slice(0, 600) ?? null,
+      caption: captionOf(m),
     })),
   };
 }
@@ -386,6 +399,8 @@ export function liPeople(output: Json): LiPerson[] {
 // even when asked for "people". So the unit here is a tweet, and a seller is worked out by looking at everything an author posted.
 
 export interface XTweet {
+  /** The tweet's own id (empty when the reply didn't give one). */
+  id: string;
   author: string;
   name: string | null;
   text: string;
@@ -402,15 +417,16 @@ export interface XTweet {
 }
 
 /** The tweets in an X search reply, newest-first as given. Items without an author or text (X sometimes sends a blank one) are skipped. */
-export function xTweets(output: Json): XTweet[] {
-  const list = findList(output, (o) => typeof o.screen_name === 'string' && typeof o.text === 'string');
+export function xTweets(output: Json, defaultAuthor?: string): XTweet[] {
+  const list = findList(output, (o) => (typeof o.screen_name === 'string' || Boolean(defaultAuthor)) && typeof o.text === 'string');
   const out: XTweet[] = [];
   for (const o of list) {
-    const handle = cleanHandle(String(o.screen_name));
+    const handle = cleanHandle(String(typeof o.screen_name === 'string' ? o.screen_name : defaultAuthor));
     const text = String(o.text).trim();
     if (!/^[a-z0-9_]{1,15}$/.test(handle) || !text || text === 'undefined') continue;
     const ui = isObj(o.user_info) ? o.user_info : {};
     out.push({
+      id: typeof o.tweet_id === 'string' || typeof o.tweet_id === 'number' ? String(o.tweet_id) : '',
       author: handle,
       name: asText(ui.name),
       text,
@@ -425,4 +441,63 @@ export function xTweets(output: Json): XTweet[] {
     });
   }
   return out;
+}
+
+// --- TikTok ---------------------------------------------------------------------------------------------------
+//
+// TikTok's search returns accounts WITH a bio ("signature") and follower count, so a search already says a lot; a profile lookup
+// adds the account's creation date and video count. Field names vary by provider, so several are tried for each.
+
+/** Accounts from a TikTok user search, in order, without duplicates. */
+export function tiktokCandidates(output: Json): IgCandidate[] {
+  const list = findList(output, (o) => typeof findKey(o, ['uniqueId', 'unique_id', 'username'], 3) === 'string');
+  const seen = new Set<string>();
+  const out: IgCandidate[] = [];
+  for (const o of list) {
+    const raw = asText(findKey(o, ['uniqueId', 'unique_id', 'username'], 3));
+    if (!raw) continue;
+    const username = cleanHandle(raw);
+    if (!/^[a-z0-9._]{1,40}$/.test(username) || seen.has(username)) continue;
+    seen.add(username);
+    out.push({
+      username,
+      fullName: asText(findKey(o, ['nickname', 'nick_name', 'fullName', 'name'], 3)),
+      verified: asBool(findKey(o, ['verified', 'isVerified', 'is_verified'], 3)) ?? null,
+      isPrivate: asBool(findKey(o, ['privateAccount', 'isPrivate', 'is_private', 'secret'], 3)) ?? null,
+      followers: asNumber(findKey(o, ['followerCount', 'follower_count', 'fans'], 3)),
+      bio: asText(findKey(o, ['signature', 'bio', 'description'], 3)),
+    });
+  }
+  return out;
+}
+
+/** A TikTok profile lookup, mapped onto the same shape as an Instagram profile. Null when the reply holds no account. */
+export function tiktokProfile(output: Json): IgProfile | null {
+  const username = asText(findKey(output, ['uniqueId', 'unique_id', 'username'], 5));
+  const followers = asNumber(findKey(output, ['followerCount', 'follower_count', 'fans'], 5));
+  const posts = asNumber(findKey(output, ['videoCount', 'video_count', 'aweme_count'], 5));
+  if (!username && followers === null && posts === null) return null;
+  const bio = asText(findKey(output, ['signature', 'bio', 'description'], 5));
+  const bioLink = findKey(output, ['bioLink', 'bio_link'], 5);
+  const website = asText(isObj(bioLink) ? bioLink.link : null);
+  return {
+    username: username ? cleanHandle(username) : null,
+    fullName: asText(findKey(output, ['nickname', 'nick_name'], 5)),
+    bio,
+    followers,
+    following: asNumber(findKey(output, ['followingCount', 'following_count', 'following'], 5)),
+    posts,
+    verified: asBool(findKey(output, ['verified', 'isVerified', 'is_verified'], 5)),
+    isPrivate: asBool(findKey(output, ['privateAccount', 'isPrivate', 'is_private', 'secret'], 5)),
+    business: asBool(findKey(output, ['commerceUserInfo', 'isCommerce', 'ttSeller'], 5)),
+    category: asText(findKey(output, ['category', 'commerceCategory'], 5)),
+    website,
+    location: placeFrom(output, bio),
+    contact: contactFrom(output, bio, website),
+    createdAt: asDate(findKey(output, ['createTime', 'create_time'], 5)),
+    joinedRecently: null,
+    metaVerified: null,
+    professional: null,
+    recent: [],
+  };
 }

@@ -83,7 +83,7 @@ describe('scoring', () => {
   });
   it('a page that does not mention what was asked for is not a match', () => {
     const p = igProfile({ username: 'x', biography: 'Wedding photographer, Lagos', follower_count: 9000, media_count: 300 })!;
-    expect(scoreInstagram({ ...cand, fullName: 'Studio X' }, p, NOW, 'Lagos', 'sneakers')).toMatchObject({ relevance: 'unrelated', skipReason: expect.stringMatching(/Doesn’t mention sneakers/) });
+    expect(scoreInstagram({ ...cand, username: 'studio_x', fullName: 'Studio X' }, p, NOW, 'Lagos', 'sneakers')).toMatchObject({ relevance: 'unrelated', skipReason: expect.stringMatching(/Doesn’t mention sneakers/) });
   });
 
   it('LinkedIn: a relevant local profile is a strong match; an off-topic one is weak', () => {
@@ -97,7 +97,7 @@ describe('scoring', () => {
   });
 });
 
-const REQ: ResearchRequest = { kind: 'vendors', source: 'instagram', what: 'sneakers', place: 'Lagos' };
+const REQ: ResearchRequest = { kind: 'vendors', platforms: ['instagram'], what: 'sneakers', place: 'Lagos' };
 const step = (over: Partial<StepState>): StepState => ({ role: 'search', ref: null, outcome: 'PAID', priceAtomic: 7000n, ...over });
 /** An X search that was paid for and found nothing. */
 const X0 = step({ role: 'xsearch', priceAtomic: 5000n, output: { timeline: [] } });
@@ -109,8 +109,14 @@ describe('the plan', () => {
     expect(dollars(60000n)).toBe('$0.06');
     expect(dollars(103000n)).toBe('$0.103');
     expect(describePlan(REQ)).toMatchObject({ estimate: '$0.032', cap: '$0.10' });
-    expect(describePlan({ ...REQ, kind: 'hire', source: 'linkedin', what: 'graphic designer' })).toMatchObject({ estimate: '$0.108', cap: '$0.15' });
-    expect(capFor(REQ)).toBeLessThanOrEqual(250_000n);
+    expect(describePlan({ ...REQ, platforms: ['instagram', 'tiktok', 'x'] })).toMatchObject({ estimate: '$0.084', cap: '$0.17' });
+    expect(describePlan({ ...REQ, kind: 'hire', platforms: ['linkedin'], what: 'graphic designer' })).toMatchObject({ estimate: '$0.103', cap: '$0.15' });
+    expect(capFor({ ...REQ, platforms: ['instagram', 'tiktok', 'x'] })).toBeLessThanOrEqual(250_000n);
+  });
+  it('names the platforms the person chose, and only those', () => {
+    const text = describePlan({ ...REQ, platforms: ['instagram', 'tiktok'] }).steps.join(' ');
+    expect(text).toMatch(/Instagram and TikTok/);
+    expect(text).not.toMatch(/\bX\b/);
   });
   it('can only ever spend on its own services', () => {
     expect([...ALLOWED_SERVICES].sort()).toEqual(Object.values(SERVICE).sort());
@@ -122,11 +128,34 @@ describe('deciding what to buy next', () => {
     expect(decideNext(REQ, [])).toMatchObject({ action: 'buy', role: 'search', capabilityId: SERVICE.igSearch, input: { queryParams: { keyword: 'sneakers Lagos' } } });
     expect(decideNext({ ...REQ, place: 'Yaba, Lagos' }, [])).toMatchObject({ input: { queryParams: { keyword: 'sneakers Lagos' } } });
   });
-  it('then an X search for selling posts, newest first', () => {
-    expect(decideNext(REQ, [step({ output: searchOut })])).toMatchObject({ action: 'buy', role: 'xsearch', capabilityId: SERVICE.xSearch, input: { type: 'latest' } });
+  it('does NOT search X unless the person chose it', () => {
+    const n = decideNext(REQ, [step({ output: searchOut })]);
+    expect(n).toMatchObject({ role: 'vet' });
+  });
+  it('searches X (newest first) when it was chosen', () => {
+    expect(decideNext({ ...REQ, platforms: ['x'] }, [])).toMatchObject({ action: 'buy', role: 'xsearch', capabilityId: SERVICE.xSearch, input: { type: 'latest' } });
+  });
+  it('searches TikTok when it was chosen', () => {
+    expect(decideNext({ ...REQ, platforms: ['tiktok'] }, [])).toMatchObject({ action: 'buy', role: 'tsearch', capabilityId: SERVICE.tiktokSearch, input: { queryParams: { keyword: 'sneakers Lagos' } } });
+  });
+  it('goes through the chosen platforms in order', () => {
+    const both = { ...REQ, platforms: ['instagram', 'tiktok'] as ResearchRequest['platforms'] };
+    const steps: StepState[] = [];
+    const roles: string[] = [];
+    for (let i = 0; i < 40; i++) {
+      const n = decideNext(both, steps);
+      if (n.action === 'finish') break;
+      roles.push(n.role);
+      const out = n.role === 'search' ? searchOut : n.role === 'tsearch' ? { user_list: ['p', 'q', 'r'].map((u) => ({ user_info: { unique_id: u + '_shoes', nickname: u + ' shoes', follower_count: 900 } })) } : { username: n.ref };
+      steps.push(step({ role: n.role, ref: n.ref, priceAtomic: 5000n, output: out }));
+    }
+    const firstTikTok = roles.findIndex((r) => r.startsWith('t'));
+    expect(roles.slice(0, firstTikTok).every((r) => r === 'search' || r === 'vet')).toBe(true);
+    expect(roles.filter((r) => r === 'vet')).toHaveLength(MAX_CHECKS);
+    expect(roles.filter((r) => r === 'tvet')).toHaveLength(3);
   });
   it('with enough accounts, looks inside the best few one by one, then stops', () => {
-    const steps: StepState[] = [step({ output: searchOut }), X0];
+    const steps: StepState[] = [step({ output: searchOut })];
     const seen: string[] = [];
     for (let i = 0; i < 12; i++) {
       const n = decideNext(REQ, steps);
@@ -143,14 +172,13 @@ describe('deciding what to buy next', () => {
   });
   it('with few accounts, searches once more under the name sellers use — but not a third time', () => {
     const few = step({ output: { users: [{ username: 'a_kicks' }] } });
-    expect(decideNext(REQ, [few, X0])).toMatchObject({ role: 'fallback', input: { queryParams: { keyword: 'sneakers plug Lagos' } } });
-    const next = decideNext(REQ, [few, X0, step({ role: 'fallback', output: { users: [{ username: 'b_kicks' }] } })]);
-    expect(next).toMatchObject({ role: 'vet' });
+    expect(decideNext(REQ, [few])).toMatchObject({ role: 'fallback', input: { queryParams: { keyword: 'sneakers plug Lagos' } } });
+    expect(decideNext(REQ, [few, step({ role: 'fallback', output: { users: [{ username: 'b_kicks' }] } })])).toMatchObject({ role: 'vet' });
   });
   it('does not spend a lookup on a page whose name says it is a cleaning or repair service', () => {
     const out = { users: [{ username: 'sneaker_laundry', full_name: 'Sneaker Laundry Lagos' }, { username: 'kicks_store', full_name: 'Kicks Store' }, { username: 'solemate', full_name: 'Sole Mate' }, { username: 'airkicks', full_name: 'Air Kicks' }] };
     const refs: string[] = [];
-    const steps: StepState[] = [step({ output: out }), X0];
+    const steps: StepState[] = [step({ output: out })];
     for (let i = 0; i < 8; i++) {
       const n = decideNext(REQ, steps);
       if (n.action === 'finish') break;
@@ -160,36 +188,51 @@ describe('deciding what to buy next', () => {
     expect(refs).not.toContain('sneaker_laundry');
     expect(refs).toContain('kicks_store');
   });
+  it('checks the best X sellers individually — reading their own recent posts — up to three', () => {
+    const tweet = (a: string, f: number) => ({ type: 'tweet', screen_name: a, text: `Brand new sneakers for sale ₦30,000 DM to order`, created_at: 'Wed Oct 08 10:00:00 +0000 2026', user_info: { name: a, followers_count: f, created_at: 'Mon Jan 04 10:00:00 +0000 2021' } });
+    const xr = { ...REQ, platforms: ['x'] as ResearchRequest['platforms'] };
+    const steps: StepState[] = [step({ role: 'xsearch', priceAtomic: 5000n, output: { timeline: [tweet('small_shop', 50), tweet('big_shop', 5000), tweet('mid_shop', 900), tweet('tiny_shop', 20), tweet('other_shop', 300)] } })];
+    const refs: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      const n = decideNext(xr, steps);
+      if (n.action === 'finish') break;
+      expect(n).toMatchObject({ role: 'xvet', capabilityId: SERVICE.xTimeline });
+      refs.push(n.ref!);
+      steps.push(step({ role: 'xvet', ref: n.ref, priceAtomic: 5000n, output: { timeline: [] } }));
+    }
+    expect(refs).toEqual(['big_shop', 'mid_shop', 'other_shop']);
+  });
   it('gives up cleanly when searches failed', () => {
     const f = step({ outcome: 'FAILED', priceAtomic: 0n });
-    expect(decideNext(REQ, [f, X0, { ...f, role: 'fallback' }])).toEqual({ action: 'finish', reason: 'search_failed' });
+    expect(decideNext(REQ, [f, { ...f, role: 'fallback' }])).toEqual({ action: 'finish', reason: 'search_failed' });
   });
   it('a vet that failed is skipped, not retried', () => {
-    const steps: StepState[] = [step({ output: searchOut }), X0, step({ role: 'vet', ref: 'a_kicks', outcome: 'FAILED', priceAtomic: 0n })];
+    const steps: StepState[] = [step({ output: searchOut }), step({ role: 'vet', ref: 'a_kicks', outcome: 'FAILED', priceAtomic: 0n })];
     const n = decideNext(REQ, steps);
     expect(n).toMatchObject({ role: 'vet' });
     expect((n as { ref: string }).ref).not.toBe('a_kicks');
   });
   it('stops at once if any payment is uncertain, and at the purchase limit', () => {
     expect(decideNext(REQ, [step({ outcome: 'UNCERTAIN' })])).toEqual({ action: 'finish', reason: 'uncertain' });
-    expect(decideNext(REQ, Array.from({ length: 8 }, () => step({})))).toEqual({ action: 'finish', reason: 'limit' });
+    expect(decideNext(REQ, Array.from({ length: 14 }, () => step({})))).toEqual({ action: 'finish', reason: 'limit' });
   });
-  it('LinkedIn is one search plus an X search, then done', () => {
-    const li: ResearchRequest = { kind: 'hire', source: 'linkedin', what: 'graphic designer', place: 'Lagos' };
-    expect(decideNext(li, [])).toMatchObject({ action: 'buy', capabilityId: SERVICE.liSearch, input: { maxResults: 5, body: { search: 'graphic designer', locations: ['Lagos'] } } });
-    expect(decideNext(li, [step({})])).toMatchObject({ action: 'buy', role: 'xsearch' });
-    expect(decideNext(li, [step({}), X0])).toEqual({ action: 'finish', reason: 'done' });
+  it('LinkedIn is one search, then done', () => {
+    const li: ResearchRequest = { kind: 'hire', platforms: ['linkedin'], what: 'graphic designer', place: 'Lagos' };
+    expect(decideNext(li, [])).toMatchObject({ action: 'buy', role: 'lsearch', capabilityId: SERVICE.liSearch, input: { maxResults: 5, body: { search: 'graphic designer', locations: ['Lagos'] } } });
+    expect(decideNext(li, [step({ role: 'lsearch' })])).toEqual({ action: 'finish', reason: 'done' });
   });
-  it('ranks public, relevant, verified accounts first', () => {
+  it('ranks verified, public, relevant, bigger accounts first', () => {
     const r = rankCandidates(
       [
         { username: 'private_one', fullName: 'sneakers', verified: null, isPrivate: true, followers: null, bio: null },
         { username: 'random', fullName: 'Random', verified: null, isPrivate: false, followers: null, bio: null },
-        { username: 'sneaker_plug', fullName: 'Sneaker Plug', verified: null, isPrivate: false, followers: null, bio: null },
+        { username: 'sneaker_plug', fullName: 'Sneaker Plug', verified: null, isPrivate: false, followers: 500, bio: null },
+        { username: 'big_kicks', fullName: 'Big Kicks', verified: null, isPrivate: false, followers: 9000, bio: null },
+        { username: 'verified_shop', fullName: 'Shop', verified: true, isPrivate: false, followers: 100, bio: null },
       ],
       'sneakers',
     );
-    expect(r.map((c) => c.username)).toEqual(['sneaker_plug', 'random', 'private_one']);
+    expect(r.map((c) => c.username)).toEqual(['verified_shop', 'big_kicks', 'sneaker_plug', 'random', 'private_one']);
   });
 });
 
@@ -209,7 +252,6 @@ describe('the answer', () => {
   it('ranks checked accounts, says what was not checked, and totals the cost', () => {
     const steps: StepState[] = [
       step({ output: searchOut }),
-      X0,
       step({ role: 'vet', ref: 'a_kicks', priceAtomic: 5000n, output: profile('a_kicks', { follower_count: 50000, media_count: 4, recent_media: [{ taken_at: at - 300 * day, like_count: 5 }, { taken_at: at - 310 * day, like_count: 4 }, { taken_at: at - 320 * day, like_count: 6 }] }) }),
       step({ role: 'vet', ref: 'b_kicks', priceAtomic: 5000n, output: profile('b_kicks') }),
     ];
@@ -217,17 +259,18 @@ describe('the answer', () => {
     expect(r.items.map((i) => i.handle)).toEqual(['@b_kicks', '@a_kicks']);
     expect(r.items[0].verdict).toBe('solid');
     expect(r.items[1].verdict).toBe('careful');
-    expect(r.spent).toBe('$0.022');
+    expect(r.spent).toBe('$0.017');
     expect(r.notes.join(' ')).toMatch(/3 more Instagram accounts/);
     expect(r.notes.join(' ')).toMatch(/Ask for proof first/);
     expect(r.summary).toMatch(/@b_kicks/);
   });
   it('never shows an account it did not look inside', () => {
-    expect(assemble(REQ, [step({ output: searchOut }), X0], 'done', NOW).items).toHaveLength(0);
+    expect(assemble(REQ, [step({ output: searchOut })], 'done', NOW).items).toHaveLength(0);
   });
   it('says plainly when nothing was found, when only non-sellers came up, or when a search failed', () => {
-    expect(assemble(REQ, [step({ output: { users: [] } }), X0], 'done', NOW).summary).toMatch(/didn’t find anyone/);
-    const notSelling = [step({ output: searchOut }), X0, step({ role: 'vet', ref: 'a_kicks', priceAtomic: 5000n, output: profile('a_kicks', { biography: 'Wedding photographer' }) })];
+    expect(assemble(REQ, [step({ output: { users: [] } })], 'done', NOW).summary).toMatch(/didn’t find anyone/);
+    const strangers = { users: [{ username: 'studio_one', full_name: 'Studio One' }] };
+    const notSelling = [step({ output: strangers }), step({ role: 'vet', ref: 'studio_one', priceAtomic: 5000n, output: profile('studio_one', { biography: 'Wedding photographer' }) })];
     expect(assemble(REQ, notSelling, 'done', NOW).summary).toMatch(/none of them actually sells it/);
     expect(assemble(REQ, [step({ outcome: 'FAILED', priceAtomic: 0n })], 'search_failed', NOW).summary).toMatch(/weren’t charged/);
   });
@@ -235,9 +278,9 @@ describe('the answer', () => {
     expect(assemble(REQ, [step({ outcome: 'UNCERTAIN', output: searchOut })], 'uncertain', NOW).notes[0]).toMatch(/didn’t confirm/);
   });
   it('LinkedIn results are matched to what was asked', () => {
-    const li: ResearchRequest = { kind: 'hire', source: 'linkedin', what: 'graphic designer', place: 'Lagos' };
+    const li: ResearchRequest = { kind: 'hire', platforms: ['linkedin'], what: 'graphic designer', place: 'Lagos' };
     const out = [{ name: 'Ada Obi', headline: 'Graphic Designer', location: 'Lagos, Nigeria', url: 'https://linkedin.com/in/a', connectionsCount: 800, about: 'I design logos and brand identity for small businesses across the region.', experience: [{}, {}] }];
-    const r = assemble(li, [step({ priceAtomic: 103000n, output: out })], 'done', NOW);
+    const r = assemble(li, [step({ role: 'lsearch', priceAtomic: 103000n, output: out })], 'done', NOW);
     expect(r.items[0]).toMatchObject({ name: 'Ada Obi', verdict: 'solid', verdictLabel: 'Strong match' });
     expect(r.spent).toBe('$0.103');
   });
@@ -246,22 +289,34 @@ describe('the answer', () => {
 import { normalizeRequest } from './request';
 
 describe('normalizeRequest', () => {
-  it('tidies the place and picks the source', () => {
-    expect(normalizeRequest({ kind: 'vendors', what: ' sneakers ', place: 'lagos' })).toEqual({ ok: true, request: { kind: 'vendors', source: 'instagram', what: 'sneakers', place: 'Lagos' } });
-    expect(normalizeRequest({ kind: 'hire', what: 'graphic designer', place: 'abuja nigeria' })).toEqual({ ok: true, request: { kind: 'hire', source: 'linkedin', what: 'graphic designer', place: 'Abuja Nigeria' } });
-    expect(normalizeRequest({ kind: 'hire', source: 'instagram', what: 'tailor', place: 'Yaba' })).toMatchObject({ ok: true, request: { source: 'instagram' } });
+  it('tidies the place', () => {
+    expect(normalizeRequest({ kind: 'vendors', platforms: ['instagram'], what: ' sneakers ', place: 'lagos' })).toEqual({ ok: true, request: { kind: 'vendors', platforms: ['instagram'], what: 'sneakers', place: 'Lagos' } });
+    expect(normalizeRequest({ kind: 'hire', what: 'graphic designer', place: 'abuja nigeria' })).toEqual({ ok: true, request: { kind: 'hire', platforms: ['linkedin'], what: 'graphic designer', place: 'Abuja Nigeria' } });
   });
-  it('sellers are always looked up on Instagram, whatever the model says', () => {
-    expect(normalizeRequest({ kind: 'vendors', source: 'linkedin', what: 'phones', place: 'Lagos' })).toMatchObject({ ok: true, request: { source: 'instagram' } });
+  it('for sellers the PERSON chooses the platform: without one, it asks — and never adds X by itself', () => {
+    expect(normalizeRequest({ kind: 'vendors', what: 'sneakers', place: 'Lagos' })).toMatchObject({ ok: false, missing: 'platform', message: expect.stringMatching(/Instagram, TikTok or X/) });
+    expect(normalizeRequest({ kind: 'vendors', platforms: ['instagram'], what: 'sneakers', place: 'Lagos' })).toMatchObject({ ok: true, request: { platforms: ['instagram'] } });
+    expect(normalizeRequest({ kind: 'vendors', platforms: ['tiktok', 'instagram'], what: 'sneakers', place: 'Lagos' })).toMatchObject({ ok: true, request: { platforms: ['instagram', 'tiktok'] } });
+  });
+  it('"all" means the three social platforms, in a fixed order', () => {
+    expect(normalizeRequest({ kind: 'vendors', platforms: ['all'], what: 'phones', place: 'Lagos' })).toMatchObject({ ok: true, request: { platforms: ['instagram', 'tiktok', 'x'] } });
+  });
+  it('LinkedIn is not a place to find sellers', () => {
+    expect(normalizeRequest({ kind: 'vendors', platforms: ['linkedin'], what: 'phones', place: 'Lagos' })).toMatchObject({ ok: false, missing: 'platform' });
+  });
+  it('people to hire: professionals default to LinkedIn, trades to Instagram', () => {
+    expect(normalizeRequest({ kind: 'hire', what: 'software developer', place: 'Lagos' })).toMatchObject({ ok: true, request: { platforms: ['linkedin'] } });
+    expect(normalizeRequest({ kind: 'hire', what: 'tailor', place: 'Yaba' })).toMatchObject({ ok: true, request: { platforms: ['instagram'] } });
+    expect(normalizeRequest({ kind: 'hire', platforms: ['linkedin'], what: 'tailor', place: 'Yaba' })).toMatchObject({ ok: true, request: { platforms: ['instagram'] } });
   });
   it('asks for what is missing instead of guessing', () => {
-    expect(normalizeRequest({ kind: 'hire', what: 'designer', place: '  ' })).toMatchObject({ ok: false, message: expect.stringMatching(/city/i) });
-    expect(normalizeRequest({ kind: 'vendors', what: '', place: 'Lagos' })).toMatchObject({ ok: false });
+    expect(normalizeRequest({ kind: 'hire', what: 'designer', place: '  ' })).toMatchObject({ ok: false, missing: 'place', message: expect.stringMatching(/city/i) });
+    expect(normalizeRequest({ kind: 'vendors', platforms: ['instagram'], what: '', place: 'Lagos' })).toMatchObject({ ok: false, missing: 'what' });
   });
   it('strips control characters and clips length', () => {
-    const r = normalizeRequest({ kind: 'vendors', what: 'sneakers\u0007\nplease', place: 'Lagos' });
+    const r = normalizeRequest({ kind: 'vendors', platforms: ['instagram'], what: 'sneakers\u0007\nplease', place: 'Lagos' });
     expect(r.ok && r.request.what).toBe('sneakers please');
-    expect(normalizeRequest({ kind: 'vendors', what: 'x'.repeat(300), place: 'Lagos' })).toMatchObject({ ok: true });
+    expect(normalizeRequest({ kind: 'vendors', platforms: ['instagram'], what: 'x'.repeat(300), place: 'Lagos' })).toMatchObject({ ok: true });
   });
 });
 
@@ -269,8 +324,8 @@ describe('an answer that cannot be read', () => {
   const big = { data: { something: 'x'.repeat(400) } };
   it('stops instead of paying again for more searches', () => {
     expect(decideNext(REQ, [step({ output: big }), X0, step({ role: 'fallback', output: big })])).toEqual({ action: 'finish', reason: 'unreadable' });
-    const li: ResearchRequest = { kind: 'hire', source: 'linkedin', what: 'graphic designer', place: 'Lagos' };
-    expect(decideNext(li, [step({ output: big }), X0])).toEqual({ action: 'finish', reason: 'unreadable' });
+    const li: ResearchRequest = { kind: 'hire', platforms: ['linkedin'], what: 'graphic designer', place: 'Lagos' };
+    expect(decideNext(li, [step({ role: 'lsearch', output: big })])).toEqual({ action: 'finish', reason: 'unreadable' });
   });
   it('says so plainly', () => {
     const r = assemble(REQ, [step({ output: big })], 'unreadable', NOW);

@@ -43,6 +43,8 @@ export function shouldForceBuySearch(messages: readonly TurnMessage[]): boolean 
   const last = users[users.length - 1]?.content?.trim() ?? '';
   if (!last) return false;
   if (isFindRequest(last)) return false; // the agent plans a research instead of searching the catalog
+  // Mid-way through finding sellers ("Search TikTok" after being asked which platform), the platform name is an answer, not a Buy request.
+  if (users.slice(-3).some((m) => isFindRequest(m.content)) && platformsFromChoice(last)) return false;
   if (isBuyIntent(last)) return true;
   if (AFFIRMATION.test(last)) {
     const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')?.content ?? '';
@@ -98,6 +100,47 @@ export function shouldOfferLocation(messages: readonly TurnMessage[], reply: str
     .slice(-2)
     .some((m) => isFindRequest(m.content));
 }
+
+const PLATFORM_WORDS = [/\binstagram\b|\binsta\b|\big\b/i, /\btiktok\b|\btik tok\b/i, /(?:^|[^a-z])x(?:[^a-z]|$)|\btwitter\b/i];
+
+/**
+ * Should the reply carry platform buttons (Instagram / TikTok / X)? True when the agent is asking which platform to search, right after a
+ * request to find sellers. The buttons just send the choice as a message, so typing it works too.
+ */
+export function shouldOfferPlatformChoice(messages: readonly TurnMessage[], reply: string): boolean {
+  if (!reply.includes('?')) return false;
+  if (PLATFORM_WORDS.filter((r) => r.test(reply)).length < 2) return false;
+  return messages
+    .filter((m) => m.role === 'user')
+    .slice(-3)
+    .some((m) => isFindRequest(m.content));
+}
+
+const PLATFORM_TOKEN = '(?:instagram|insta|ig|tik ?tok|twitter|x)';
+const CHOICE = new RegExp(`^(?:search\\s+)?(${PLATFORM_TOKEN}(?:[\\s,]+(?:and\\s+)?${PLATFORM_TOKEN})*)\\s*[.!]?$`, 'i');
+
+/**
+ * The platforms a person picked, from a tap on a button ("Search Instagram, TikTok and X") or a short typed answer ("tiktok and x"). Read here
+ * rather than left to the model, so "all three" can never become one. Null when the message isn't a platform choice.
+ */
+export function platformsFromChoice(text: string): ('instagram' | 'tiktok' | 'x')[] | null {
+  const m = CHOICE.exec(text.trim());
+  if (!m) return null;
+  const t = m[1].toLowerCase();
+  const out: ('instagram' | 'tiktok' | 'x')[] = [];
+  if (/instagram|insta|\big\b/.test(t)) out.push('instagram');
+  if (/tik ?tok/.test(t)) out.push('tiktok');
+  if (/(?:^|[^a-z])x(?:[^a-z]|$)|twitter/.test(t)) out.push('x');
+  return out.length ? out : null;
+}
+
+/** The buttons: what they say, and the message each one sends. */
+export const PLATFORM_CHOICES = [
+  { label: 'Instagram', text: 'Search Instagram' },
+  { label: 'TikTok', text: 'Search TikTok' },
+  { label: 'X', text: 'Search X' },
+  { label: 'All three', text: 'Search Instagram, TikTok and X' },
+] as const;
 
 /**
  * Is this conversation about Buy? Looks at the last few messages (so "yes", "their instagram is @x" and the

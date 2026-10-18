@@ -11,7 +11,7 @@ import { ShareLink } from '@/components/pexa/ShareLink';
 import { BuyPage } from '@/components/pexa/BuyPage';
 import { BuyQuoteCard, BuyResultCard } from '@/components/pexa/BuyCards';
 import { ResearchPlanCard, ResearchResultCard } from '@/components/pexa/ResearchCards';
-import { AskLocationCard } from '@/components/pexa/LocationCard';
+import { AskLocationCard, ChoiceCard } from '@/components/pexa/LocationCard';
 import { ConversionsPanel, SwapPreviewCard, SwapReceiptCard } from '@/components/pexa/SwapCards';
 import { RecurringPreviewCard, RecurringReceiptCard } from '@/components/pexa/RecurringCards';
 import { ContinueCard, HistorySheet } from '@/components/pexa/ChatHistory';
@@ -466,7 +466,8 @@ function ChatRow({ m, onConfirm, onCancel, onRetry, onTry, watchBridge, getAcces
         {m.type === 'buy_quote' ? <BuyQuoteCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
         {m.type === 'buy_result' ? <BuyResultCard m={m} /> : null}
         {m.type === 'research_plan' ? <ResearchPlanCard m={m} onConfirm={onConfirm} onCancel={onCancel} /> : null}
-        {m.type === 'research_result' ? <ResearchResultCard m={m} onTry={onTry} /> : null}
+        {m.type === 'research_result' ? <ResearchResultCard m={m} onTry={onTry} getAccessToken={getAccessToken} /> : null}
+        {m.type === 'ask_choice' && m.choices && onTry ? <ChoiceCard options={m.choices} onPick={onTry} /> : null}
         {m.type === 'ask_location' && onTry ? <AskLocationCard onShare={(label) => onTry(`My area is ${label}`)} getAccessToken={getAccessToken} /> : null}
         {m.type === 'error' ? <ErrorCard m={m} onRetry={onRetry} /> : null}
         {m.type === 'receive' ? <ReceiveCard m={m} getAccessToken={getAccessToken} /> : null}

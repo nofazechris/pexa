@@ -6,7 +6,7 @@ import type { ChatMessage } from '@/components/auth/useAgentChat';
 import type { ResearchItem, ResearchResult, Verdict } from '@/lib/research/types';
 import { distanceText } from '@/lib/geo/place';
 
-const PLATFORM_NAME = { instagram: 'Instagram', x: 'X', linkedin: 'LinkedIn' } as const;
+const PLATFORM_NAME = { instagram: 'Instagram', tiktok: 'TikTok', x: 'X', linkedin: 'LinkedIn' } as const;
 
 /**
  * Chat cards for "find me a vendor / someone to hire". The plan card is the one human checkpoint: it states the cost and the
@@ -108,7 +108,42 @@ export function outreachMessage(r: ResearchResult, item: ResearchItem): string {
   return `Hi, I found your page${item.handle ? ` ${item.handle}` : ''} and I’m interested in ${r.request.what}. Could you send the price and availability? I can pay in USDT/USDC on the Celo network — do you accept that? If yes, please send your wallet address.`;
 }
 
-function ItemRow({ item, r, onTry }: { item: ResearchItem; r: ResearchResult; onTry?: (text: string) => void }) {
+/** "Was this a good lead?" — three taps that teach Pexa (and everyone after you) about this account. */
+function FeedbackRow({ item, getAccessToken }: { item: ResearchItem; getAccessToken?: () => Promise<string | null> }) {
+  const [sent, setSent] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!item.handle || item.platform === 'linkedin') return null;
+  const send = async (kind: 'good' | 'bad' | 'scam') => {
+    setBusy(true);
+    try {
+      const token = await getAccessToken?.();
+      const res = await fetch('/api/research/feedback', { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ platform: item.platform, handle: item.handle, kind }) });
+      const data = (await res.json().catch(() => ({}))) as { message?: string };
+      setSent(res.ok ? (data.message ?? 'Thanks — Pexa will remember that.') : 'Couldn’t save that just now.');
+    } catch {
+      setSent('Couldn’t save that just now.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const small = { border: `1px solid ${color.borderFaint}`, background: 'transparent', color: color.mutedStrong, fontSize: '12px', padding: '4px 9px', borderRadius: '8px', cursor: busy ? 'default' : 'pointer' } as const;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '10px', paddingTop: '9px', borderTop: `1px solid ${color.borderFaint}`, fontSize: '12px', color: color.faint }}>
+      {sent ? (
+        <span>{sent}</span>
+      ) : (
+        <>
+          <span style={{ marginRight: '2px' }}>How did it turn out?</span>
+          <button disabled={busy} onClick={() => void send('good')} style={small}>Good lead</button>
+          <button disabled={busy} onClick={() => void send('bad')} style={small}>Bad lead</button>
+          <button disabled={busy} onClick={() => void send('scam')} style={{ ...small, color: 'var(--pp-danger-text)' }}>Scam</button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ItemRow({ item, r, onTry, getAccessToken }: { item: ResearchItem; r: ResearchResult; onTry?: (text: string) => void; getAccessToken?: () => Promise<string | null> }) {
   const [copied, setCopied] = useState(false);
   const tone = TONE[item.verdict];
   const copy = async () => {
@@ -220,11 +255,12 @@ function ItemRow({ item, r, onTry }: { item: ResearchItem; r: ResearchResult; on
           </button>
         ) : null}
       </div>
+      <FeedbackRow item={item} getAccessToken={getAccessToken} />
     </div>
   );
 }
 
-export function ResearchResultCard({ m, onTry }: { m: ChatMessage; onTry?: (text: string) => void }) {
+export function ResearchResultCard({ m, onTry, getAccessToken }: { m: ChatMessage; onTry?: (text: string) => void; getAccessToken?: () => Promise<string | null> }) {
   const r = m.researchResult;
   if (!r) return null;
   return (
@@ -242,7 +278,7 @@ export function ResearchResultCard({ m, onTry }: { m: ChatMessage; onTry?: (text
         <div style={{ fontFamily: MONO, fontSize: '11.5px', color: color.faint, marginTop: '8px' }}>Cost of this search: {r.spent} · receipts saved under Purchases</div>
       </div>
       {r.items.map((item) => (
-        <ItemRow key={(item.handle ?? item.name) + (item.url ?? '')} item={item} r={r} onTry={onTry} />
+        <ItemRow key={(item.handle ?? item.name) + (item.url ?? '')} item={item} r={r} onTry={onTry} getAccessToken={getAccessToken} />
       ))}
       {r.notes.length ? (
         <div style={{ fontSize: '12px', color: color.mutedStrong, lineHeight: 1.55, padding: '0 4px' }}>

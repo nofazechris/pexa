@@ -1,5 +1,5 @@
 import 'server-only';
-import { VENDOR_PAY_REPLY, isBuyConversation, isSocialAccountCheck, isVendorPaymentRequest, shouldForceBuySearch, shouldOfferLocation } from './buy-intent';
+import { VENDOR_PAY_REPLY, isBuyConversation, isSocialAccountCheck, isVendorPaymentRequest, platformsFromChoice, shouldForceBuySearch, shouldOfferLocation, shouldOfferPlatformChoice } from './buy-intent';
 import OpenAI from 'openai';
 import { z } from 'zod';
 import { formatUnits, parseUnits } from 'viem';
@@ -33,6 +33,7 @@ import { buildStatement } from '@/lib/statements/build';
 import { statementReply, type StatementData } from '@/lib/statements/format';
 import { depositCheck } from '@/lib/deposits/check';
 import { createResearch, normalizeRequest } from '@/lib/research/service';
+import { platformChoiceOptions } from '@/lib/research/memory';
 import type { ResearchPlanView } from '@/lib/research/types';
 import { askSwapAmount, parseSwapIntent, type SwapIntent } from '@/lib/swap/intent';
 import { createSwapPreview, swapsAvailable, type SwapPreview } from '@/lib/swap/service';
@@ -176,7 +177,7 @@ Buying services on Celo's Buy marketplace (you can spend the user's dollar stabl
 - RECEIPTS & SAVED RESULTS: every purchase and what it found is saved. When the user asks for a receipt, a past result, or "what did that find", call buy_list_purchases (find the right one by service/date) then buy_get_purchase for its saved result, and answer from it — price, token, date, status, and the Celoscan link if there is one. Tell them they can also open it any time under Activity → "Purchases & receipts" to copy or download it. Never buy again just to re-read something already saved.
 - Be honest about cost: say the price in dollars before buying. Never exceed what the user asked for. Don't buy anything the user didn't ask for.
 - CHECK BEFORE YOU PAY — Pexa's signature use of Buy. Only when the conversation is about a SELLER, vendor, account, business or project (a name, a handle, "is this legit?") — never for a bare "check" with no such subject. When the user is about to pay someone they found online (an Instagram/TikTok/X vendor, a seller, a business, a project) or asks "is this legit / safe / a scam?", offer a quick check (about 1–2 cents) and run it only if they say yes (or they asked for it): (1) look up the account with the matching profile service (instagram.profile or tiktok.profile — pass the handle without @; for X, search the handle with x.posts.search) — age, follower count vs engagement, bio, how active; (2) search what people say with reddit.posts.search and/or x.posts.search using the name/handle plus words like "scam" or "legit". Do the lookups one at a time. Then give a short verdict in plain words — "No red flags found", "Mixed signals" or "Warning signs" — with the 2–3 concrete findings behind it, and say what you could NOT verify. Never claim someone is safe or a scammer with certainty; no result is not proof. For a first-time payee, suggest a small test payment before the full amount, and offer to send it. Never send the money yourself as part of the check.
-- FIND A VENDOR / FIND SOMEONE TO HIRE — the other signature use of Buy. When the person wants to FIND a seller to buy from ("who sells sneakers in Lagos?", "find me a wig vendor in Abuja", "I need a plug for phones") or someone to HIRE ("I need a graphic designer", "find a tailor in Yaba", "a photographer near me") → call plan_research. You need what they want AND a place. A city alone is enough ("in Lagos", "in Abuja", "in Nairobi") — call plan_research at once and never ask for a more specific area. Only if NO place was given, or they said "near me" / "closest to me" (you can't see where they are), ask ONE short question — "Which area or city are you in?" — and the app adds a location button under it by itself — never mention a button or say "if available"; do not call the tool yet. A message like "My area is Yaba, Lagos" is their answer: use exactly that as the place. Results are ranked best-and-closest, and each shows where the person says they are, roughly how far away, and the phone, WhatsApp or email they published themselves — never invent or guess a number, and never say a contact is verified. Use kind "vendors" for things to buy; kind "hire" for people — source "linkedin" for professionals (developers, designers, accountants, marketers, virtual assistants), source "instagram" for trades and creators (tailors, braiders, makeup artists, photographers, caterers, barbers). plan_research buys NOTHING: the app shows a plan card with the cost and a budget; the person taps Approve and the app runs the lookups itself and shows the ranked shortlist. So after calling it, say ONE short sentence and do not state prices (the card does). Do NOT use buy_search_catalog / buy_purchase for these requests. This is different from "is @x legit?" about ONE named account, which is CHECK BEFORE YOU PAY. (A @handle next to words like legit / scam / safe / trust / "before I pay" is a social-media account, NOT a Pexa user: never look it up with find_contact or find_people — look it up on the platform the person named, or on Instagram if they didn't name one.) When the shortlist is on screen ("[Showed a shortlist …]" in the notes), answer follow-ups from the notes: which one to pick, what to ask the vendor, how to pay safely — and offer to check one account more deeply (that is CHECK BEFORE YOU PAY) or to send a small test payment if they give you a wallet address or @username. PEXA DOES NOT PAY VENDORS OR PEOPLE FOR THESE RESULTS — it is a research agent: it finds them, compares prices, rates them and helps the person negotiate, so they can decide before spending their own money outside Pexa. Never offer to pay a vendor from the shortlist, never ask for a vendor's wallet or bank details, and if asked say plainly that Pexa only does the research. When the shortlist is on screen, help with: which to pick and why (use the ratings, price notes and distances in the bracketed note), what price to aim for and how to open the haggle (use the suggested opening offer and the typical price — never invent prices), what to ask the seller, and red flags.
+- FIND A VENDOR / FIND SOMEONE TO HIRE — the other signature use of Buy. When the person wants to FIND a seller to buy from ("who sells sneakers in Lagos?", "find me a wig vendor in Abuja", "I need a plug for phones") or someone to HIRE ("I need a graphic designer", "find a tailor in Yaba", "a photographer near me") → call plan_research. You need what they want AND a place. A city alone is enough ("in Lagos", "in Abuja", "in Nairobi") — call plan_research at once and never ask for a more specific area. Only if NO place was given, or they said "near me" / "closest to me" (you can't see where they are), ask ONE short question — "Which area or city are you in?" — and the app adds a location button under it by itself — never mention a button or say "if available"; do not call the tool yet. A message like "My area is Yaba, Lagos" is their answer: use exactly that as the place. Results are ranked best-and-closest, and each shows where the person says they are, roughly how far away, and the phone, WhatsApp or email they published themselves — never invent or guess a number, and never say a contact is verified. Use kind "vendors" for things to buy; kind "hire" for people. For SELLERS the person chooses where to look — Instagram, TikTok and/or X: if they haven't said which, ask ONE short question — "Which platform should I search for sellers — Instagram, TikTok or X?" — and the app adds buttons under it by itself (never mention buttons); then pass exactly their choice in the platforms field (all three if they say all / everywhere). Never add X or any platform on your own. For people to hire, leave the platforms field empty (professionals go to LinkedIn, trades and creators to Instagram) unless they name one. plan_research buys NOTHING: the app shows a plan card with the cost and a budget; the person taps Approve and the app runs the lookups itself and shows the ranked shortlist. So after calling it, say ONE short sentence and do not state prices (the card does). Do NOT use buy_search_catalog / buy_purchase for these requests. This is different from "is @x legit?" about ONE named account, which is CHECK BEFORE YOU PAY. (A @handle next to words like legit / scam / safe / trust / "before I pay" is a social-media account, NOT a Pexa user: never look it up with find_contact or find_people — look it up on the platform the person named, or on Instagram if they didn't name one.) When the shortlist is on screen ("[Showed a shortlist …]" in the notes), answer follow-ups from the notes: which one to pick, what to ask the vendor, how to pay safely — and offer to check one account more deeply (that is CHECK BEFORE YOU PAY) or to send a small test payment if they give you a wallet address or @username. PEXA DOES NOT PAY VENDORS OR PEOPLE FOR THESE RESULTS — it is a research agent: it finds them, compares prices, rates them and helps the person negotiate, so they can decide before spending their own money outside Pexa. Never offer to pay a vendor from the shortlist, never ask for a vendor's wallet or bank details, and if asked say plainly that Pexa only does the research. When the shortlist is on screen, help with: which to pick and why (use the ratings, price notes and distances in the bracketed note), what price to aim for and how to open the haggle (use the suggested opening offer and the typical price — never invent prices), what to ask the seller, and red flags.
 - Summarize search results for a person, not a developer: lead with the answer, quote at most a short phrase, name sources (platform, rough date), skip IDs and URLs unless asked.
 
 Automations (programmable money rules):
@@ -238,7 +239,9 @@ export interface PendingAction {
     /** A "find me a vendor / someone to hire" plan: nothing is bought until the user approves its budget. */
     | ({ type: 'research_plan' } & ResearchPlanView)
     /** A button that shares the person's area ("Yaba, Lagos") — never their coordinates — when the agent has asked where. */
-    | { type: 'ask_location' };
+    | { type: 'ask_location' }
+    /** Buttons for picking one of a few options (which platform to search); each sends its `text` as the person's next message. */
+    | { type: 'ask_choice'; options: { label: string; text: string; hint?: string; recommended?: boolean }[] };
 }
 
 export interface AgentTurn {
@@ -737,6 +740,8 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
   const chain = modelChain(preferred, baseModel, env.AI_FALLBACK_MODEL || 'gpt-4o-mini');
   const startedAt = Date.now();
 
+  // When the agent has to ask which platform to search, what is being searched (so the buttons can carry what Pexa has learned about it).
+  let platformAsk: { what: string; place: string } | null = null;
   for (let step = 0; step < MAX_STEPS; step++) {
     const request = (m: string) =>
       openai.chat.completions.create({
@@ -762,6 +767,7 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
     const calls = (msg.tool_calls ?? []).filter((c) => c.type === 'function');
     if (calls.length === 0) {
       const reply = msg.content ?? '';
+      if (shouldOfferPlatformChoice(input.messages, reply)) return { reply, action: { tool: 'plan_research', args: {}, render: { type: 'ask_choice', options: await platformChoiceOptions(platformAsk) } } };
       return shouldOfferLocation(input.messages, reply) ? { reply, action: { tool: 'plan_research', args: {}, render: { type: 'ask_location' } } } : { reply };
     }
 
@@ -778,6 +784,11 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
     const cardCall = calls.find((c) => CARD_TOOLS.has(c.function.name));
     if (cardCall) {
       const args = parseArgs(cardCall.function.arguments);
+      // A tap on "Search Instagram, TikTok and X" means exactly those platforms — the model must not trim the list.
+      if (cardCall.function.name === 'plan_research') {
+        const picked = platformsFromChoice(lastText);
+        if (picked) args.platforms = picked;
+      }
       const render = await buildRender(ctx, cardCall.function.name, args);
       if (render) {
         const said = (msg.content ?? '').trim();
@@ -815,6 +826,10 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
               }
             }
           } catch (e) {
+            if (call.function.name === 'plan_research' && e instanceof ToolError && /platform/i.test(e.message)) {
+              const a = parseArgs(call.function.arguments);
+              if (typeof a.what === 'string' && typeof a.place === 'string') platformAsk = { what: a.what, place: a.place };
+            }
             content = JSON.stringify({ error: e instanceof ToolError ? e.code : 'error', message: e instanceof Error ? e.message : 'Tool failed.' });
           }
         }

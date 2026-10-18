@@ -80,6 +80,39 @@ const SELLING = /\b(?:hire me|available for (?:hire|work|projects|bookings?)|por
 const SELL_VERB = /\b(?:we|i|they|store|shop)\b[^.\n]{0,12}\b(?:sell|sells|selling|deal(?:s)? in|stock|stocks|supply|supplies)\b/i;
 const PHONE = /(?<![\d,.])\+?\d[\d \t().-]{8,}\d/;
 
+/** Distinct product words of a theme that appear in the text. */
+function distinctHits(text: string, th: Theme): number {
+  const found = text.toLowerCase().match(new RegExp(th.product.source, 'gi')) ?? [];
+  return new Set(found.map((f) => f.toLowerCase())).size;
+}
+
+/**
+ * Does the text sell a DIFFERENT kind of thing, with the asked-for product only mentioned in passing? "Our Ankara shorts go for ₦5,000,
+ * best with a crop top, a shirt and sneakers" mentions sneakers but sells clothes: more of its product words belong to clothing.
+ */
+export function sellsSomethingElse(text: string, theme: Theme): boolean {
+  if (theme.category === 'general') return false;
+  const mine = distinctHits(text, theme);
+  return THEMES.some((th) => {
+    if (th.category === theme.category) return false;
+    const other = distinctHits(text, th);
+    return other >= 3 && other >= mine * 2;
+  });
+}
+
+export type PaymentTerms = { podOffered: boolean; upfrontOnly: string | null };
+
+const NO_POD = /\b(?:no (?:payment|pay|pod|p\.o\.d\.?) (?:on|upon) deliver(?:y|ed)?|no pod\b|no p\.o\.d|payment (?:before|first)\b|pay (?:first|before delivery)|full payment (?:before|first|upfront)|upfront payment|no refunds?|no returns?|no exchange)/i;
+const POD = /\b(?:pod|p\.o\.d|pay(?:ment)? (?:on|upon|after) delivery)\b/i;
+
+/** Payment terms a seller states. "No payment on delivery" is a classic scam pattern (it may be innocent, but it is a flag); "pay on delivery" is the safer promise. */
+export function paymentTerms(raw: string | null | undefined): PaymentTerms {
+  const text = (raw ?? '').replace(/\s+/g, ' ');
+  const no = NO_POD.exec(text);
+  if (no) return { podOffered: false, upfrontOnly: no[0].trim() };
+  return { podOffered: POD.test(text), upfrontOnly: null };
+}
+
 export type TextKind = 'seller' | 'adjacent' | 'mention' | 'unrelated';
 
 export interface TextRead {
@@ -92,6 +125,8 @@ export interface TextRead {
   selling: boolean;
   /** Names a nearby thing that is not the product (cleaning, repair…). */
   adjacent: boolean;
+  /** Sells a different kind of thing and only mentions the product in passing. */
+  somethingElse: boolean;
 }
 
 /**
@@ -101,8 +136,9 @@ export interface TextRead {
  */
 export function readText(raw: string | null | undefined, theme: Theme, currency: Currency | null = null): TextRead {
   const text = decode(raw ?? '').replace(/\s+/g, ' ').trim();
-  if (!text || text === 'undefined') return { kind: 'unrelated', evidence: [], product: false, selling: false, adjacent: false };
-  const product = theme.product.test(text);
+  if (!text || text === 'undefined') return { kind: 'unrelated', evidence: [], product: false, selling: false, adjacent: false, somethingElse: false };
+  const else_ = sellsSomethingElse(text, theme);
+  const product = theme.product.test(text) && !else_;
   const adjacent = theme.adjacent.test(text);
   const prices = extractPrices(text, currency);
   const hasPhone = PHONE.test(text);
@@ -123,5 +159,5 @@ export function readText(raw: string | null | undefined, theme: Theme, currency:
   if (!product) kind = adjacent ? 'adjacent' : 'unrelated';
   else if (adjacent && !sellsProduct) kind = 'adjacent';
   else kind = selling ? 'seller' : 'mention';
-  return { kind, evidence, product, selling, adjacent };
+  return { kind, evidence, product, selling, adjacent, somethingElse: else_ };
 }

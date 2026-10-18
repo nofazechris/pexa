@@ -233,3 +233,37 @@ export function AskLocationCard({ onShare, getAccessToken }: { onShare: (label: 
     </div>
   );
 }
+
+/**
+ * A few options as buttons (which platform to search, for instance). Tapping one sends its text as the person's next message — the
+ * same as typing it — so a card that was never tapped, or a chat reopened later, loses nothing. An option can carry a hint (what
+ * Pexa has learned about it) and a "Best so far" tag when the evidence clearly favours it.
+ */
+export function ChoiceCard({ options, onPick }: { options: { label: string; text: string; hint?: string; recommended?: boolean }[]; onPick: (text: string) => void }) {
+  const [picked, setPicked] = useState<string | null>(null);
+  const hasHints = options.some((o) => o.hint || o.recommended);
+  return (
+    <div style={{ display: 'flex', flexDirection: hasHints ? 'column' : 'row', flexWrap: 'wrap', gap: '8px', maxWidth: '400px' }}>
+      {options.map((o) => {
+        const on = picked === o.label;
+        return (
+          <button
+            key={o.label}
+            disabled={picked !== null}
+            onClick={() => {
+              setPicked(o.label);
+              onPick(o.text);
+            }}
+            style={{ textAlign: 'left', border: `1px solid ${on ? color.primary : o.recommended ? color.primarySoftBorder : color.borderStrong}`, background: on ? color.primarySoft : o.recommended ? color.primaryTint : color.surface, color: on ? color.primary : color.ink, fontSize: '14px', fontWeight: 500, padding: hasHints ? '10px 14px' : 'var(--pp-btn-y) 16px', borderRadius: '11px', cursor: picked ? 'default' : 'pointer', opacity: picked && !on ? 0.5 : 1 }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {o.label}
+              {o.recommended ? <span style={{ fontSize: '10.5px', fontWeight: 600, letterSpacing: '.04em', color: color.primary, background: color.primarySoft, borderRadius: '6px', padding: '2px 6px' }}>BEST SO FAR</span> : null}
+            </span>
+            {o.hint ? <span style={{ display: 'block', fontSize: '11.5px', fontWeight: 400, color: color.faint, marginTop: '2px' }}>{o.hint}</span> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

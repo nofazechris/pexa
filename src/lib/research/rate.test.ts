@@ -27,6 +27,7 @@ const base = (over: Partial<ResearchItem>): ResearchItem => ({
   rating: initialRating(80, 90),
   prices: null,
   negotiation: null,
+  memory: null,
   relevance: 'match',
   skipReason: null,
   ...over,
@@ -162,7 +163,7 @@ describe('negotiation help', () => {
 });
 
 describe('end to end from a profile with prices in its posts', () => {
-  const req: ResearchRequest = { kind: 'vendors', source: 'instagram', what: 'sneakers', place: 'Yaba, Lagos' };
+  const req: ResearchRequest = { kind: 'vendors', platforms: ['instagram'], what: 'sneakers', place: 'Yaba, Lagos' };
   const step = (over: Partial<StepState>): StepState => ({ role: 'search', ref: null, outcome: 'PAID', priceAtomic: 7000n, ...over });
   const profile = (user: string, captions: string[], followers = 4000) => ({
     username: user,

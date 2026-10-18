@@ -46,6 +46,7 @@ export interface PendingActionView {
     | ({ type: 'recurring_preview' } & RecurringCardData)
     | ({ type: 'research_plan' } & ResearchPlanView)
     | { type: 'ask_location' }
+    | { type: 'ask_choice'; options: { label: string; text: string; hint?: string; recommended?: boolean }[] }
     | { type: 'buy_quote'; purchaseId: string; service: string; price: string; priceAtomic: string; token: string; detail: string; expiresAt: string; from: string; typedData: BuyTypedData; note: string };
 }
 
@@ -126,11 +127,13 @@ export interface RecurringCardData {
 export interface ChatMessage {
   id: number;
   role: 'user' | 'agent';
-  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge' | 'swap_preview' | 'swap_receipt' | 'statement' | 'research_plan' | 'research_result' | 'ask_location';
+  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge' | 'swap_preview' | 'swap_receipt' | 'statement' | 'research_plan' | 'research_result' | 'ask_location' | 'ask_choice';
   text?: string;
   /** A "find me a vendor / someone to hire" plan waiting for the budget to be approved, how far it has got, and its shortlist. */
   research?: ResearchPlanView;
   researchProgress?: ResearchProgress;
+  /** Buttons to pick one of a few options; each sends its text as the next message. */
+  choices?: { label: string; text: string; hint?: string; recommended?: boolean }[];
   researchResult?: ResearchResult;
   /** The "what I can do" list, each with a tap-to-try sentence. */
   intro?: IntroFeatureView[];
@@ -315,6 +318,8 @@ export function useAgentChat(deps: AgentChatDeps) {
           push({ role: 'agent', type: 'swap_preview', swap: card, status: 'awaiting' });
         } else if (action.render.type === 'ask_location') {
           push({ role: 'agent', type: 'ask_location' });
+        } else if (action.render.type === 'ask_choice') {
+          push({ role: 'agent', type: 'ask_choice', choices: action.render.options });
         } else if (action.render.type === 'research_plan') {
           const { type: _rp, ...card } = action.render;
           void _rp;

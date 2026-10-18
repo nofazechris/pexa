@@ -154,6 +154,7 @@ export function scoreLinkedIn(p: LiPerson, ask: { what: string; place: string },
     rating: initialRating(trustScore(signals), fitScore(hits.length, wanted.length)),
     prices: null,
     negotiation: null,
+    memory: null,
     relevance: 'match',
     skipReason: null,
   };

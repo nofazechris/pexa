@@ -1,11 +1,12 @@
 import 'server-only';
 import { randomBytes } from 'node:crypto';
-import { createWalletClient, http, parseSignature, type Hex } from 'viem';
+import { http, parseSignature, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { celo, celoSepolia } from 'viem/chains';
 import { activeNetwork, env, getToken } from '@/lib/config';
 import { celoClient } from '@/lib/celo/client';
 import { PAY_TOKENS } from '@/lib/buy/tokens';
+import { walletWithTag } from './tagged';
 
 /**
  * Gasless relayer (EIP-3009 `transferWithAuthorization`).
@@ -21,6 +22,14 @@ import { PAY_TOKENS } from '@/lib/buy/tokens';
  */
 
 const VIEM_CHAIN = { mainnet: celo, sepolia: celoSepolia } as const;
+
+/**
+ * The relayer's wallet client — the ONE place it is built, so every transaction it sends is tagged. With CELO_ATTRIBUTION_TAG set,
+ * each sendTransaction / writeContract call carries the ERC-8021 suffix (also plain CELO transfers); without it, nothing is tagged.
+ */
+export function relayerWallet(account: ReturnType<typeof privateKeyToAccount>) {
+  return walletWithTag({ account, chain: VIEM_CHAIN[activeNetwork.network], transport: http(activeNetwork.rpcUrls[0]), tag: env.CELO_ATTRIBUTION_TAG });
+}
 
 const ERC20_META_ABI = [
   { name: 'name', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
@@ -153,7 +162,7 @@ export async function sendGasTopUp(input: { to: string; valueWei: bigint }): Pro
   const key = env.RELAYER_PRIVATE_KEY;
   if (!key) throw new Error('Gasless relayer is not configured.');
   const account = privateKeyToAccount((key.startsWith('0x') ? key : `0x${key}`) as Hex);
-  const wallet = createWalletClient({ account, chain: VIEM_CHAIN[activeNetwork.network], transport: http(activeNetwork.rpcUrls[0]) });
+  const wallet = relayerWallet(account);
   const hash = await wallet.sendTransaction({ to: input.to as Hex, value: input.valueWei });
   return { hash };
 }
@@ -167,7 +176,7 @@ export async function relayTransfer(input: { message: TransferAuthorizationMessa
   const key = env.RELAYER_PRIVATE_KEY;
   if (!key) throw new Error('Gasless relayer is not configured.');
   const account = privateKeyToAccount((key.startsWith('0x') ? key : `0x${key}`) as Hex);
-  const wallet = createWalletClient({ account, chain: VIEM_CHAIN[activeNetwork.network], transport: http(activeNetwork.rpcUrls[0]) });
+  const wallet = relayerWallet(account);
 
   const sig = parseSignature(input.signature);
   const v = sig.v !== undefined ? Number(sig.v) : 27 + Number(sig.yParity ?? 0);

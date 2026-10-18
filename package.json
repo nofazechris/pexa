@@ -15,11 +15,13 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "wallets:audit": "node scripts/wallet-audit.mjs",
+    "agent:tag": "node scripts/agent-tag.mjs",
     "research:metrics": "vitest run src/lib/research/metrics.test.ts --reporter=verbose",
     "agent:eval": "vitest run -c vitest.eval.config.ts",
     "buy:report": "node scripts/buy-report.mjs"
   },
   "dependencies": {
+    "@celo/attribution-tags": "^0.5.0",
     "@phosphor-icons/react": "^2.1.10",
     "@privy-io/react-auth": "^3.42.0",
     "@privy-io/server-auth": "^1.32.5",

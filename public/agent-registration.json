@@ -1,0 +1,13 @@
+{
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "Pexa",
+  "description": "A research agent for buying online. Pexa finds vendors and people to hire, estimates what they charge, rates how trustworthy they look and helps you negotiate. It buys the data it needs through Buy (usebuy.ai) with the user's own wallet inside one approved budget, and it never pays vendors or people itself.",
+  "image": "https://pexaapp.xyz/og.png",
+  "services": [
+    { "name": "web", "endpoint": "https://pexaapp.xyz" },
+    { "name": "MCP", "endpoint": "https://pexaapp.xyz/api/mcp" }
+  ],
+  "x402Support": false,
+  "active": true,
+  "supportedTrust": ["reputation"]
+}

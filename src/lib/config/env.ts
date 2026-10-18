@@ -64,6 +64,14 @@ const schema = z.object({
    */
   RELAYER_PRIVATE_KEY: z.string().min(1).optional(),
   /**
+   * The Celo hackathon ERC-8021 attribution tag (like `celo_b7k3p9da`). When set, every transaction the relayer wallet sends carries it.
+   * Not secret — it is public on-chain — but it must be the one assigned at enrolment.
+   */
+  CELO_ATTRIBUTION_TAG: z
+    .string()
+    .regex(/^celo_[a-z0-9]{6,16}$/, 'expected something like celo_b7k3p9da')
+    .optional(),
+  /**
    * The most the agent may settle on its own, per payment, without a human tapping approve — the
    * autonomous ceiling for the delegated worker path (recurring + on-chain auto-save). Above this
    * (but within the per-payment/daily caps) the payment waits for the user. Decimal USDC; default $100.

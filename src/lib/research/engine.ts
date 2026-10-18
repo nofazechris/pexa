@@ -8,6 +8,7 @@
  */
 import { cityOf, searchKeywords, themeFor } from './commerce';
 import { igCandidates, igProfile, liPeople, tiktokCandidates, tiktokProfile, xTweets, type IgCandidate } from './read';
+import { mergeSameBusiness } from './dedupe';
 import { applyRatings, rankByRating, stars } from './rate';
 import { scoreLinkedIn } from './score';
 import { groupSellers, type XSeller } from './sellers';
@@ -345,7 +346,7 @@ export function assemble(req: ResearchRequest, steps: readonly StepState[], reas
   }
   if (unrelated > 0) skipped.push({ name: `${unrelated} other account${unrelated === 1 ? '' : 's'}`, reason: 'weren’t selling it' });
 
-  const rated = applyRatings(shown, { what: req.what, place: req.place, kind: req.kind, priority: req.priority });
+  const rated = applyRatings(mergeSameBusiness(shown), { what: req.what, place: req.place, kind: req.kind, priority: req.priority });
   const ranked = rankByRating(rated.items).slice(0, MAX_ITEMS);
   if (ranked.some((i) => i.contact.phone || i.contact.email)) notes.push('Phone numbers and emails shown are only what each person published on their own profile.');
   if (ranked.length && ranked.every((i) => i.nearness === 'unknown' || i.nearness === 'other')) notes.push('None of them shows a location near you — ask each one where they are before you commit.');

@@ -28,6 +28,29 @@ export const SERVICE = {
 
 export const ALLOWED_SERVICES: ReadonlySet<string> = new Set(Object.values(SERVICE));
 
+const HOUR = 3600_000;
+
+/**
+ * How long an answer you already bought stays good enough to reuse instead of paying again. A profile changes slowly; a search
+ * result list and a feed of recent posts go stale sooner. Zero means never reuse.
+ */
+export function freshForMs(capabilityId: string): number {
+  switch (capabilityId) {
+    case SERVICE.igProfile:
+    case SERVICE.tiktokProfile:
+    case SERVICE.liSearch:
+      return 12 * HOUR;
+    case SERVICE.igSearch:
+    case SERVICE.tiktokSearch:
+    case SERVICE.xSearch:
+      return 6 * HOUR;
+    case SERVICE.xTimeline:
+      return 3 * HOUR;
+    default:
+      return 0;
+  }
+}
+
 /** How many Instagram / TikTok accounts get a closer look, each. */
 export const MAX_CHECKS = 5;
 /** How many X sellers get their own recent posts read. */

@@ -1,12 +1,12 @@
 import 'server-only';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db';
 import type { ResearchSessionRow } from '@/lib/db/schema';
 import { buyAvailable, cancelPurchase, getApprovalPayload, getPurchase, preparePurchase } from '@/lib/buy/service';
 import { parseMaybeJson } from '@/lib/buy/slim';
 import { geocode } from '@/lib/geo/service';
 import { haversineKm, placeParts } from '@/lib/geo/place';
-import { ALLOWED_SERVICES, RESEARCH_HARD_CAP_ATOMIC, accountKeys, assemble, buildSummary, capFor, decideNext, describePlan, dollars, type FinishReason, type StepRole, type StepState } from './engine';
+import { ALLOWED_SERVICES, RESEARCH_HARD_CAP_ATOMIC, freshForMs, accountKeys, assemble, buildSummary, capFor, decideNext, describePlan, dollars, type FinishReason, type StepRole, type StepState } from './engine';
 import { loadVendorMemory, recordRun } from './memory';
 import { applyRadius, applyRatings, rankByRating } from './rate';
 import { priorityFrom } from './request';
@@ -24,6 +24,21 @@ interface StepRef {
   purchaseId: string;
   role: StepRole;
   ref: string | null;
+  /** This answer was bought earlier by the same person and is still fresh, so reusing it cost nothing. */
+  cached?: boolean;
+}
+
+/** An answer this person already paid for with exactly this request, recent enough to reuse. Never another person's. */
+async function freshPurchase(userId: string, capabilityId: string, input: Record<string, unknown>): Promise<string | null> {
+  const ttl = freshForMs(capabilityId);
+  if (!ttl) return null;
+  const [row] = await getDb()
+    .select({ id: schema.buyPurchases.id, responseJson: schema.buyPurchases.responseJson })
+    .from(schema.buyPurchases)
+    .where(and(eq(schema.buyPurchases.userId, userId), eq(schema.buyPurchases.capabilityId, capabilityId), eq(schema.buyPurchases.requestBody, JSON.stringify(input)), eq(schema.buyPurchases.status, 'PAID'), gte(schema.buyPurchases.createdAt, new Date(Date.now() - ttl))))
+    .orderBy(desc(schema.buyPurchases.createdAt))
+    .limit(1);
+  return row?.responseJson ? row.id : null;
 }
 
 export type Advance =
@@ -107,6 +122,8 @@ async function finish(row: ResearchSessionRow, states: StepState[], reason: Fini
   const memory = await loadVendorMemory(accountKeys(req, states));
   const result = assemble(req, states, reason, new Date(), memory);
   if (extraNote) result.notes.unshift(extraNote);
+  const reusedCount = stepsOf(row).filter((s) => s.cached).length;
+  if (reusedCount > 0) result.notes.unshift(`${reusedCount} lookup${reusedCount === 1 ? '' : 's'} came from searches you paid for recently, so they cost nothing this time (they can be a few hours old).`);
   if (result.items.length) {
     await Promise.race([addDistances(result), new Promise((r) => setTimeout(r, 9000))]).catch(() => undefined);
     // Distances change who is nearest: rate and rank again, then say it.
@@ -140,7 +157,8 @@ async function statesOf(userId: string, steps: StepRef[]): Promise<{ states: Ste
       continue;
     }
     const price = BigInt(p.priceAtomic);
-    if (p.status === 'PAID') states.push({ role: s.role, ref: s.ref, outcome: 'PAID', priceAtomic: price, output: parseMaybeJson(p.responseJson) });
+    // A reused answer costs nothing this time, so it is not counted against the budget.
+    if (p.status === 'PAID') states.push({ role: s.role, ref: s.ref, outcome: 'PAID', priceAtomic: s.cached ? 0n : price, output: parseMaybeJson(p.responseJson) });
     else if (p.status === 'UNCERTAIN') states.push({ role: s.role, ref: s.ref, outcome: 'UNCERTAIN', priceAtomic: price });
     else if (p.status === 'QUOTED' && p.expiresAt > new Date()) {
       states.push({ role: s.role, ref: s.ref, outcome: 'OPEN', priceAtomic: price });
@@ -192,6 +210,18 @@ export async function advanceResearch(userId: string, id: string, attempt = 0): 
   const next = decideNext(request, states);
   if (next.action === 'finish') return finish(row, states, next.reason);
   if (!ALLOWED_SERVICES.has(next.capabilityId)) return finish(row, states, 'done', 'I stopped because the next lookup wasn’t one I’m allowed to buy.');
+
+  // The same lookup, already bought by this person recently: reuse it. No quote, no signature, no charge.
+  const reuse = await freshPurchase(userId, next.capabilityId, next.input).catch(() => null);
+  if (reuse && !steps.some((s) => s.purchaseId === reuse)) {
+    const reused: StepRef = { purchaseId: reuse, role: next.role, ref: next.ref, cached: true };
+    const stored = await getDb()
+      .update(schema.researchSessions)
+      .set({ stepsJson: JSON.stringify([...steps, reused]), updatedAt: new Date() })
+      .where(and(eq(schema.researchSessions.id, row.id), eq(schema.researchSessions.stepsJson, row.stepsJson)))
+      .returning({ id: schema.researchSessions.id });
+    if (stored.length) return attempt < 20 ? advanceResearch(userId, id, attempt + 1) : { kind: 'wait', message: 'Still working…' };
+  }
 
   const prepared = await preparePurchase(userId, { capabilityId: next.capabilityId, input: next.input });
   if (!prepared.ok) {

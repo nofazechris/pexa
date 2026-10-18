@@ -6,6 +6,8 @@
  * Pure: the browser builds them for each turn, and the same function writes the "where we left off" summary.
  */
 
+import { untrustedLabel } from '@/lib/research/safe';
+
 export interface ChatLike {
   role: 'user' | 'agent';
   type?: string;
@@ -80,7 +82,7 @@ export function describeCard(m: ChatLike): string | null {
           if (typeof i.distanceKm === 'number') bits.push(`${Math.round(i.distanceKm)} km away`);
           if (i.prices?.text) bits.push(`prices ${i.prices.text}${i.prices.vsMarket ? ` (${i.prices.vsMarket.kind} usual)` : ''}`);
           if (i.negotiation?.offer) bits.push(`suggested opening offer ${i.negotiation.offer}`);
-          return `${i.handle ?? i.name ?? 'someone'} (${bits.join(', ')})`;
+          return `${untrustedLabel(i.handle ?? i.name ?? 'someone')} (${bits.join(', ')})`;
         })
         .join('; ');
       const kind = r?.request?.kind === 'hire' ? 'hiring' : 'vendor';

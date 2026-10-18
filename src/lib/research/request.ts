@@ -1,4 +1,4 @@
-import type { Platform, ResearchKind, ResearchRequest } from './types';
+import type { Platform, Priority, ResearchKind, ResearchRequest } from './types';
 
 const clean = (s: string, max: number) => s.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 
@@ -22,7 +22,19 @@ export type NormalizeResult = { ok: true; request: ResearchRequest } | { ok: fal
  * Tidy what the model proposed into a request, or say what's missing. For SELLERS the person chooses where to look — Instagram, TikTok
  * and/or X — and is asked if they haven't said; for people to hire, professionals default to LinkedIn and trades to Instagram.
  */
-export function normalizeRequest(input: { kind?: unknown; platforms?: unknown; source?: unknown; what?: unknown; place?: unknown }): NormalizeResult {
+const PRIORITIES: readonly Priority[] = ['balanced', 'closest', 'cheapest', 'trusted'];
+
+/** A radius in km between 1 and 100, or null. "Within 5 km" is a hard limit, so anything unreadable means no limit, never a guess. */
+export function radiusFrom(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+  return Number.isFinite(n) && n >= 1 && n <= 100 ? Math.round(n * 10) / 10 : null;
+}
+
+export function priorityFrom(v: unknown): Priority {
+  return PRIORITIES.includes(v as Priority) ? (v as Priority) : 'balanced';
+}
+
+export function normalizeRequest(input: { kind?: unknown; platforms?: unknown; source?: unknown; what?: unknown; place?: unknown; priority?: unknown; radiusKm?: unknown }): NormalizeResult {
   const kind: ResearchKind = input.kind === 'hire' ? 'hire' : 'vendors';
   const what = typeof input.what === 'string' ? clean(input.what, 80) : '';
   // "lagos" → "Lagos", "abuja nigeria" → "Abuja Nigeria".
@@ -44,5 +56,8 @@ export function normalizeRequest(input: { kind?: unknown; platforms?: unknown; s
     platforms = platforms.filter((p) => p !== 'linkedin');
     if (!platforms.length) platforms = ['instagram'];
   }
-  return { ok: true, request: { kind, platforms, what, place } };
+  // Only what the person actually asked for is set, so an ordinary request looks exactly as it always did.
+  const priority = priorityFrom(input.priority);
+  const radiusKm = radiusFrom(input.radiusKm);
+  return { ok: true, request: { kind, platforms, what, place, ...(priority !== 'balanced' ? { priority } : {}), ...(radiusKm ? { radiusKm } : {}) } };
 }

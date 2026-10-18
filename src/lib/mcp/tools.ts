@@ -652,6 +652,8 @@ export const TOOLS: ToolDef[] = [
       what: z.string().min(2).max(80).describe('What they want, in a few words: "sneakers", "wigs", "graphic designer".'),
       place: z.string().min(2).max(60).describe('The place exactly as the person gave it: a city alone ("Lagos", "Abuja") is ENOUGH — call this straight away, never ask for a more specific area. A neighbourhood plus city ("Yaba, Lagos") is better and is used to rank by distance. Only when they gave no place at all, or said "near me" / "closest to me", do NOT call this: ask just "Which area or city are you in?" and wait — the app adds a location button by itself, so never mention a button in your reply. After they use it you will receive a message like "My area is Yaba, Lagos" — use exactly that as the place.'),
       platforms: z.array(z.enum(['instagram', 'tiktok', 'x', 'linkedin'])).optional().describe('Where to look. For sellers: exactly what the person chose (all three if they said all / everywhere). For people to hire: leave empty unless they named one.'),
+      priority: z.enum(['balanced', 'closest', 'cheapest', 'trusted']).optional().describe('What matters most, only when they said so: "nearest / closest" → closest, "cheapest / best price" → cheapest, "most trustworthy / safest / legit" → trusted. Otherwise leave it out.'),
+      radiusKm: z.number().min(1).max(100).optional().describe('Only when they gave a distance limit ("within 5 km"): that number of km. Never invent one.'),
     }),
     handler: async (ctx, args) => {
       const req = normalizeRequest(args);

@@ -8,7 +8,8 @@ import { geocode } from '@/lib/geo/service';
 import { haversineKm, placeParts } from '@/lib/geo/place';
 import { ALLOWED_SERVICES, RESEARCH_HARD_CAP_ATOMIC, accountKeys, assemble, buildSummary, capFor, decideNext, describePlan, dollars, type FinishReason, type StepRole, type StepState } from './engine';
 import { loadVendorMemory, recordRun } from './memory';
-import { applyRatings, rankByRating } from './rate';
+import { applyRadius, applyRatings, rankByRating } from './rate';
+import { priorityFrom } from './request';
 import type { Platform, ResearchKind, ResearchPlanView, ResearchRequest, ResearchResult } from './types';
 
 /**
@@ -33,7 +34,7 @@ export type Advance =
 
 export { normalizeRequest } from './request';
 
-const requestOf = (r: ResearchSessionRow): ResearchRequest => ({ kind: r.kind as ResearchKind, platforms: r.source.split(',').filter(Boolean) as Platform[], what: r.what, place: r.place });
+const requestOf = (r: ResearchSessionRow): ResearchRequest => ({ kind: r.kind as ResearchKind, platforms: r.source.split(',').filter(Boolean) as Platform[], what: r.what, place: r.place, priority: priorityFrom(r.priority), radiusKm: r.radiusKm ?? null });
 
 function stepsOf(r: ResearchSessionRow): StepRef[] {
   try {
@@ -61,7 +62,7 @@ export async function createResearch(userId: string, request: ResearchRequest): 
   const cap = text.capAtomic > RESEARCH_HARD_CAP_ATOMIC ? RESEARCH_HARD_CAP_ATOMIC : capFor(request);
   const [row] = await getDb()
     .insert(schema.researchSessions)
-    .values({ userId, kind: request.kind, source: request.platforms.join(','), what: request.what, place: request.place, capAtomic: cap.toString() })
+    .values({ userId, kind: request.kind, source: request.platforms.join(','), what: request.what, place: request.place, priority: request.priority ?? 'balanced', radiusKm: request.radiusKm ?? null, capAtomic: cap.toString() })
     .returning();
   return { ok: true, plan: { sessionId: row.id, request, title: text.title, steps: text.steps, estimate: text.estimate, cap: dollars(cap), capAtomic: cap.toString() } };
 }
@@ -109,8 +110,12 @@ async function finish(row: ResearchSessionRow, states: StepState[], reason: Fini
   if (result.items.length) {
     await Promise.race([addDistances(result), new Promise((r) => setTimeout(r, 9000))]).catch(() => undefined);
     // Distances change who is nearest: rate and rank again, then say it.
-    const rated = applyRatings(result.items, { what: result.request.what, place: result.request.place, kind: result.request.kind });
-    result.items = rankByRating(rated.items);
+    const rated = applyRatings(result.items, { what: result.request.what, place: result.request.place, kind: result.request.kind, priority: result.request.priority });
+    // A radius is a hard limit once a distance is measured; sellers whose distance couldn't be measured stay, and the card says so.
+    const within = applyRadius(rated.items, result.request.radiusKm);
+    result.items = rankByRating(within.items);
+    if (within.outside > 0) result.notes.unshift(`Left out ${within.outside} seller${within.outside === 1 ? '' : 's'} measured farther than ${result.request.radiusKm} km (straight-line distance, not road distance). Ask me to widen the search if you want them.`);
+    if (result.request.radiusKm && within.unverified > 0) result.notes.unshift(`I couldn’t measure how far ${within.unverified === 1 ? 'one seller is' : within.unverified + ' sellers are'} from you, so ${within.unverified === 1 ? 'it isn’t' : 'they aren’t'} confirmed to be within ${result.request.radiusKm} km — ask where they are.`);
     result.market = rated.market;
     result.summary = buildSummary(result.request, result.items, reason, rated.market, result.skipped.length);
   }

@@ -9,7 +9,7 @@
  * Pure.
  */
 import { money, niceAmount, rangeText, summarize, versus, type Currency, type PriceSummary } from './price';
-import type { ItemPrices, MarketPrice, Negotiation, Rating, ResearchItem, ResearchKind, Signal } from './types';
+import type { ItemPrices, MarketPrice, Negotiation, Priority, Rating, ResearchItem, ResearchKind, Signal } from './types';
 
 const clamp = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, Math.round(n)));
 
@@ -47,18 +47,27 @@ export function priceScore(v: { kind: 'below' | 'near' | 'above'; percent: numbe
   return v.percent <= 25 ? 50 : v.percent <= 50 ? 35 : 20;
 }
 
-const WEIGHTS = { trust: 0.45, fit: 0.25, nearby: 0.2, price: 0.1 } as const;
+type Weights = { trust: number; fit: number; nearby: number; price: number };
+
+/** How much each part counts. What the person said matters most shifts the balance; trust always counts for the most or near it. */
+export const WEIGHTS: Record<Priority, Weights> = {
+  balanced: { trust: 0.45, fit: 0.25, nearby: 0.2, price: 0.1 },
+  closest: { trust: 0.35, fit: 0.2, nearby: 0.4, price: 0.05 },
+  cheapest: { trust: 0.35, fit: 0.2, nearby: 0.1, price: 0.35 },
+  trusted: { trust: 0.65, fit: 0.2, nearby: 0.1, price: 0.05 },
+};
 
 /** The weighted average of the parts that are known (null when trust is unknown — an unchecked account isn't rated). */
-export function overall(parts: Omit<Rating, 'overall'>): number | null {
+export function overall(parts: Omit<Rating, 'overall'>, priority: Priority = 'balanced'): number | null {
   if (parts.trust === null) return null;
+  const w = WEIGHTS[priority];
   let sum = 0;
   let weight = 0;
   for (const k of ['trust', 'fit', 'nearby', 'price'] as const) {
     const v = parts[k];
     if (v !== null) {
-      sum += v * WEIGHTS[k];
-      weight += WEIGHTS[k];
+      sum += v * w[k];
+      weight += w[k];
     }
   }
   return weight ? clamp(sum / weight) : null;
@@ -78,6 +87,7 @@ export interface RateContext {
   what: string;
   place: string;
   kind: ResearchKind;
+  priority?: Priority;
 }
 
 /** The typical price across sellers: needs comparable prices (for the thing asked about) from at least 3 sellers — 4 prices in all — in one currency. Fewer is not a market. */
@@ -189,7 +199,7 @@ export function applyRatings(items: readonly ResearchItem[], ctx: RateContext): 
     const rating: Rating | null = base
       ? (() => {
           const parts = { trust: base.trust, fit: base.fit, nearby: nearbyScore(item), price: priceScore(prices?.vsMarket ?? null) };
-          const o = overall(parts);
+          const o = overall(parts, ctx.priority);
           return o === null ? null : { overall: o, ...parts };
         })()
       : null;
@@ -197,6 +207,16 @@ export function applyRatings(items: readonly ResearchItem[], ctx: RateContext): 
     return { ...withPrices, negotiation: item.checked ? negotiationFor(withPrices, market, ctx) : null };
   });
   return { items: rated, market: market?.view ?? null };
+}
+
+/**
+ * Keep only sellers whose measured straight-line distance is within the radius the person asked for. A seller whose distance
+ * couldn't be measured is NOT silently kept as "nearby" or thrown away: it stays, and is counted so the card can say so.
+ */
+export function applyRadius(items: readonly ResearchItem[], radiusKm: number | null | undefined): { items: ResearchItem[]; outside: number; unverified: number } {
+  if (!radiusKm || radiusKm <= 0) return { items: [...items], outside: 0, unverified: 0 };
+  const kept = items.filter((i) => i.distanceKm === null || i.distanceKm <= radiusKm);
+  return { items: kept, outside: items.length - kept.length, unverified: kept.filter((i) => i.distanceKm === null).length };
 }
 
 /** Best rating first; unrated (not looked inside) last; closer wins a tie. */

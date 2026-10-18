@@ -169,6 +169,13 @@
       "when": 1792326726192,
       "tag": "0023_real_sunspot",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792328105523,
+      "tag": "0024_cultured_daredevil",
+      "breakpoints": true
     }
   ]
 }

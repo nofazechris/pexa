@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, uniqueIndex, index, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, real, timestamp, uniqueIndex, index, boolean } from 'drizzle-orm/pg-core';
 
 /**
  * Database schema (§34–35).
@@ -580,6 +580,9 @@ export const researchSessions = pgTable(
     source: text('source').notNull(),
     what: text('what').notNull(),
     place: text('place').notNull().default(''),
+    /** What matters most to the person (balanced / closest / cheapest / trusted) and an optional straight-line radius in km. */
+    priority: text('priority').notNull().default('balanced'),
+    radiusKm: real('radius_km'),
     /** The most this research may spend, in atomic units (6 decimals). */
     capAtomic: text('cap_atomic').notNull(),
     status: text('status').notNull().default('PLANNED'),

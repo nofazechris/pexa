@@ -93,7 +93,9 @@ export function describePlan(req: ResearchRequest): PlanText {
   if (social.length) steps.push(`Look inside each promising ${list(social.map((p) => NAME[p]))} account one by one (up to ${MAX_CHECKS} each): activity, followers, account age, payment terms, red flags`);
   if (req.platforms.includes('x')) steps.push('Read the recent posts of the best X sellers themselves, not just the search hits');
   if (req.platforms.includes('linkedin')) steps.push('Compare the people LinkedIn returns on fit, closeness and how complete their profiles are');
-  steps.push('Rate each one out of 5 and rank by that and distance, with the prices and the phone, WhatsApp or email they published — nothing is paid to anyone');
+  const lean = { closest: 'weighing how close they are most', cheapest: 'weighing price most', trusted: 'weighing trust most', balanced: '' }[req.priority ?? 'balanced'];
+  const limit = req.radiusKm ? `, and keep only sellers measured within ${req.radiusKm} km (straight-line)` : '';
+  steps.push(`Rate each one out of 5${lean ? `, ${lean}` : ''} and rank by that and distance${limit}, with the prices and the phone, WhatsApp or email they published — nothing is paid to anyone`);
   return {
     title: sentence(req.kind === 'hire' ? `find ${req.what}${where}` : `find sellers of ${req.what}${where}`),
     steps,
@@ -343,7 +345,7 @@ export function assemble(req: ResearchRequest, steps: readonly StepState[], reas
   }
   if (unrelated > 0) skipped.push({ name: `${unrelated} other account${unrelated === 1 ? '' : 's'}`, reason: 'weren’t selling it' });
 
-  const rated = applyRatings(shown, { what: req.what, place: req.place, kind: req.kind });
+  const rated = applyRatings(shown, { what: req.what, place: req.place, kind: req.kind, priority: req.priority });
   const ranked = rankByRating(rated.items).slice(0, MAX_ITEMS);
   if (ranked.some((i) => i.contact.phone || i.contact.email)) notes.push('Phone numbers and emails shown are only what each person published on their own profile.');
   if (ranked.length && ranked.every((i) => i.nearness === 'unknown' || i.nearness === 'other')) notes.push('None of them shows a location near you — ask each one where they are before you commit.');

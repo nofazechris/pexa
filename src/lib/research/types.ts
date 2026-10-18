@@ -11,7 +11,13 @@ export interface ResearchRequest {
   what: string;
   /** Where, e.g. "Lagos". Empty when it doesn't matter. */
   place: string;
+  /** What matters most to the person; shifts the rating weights. Absent means balanced. */
+  priority?: Priority;
+  /** Only show sellers verified to be within this many km (straight-line). Absent means no limit. */
+  radiusKm?: number | null;
 }
+
+export type Priority = 'balanced' | 'closest' | 'cheapest' | 'trusted';
 
 export interface Signal {
   tone: 'good' | 'warn' | 'info';

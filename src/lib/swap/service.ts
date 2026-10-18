@@ -2,12 +2,13 @@ import 'server-only';
 import { and, desc, eq, gt, isNotNull, sql } from 'drizzle-orm';
 import { decodeEventLog, erc20Abi, getAddress, parseAbi, type Address, type Hex } from 'viem';
 import { getDb, schema } from '@/lib/db';
-import { activeNetwork, features, txExplorerUrl } from '@/lib/config';
+import { activeNetwork, env, features, txExplorerUrl } from '@/lib/config';
 import { celoClient } from '@/lib/celo/client';
 import { getErc20Balance } from '@/lib/celo/balance';
 import { getWalletByUserId } from '@/lib/wallets/service';
 import { availableBalanceRaw } from '@/lib/vaults/service';
 import { relayerCeloBalance, sendGasTopUp } from '@/lib/relayer/service';
+import { appendTag } from '@/lib/relayer/tag';
 import {
   SLIPPAGE_BPS,
   SWAP_LIMITS,
@@ -236,8 +237,8 @@ export async function prepareSwap(userId: string, swapId: string): Promise<Prepa
   const allowance = (await celoClient().readContract({ address: tokenAddress(from), abi: erc20Abi, functionName: 'allowance', args: [wallet, UNISWAP.router] })) as bigint;
   const needsApproval = allowance < amountIn;
   const txs: SwapTx[] = [];
-  if (needsApproval) txs.push(buildApprove(from, amountIn));
-  txs.push(buildSwap(route, wallet, amountIn, BigInt(row.minOut)));
+  if (needsApproval) txs.push(tagTx(buildApprove(from, amountIn)));
+  txs.push(tagTx(buildSwap(route, wallet, amountIn, BigInt(row.minOut))));
   await db.update(schema.swaps).set({ status: 'PREPARED' }).where(eq(schema.swaps.id, row.id));
   return { ok: true, from: wallet, needsApproval, txs, allowed: { router: UNISWAP.router, token: tokenAddress(from) } };
 }
@@ -273,6 +274,9 @@ export interface SwapResult {
   txHash: string;
   explorerUrl: string;
 }
+
+/** The Celo hackathon ERC-8021 tag goes on the end of every transaction the user's wallet signs for a conversion. */
+const tagTx = (tx: SwapTx): SwapTx => ({ ...tx, data: appendTag(tx.data, env.CELO_ATTRIBUTION_TAG) });
 
 const TRANSFER_EVENT = erc20Abi.filter((x) => x.type === 'event' && x.name === 'Transfer');
 
@@ -312,7 +316,9 @@ export async function finalizeSwap(userId: string, swapId: string, txHash: strin
     return pendingResult();
   }
   const expected = buildSwap(route, wallet, BigInt(row.amountIn), BigInt(row.minOut));
-  if (tx.from.toLowerCase() !== wallet.toLowerCase() || (tx.to ?? '').toLowerCase() !== UNISWAP.router.toLowerCase() || tx.input.toLowerCase() !== expected.data.toLowerCase()) {
+  // Tagged (the normal case) or, for a conversion prepared before tagging was switched on, plain.
+  const sent = tx.input.toLowerCase();
+  if (tx.from.toLowerCase() !== wallet.toLowerCase() || (tx.to ?? '').toLowerCase() !== UNISWAP.router.toLowerCase() || (sent !== expected.data.toLowerCase() && sent !== tagTx(expected).data.toLowerCase())) {
     return { ok: false, code: 'tx_mismatch', message: 'That transaction isn’t the conversion you confirmed, so I won’t count it.' };
   }
   try {

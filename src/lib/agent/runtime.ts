@@ -27,6 +27,7 @@ import { label, lastSeen } from '@/lib/contacts/match';
 import { buildIntro, isIntroRequest, type IntroFeature } from './intro';
 import { ASK_NETWORK_MARKER, chainList, parseBridgeIntent, type BridgeIntent } from '@/lib/bridge/chains';
 import { getBridgeDeposit } from '@/lib/bridge/service';
+import { usatOfferFor } from '@/lib/swap/offer';
 import { whatToCheck } from './check';
 import { parseStatementIntent, periodFromArgs, type StatementIntent } from '@/lib/statements/period';
 import { buildStatement } from '@/lib/statements/build';
@@ -410,7 +411,7 @@ async function handleBridge(ctx: ToolContext, intent: Exclude<BridgeIntent, { ki
     return { reply: `${name} isn’t supported yet. Please use another supported network: ${chainList(hasKey)}. ${ASK_NETWORK_MARKER}` };
   }
   if (!intent.chain) {
-    return { reply: `Sure — I’ll give you an address to hand them, and whatever they send lands in your Pexa wallet as USDC on Celo. ${ASK_NETWORK_MARKER} I can do ${chainList(hasKey)} (or Celo itself, if they’re already on it).` };
+    return { reply: `Sure — I’ll give you an address to hand them, and whatever they send lands in your Pexa wallet as USDC on Celo (when it lands I can turn it into USAT for you if you like). ${ASK_NETWORK_MARKER} I can do ${chainList(hasKey)} (or Celo itself, if they’re already on it).` };
   }
   if (intent.chain.needsApiKey && !hasKey) {
     return { reply: `${intent.chain.label} isn’t switched on yet — it needs a one-time setup on our side. For now I can do USDC from ${chainList(hasKey)}. Ask them to send from one of those, or tell me which.` };
@@ -418,7 +419,7 @@ async function handleBridge(ctx: ToolContext, intent: Exclude<BridgeIntent, { ki
   const dep = await getBridgeDeposit(ctx.userId, intent.chain);
   if (!dep) return { reply: 'I couldn’t find your wallet yet. Open the Wallet tab once, then ask me again.' };
   return {
-    reply: `Here’s the ${dep.chain} address. Give it to whoever is sending (or use it from your own wallet): USDC sent to it on ${dep.chain} arrives in your Pexa wallet as USDC on Celo, usually within a minute. I’ll notify you when it lands.`,
+    reply: `Here’s the ${dep.chain} address. Give it to whoever is sending (or use it from your own wallet): USDC sent to it on ${dep.chain} arrives in your Pexa wallet as USDC on Celo, usually within a minute. I’ll notify you when it lands — or say “check” — and I’ll offer to turn it into USAT if you want it in USAT.`,
     action: { tool: 'bridge_deposit', args: {}, render: { type: 'bridge', chain: dep.chain, chainId: dep.chainId, address: dep.address, qr: dep.qr, estimateFeeUsd: dep.estimateFeeUsd } },
   };
 }
@@ -742,6 +743,8 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
 
   // When the agent has to ask which platform to search, what is being searched (so the buttons can carry what Pexa has learned about it).
   let platformAsk: { what: string; place: string } | null = null;
+  // A deposit that just landed as USDC: offer to turn it into USAT (the buttons start an ordinary conversion, which still needs Confirm).
+  let usatOffer: ReturnType<typeof usatOfferFor> = null;
   for (let step = 0; step < MAX_STEPS; step++) {
     const request = (m: string) =>
       openai.chat.completions.create({
@@ -767,6 +770,7 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
     const calls = (msg.tool_calls ?? []).filter((c) => c.type === 'function');
     if (calls.length === 0) {
       const reply = msg.content ?? '';
+      if (usatOffer) return { reply, action: { tool: 'check_deposit', args: {}, render: { type: 'ask_choice', options: usatOffer.options } } };
       if (shouldOfferPlatformChoice(input.messages, reply)) return { reply, action: { tool: 'plan_research', args: {}, render: { type: 'ask_choice', options: await platformChoiceOptions(platformAsk) } } };
       return shouldOfferLocation(input.messages, reply) ? { reply, action: { tool: 'plan_research', args: {}, render: { type: 'ask_location' } } } : { reply };
     }
@@ -818,6 +822,10 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
           try {
             const result = await def.handler(ctx, parseArgs(call.function.arguments));
             content = JSON.stringify(result);
+            if (call.function.name === 'check_deposit') {
+              const r = result as { arrived?: boolean; latestDeposits?: { amount: string; token: string; at: string }[] };
+              if (r.arrived) usatOffer = usatOfferFor(r.latestDeposits ?? [], Date.now());
+            }
             // A Buy purchase that needs the user's approval ends the turn with an approval card.
             if (call.function.name === 'buy_purchase' && !buyApproval) {
               const r = result as { status?: string; message?: string; purchase?: { id?: string } };

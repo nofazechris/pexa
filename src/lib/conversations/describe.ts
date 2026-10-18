@@ -19,6 +19,7 @@ export interface ChatLike {
   swap?: { amountIn?: string; from?: string; to?: string; expectedOut?: string };
   swapResult?: { ok?: boolean; amountOut?: string | null; error?: string };
   statement?: { label?: string; count?: number };
+  choices?: { label?: string }[];
   research?: { title?: string; estimate?: string; cap?: string };
   researchResult?: {
     request?: { kind?: string; what?: string; place?: string; platforms?: string[]; radiusKm?: number | null; priority?: string };
@@ -67,7 +68,7 @@ export function describeCard(m: ChatLike): string | null {
     case 'statement':
       return `[Showed a statement${m.statement?.label ? ` for ${m.statement.label}` : ''}${typeof m.statement?.count === 'number' ? ` with ${m.statement.count} items` : ''}, with Download and Print buttons]`;
     case 'ask_choice':
-      return '[Showed buttons for the person to choose a platform: Instagram, TikTok, X or all three]';
+      return m.choices?.length ? `[Showed buttons for the person to choose: ${m.choices.map((c) => c.label ?? '').filter(Boolean).slice(0, 5).join(' / ')}]` : '[Showed buttons for the person to choose a platform: Instagram, TikTok, X or all three]';
     case 'ask_location':
       return '[Showed a button for the person to share their area (a neighbourhood name, not exact coordinates), because the assistant asked where they are]';
     case 'research_plan':

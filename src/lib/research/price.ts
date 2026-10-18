@@ -31,6 +31,8 @@ const BEFORE = new RegExp(`(?:^|[^A-Za-z0-9])(₦|NGN|#|N(?=\\s?\\d)|\\$|USD|£|
 // A currency word after: 25,000 naira · 25k NGN · 40 dollars
 const AFTER = new RegExp(`(?:^|[^A-Za-z0-9.,])${NUM}\\s?(naira|ngn|dollars?|usd|cedis?|ghs|shillings?|kes|rand|pounds?|euros?)\\b`, 'gi');
 // A price cue then a bare number: "Price: 25000", "only 25,000", "@ 25k", "for 25k"
+// A price on a line of its own, as sellers often write it: "35,000" or "35000" (never a bare 4-digit number, which is usually a year).
+const LINE = /(?:^|\n)[ \t]*(\d{1,3}(?:,\d{3})+|\d{5,7})[ \t]*(?=\n|$)/g;
 const CUE = new RegExp(`\\b(?:price|prices|cost|costs|only|now|@|just)\\s*[:\\-]?\\s*${NUM}(?![\\d,.]*\\d)`, 'gi');
 
 const SYMBOL: Record<string, Currency> = { '₦': 'NGN', ngn: 'NGN', '#': 'NGN', n: 'NGN', $: 'USD', usd: 'USD', '£': 'GBP', '€': 'EUR', kes: 'KES', ksh: 'KES', 'gh₵': 'GHS', ghs: 'GHS', zar: 'ZAR', r: 'ZAR' };
@@ -69,6 +71,7 @@ export function extractPrices(text: string | null | undefined, fallback: Currenc
   for (const m of text.matchAll(BEFORE)) add(m.index ?? 0, m[0].length, toNumber(m[2], m[3]), SYMBOL[m[1].toLowerCase()] ?? null);
   for (const m of text.matchAll(AFTER)) add(m.index ?? 0, m[0].length, toNumber(m[1], m[2]), WORD[m[3].toLowerCase()] ?? null);
   if (fallback) for (const m of text.matchAll(CUE)) add(m.index ?? 0, m[0].length, toNumber(m[1], m[2]), fallback);
+  if (fallback) for (const m of text.matchAll(LINE)) add(m.index ?? 0, m[0].length, toNumber(m[1], undefined), fallback);
   return out;
 }
 

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { distanceText, haversineKm, nearness, placeLabel, placeParts, roundedPoint } from '@/lib/geo/place';
-import { contactFrom, igProfile, placeFrom, xPeople } from './read';
-import { rankItems, scoreInstagram, scoreX, whereIs } from './score';
-import { assemble, decideNext, foundXPeople, rankXPeople, SERVICE, type StepState } from './engine';
+import { contactFrom, igProfile, placeFrom, xTweets } from './read';
+import { themeFor } from './commerce';
+import { groupSellers } from './sellers';
+import { rankItems, whereIs } from './score';
+import { scoreInstagram, scoreXSeller } from './vendor';
+import { assemble, decideNext, foundXSellers, SERVICE, type StepState } from './engine';
 import type { ResearchItem, ResearchRequest } from './types';
 
 const NOW = new Date('2026-10-17T12:00:00Z');
@@ -105,32 +108,40 @@ describe('what a bio or place field means for "near me"', () => {
   });
 });
 
-const xOut = {
-  results: [
-    { screen_name: 'ada_designs', name: 'Ada Obi', description: 'Graphic designer & brand identity. Lagos. DM or +234 802 111 2222', location: 'Lagos, Nigeria', followers_count: 5200, friends_count: 300, statuses_count: 1800, created_at: 'Wed Oct 10 20:19:24 +0000 2018', verified: false },
-    { screen_name: 'newbie1', name: 'Nobody', description: '', location: '', followers_count: 3, friends_count: 900, statuses_count: 2, created_at: 'Fri Sep 25 10:00:00 +0000 2026' },
+const xTimeline = {
+  timeline: [
+    { type: 'tweet', screen_name: 'ada_designs', text: 'Graphic designer for hire in Lagos — logos, flyers, brand identity. Portfolio on my page, DM for rates or call 08022223333', created_at: 'Thu Oct 08 09:00:00 +0000 2026', favorites: 40, user_info: { name: 'Ada Obi', followers_count: 5200, created_at: 'Wed Oct 10 20:19:24 +0000 2018', verified: false, location: 'Lagos, Nigeria' } },
+    { type: 'tweet', screen_name: 'ada_designs', text: 'Graphic designer taking new clients this month. Brand identity packages from ₦80,000. Available for hire.', created_at: 'Sun Oct 04 09:00:00 +0000 2026', favorites: 22, user_info: { name: 'Ada Obi', followers_count: 5200, created_at: 'Wed Oct 10 20:19:24 +0000 2018', verified: false, location: 'Lagos, Nigeria' } },
+    { type: 'tweet', screen_name: 'newbie1', name: 'x', text: 'Graphic designer available for hire, dm me', created_at: 'Fri Oct 09 09:00:00 +0000 2026', favorites: 0, user_info: { name: 'Nobody', followers_count: 3, created_at: 'Fri Sep 25 10:00:00 +0000 2026', verified: false, location: '' } },
+    { type: 'tweet', screen_name: 'chat_demo', text: 'Good morning Lagos, who else is stuck in traffic?', created_at: 'Fri Oct 09 09:00:00 +0000 2026', favorites: 9, user_info: { name: 'Chat', followers_count: 9000, created_at: 'Fri Sep 25 10:00:00 +2016', verified: false, location: 'Lagos' } },
   ],
 };
 
-describe('X people', () => {
-  it('reads people from a search', () => {
-    const p = xPeople(xOut);
-    expect(p.map((x) => x.username)).toEqual(['ada_designs', 'newbie1']);
-    expect(p[0]).toMatchObject({ followers: 5200, posts: 1800, location: 'Lagos, Nigeria' });
-    expect(p[0].joined?.getUTCFullYear()).toBe(2018);
-    expect(p[0].contact.phone).toBe('+234 802 111 2222');
+describe('X posts', () => {
+  const theme = themeFor('graphic designer');
+  it('reads tweets with the author’s profile attached, and skips blank items', () => {
+    const t = xTweets({ timeline: [...xTimeline.timeline, { text: 'undefined', type: 'tweet' }] });
+    expect(t.map((x) => x.author)).toEqual(['ada_designs', 'ada_designs', 'newbie1', 'chat_demo']);
+    expect(t[0]).toMatchObject({ followers: 5200, location: 'Lagos, Nigeria', verified: false });
+    expect(t[0].joined?.getUTCFullYear()).toBe(2018);
+    expect(t[0].at).toBeInstanceOf(Date);
   });
-  it('scores an established relevant account well and a brand-new empty one badly', () => {
-    const [ada, newbie] = xPeople(xOut);
+  it('groups tweets by author and judges each: an offer of work is a seller, a chat about traffic is not', () => {
+    const sellers = groupSellers(xTweets(xTimeline), theme, 'Yaba, Lagos');
+    const by = Object.fromEntries(sellers.map((s) => [s.username, s]));
+    expect(by.ada_designs).toMatchObject({ kind: 'seller', ads: 2, distinctAds: 2, followers: 5200 });
+    expect(by.ada_designs.contact.phone).toBe('08022223333');
+    expect(by.ada_designs.prices[0].amount).toBe(80000);
+    expect(by.chat_demo.kind).not.toBe('seller');
+  });
+  it('scores an established account well and a brand-new empty one as a risk', () => {
+    const [ada, newbie] = groupSellers(xTweets(xTimeline), theme, 'Yaba, Lagos');
     const ask = { what: 'graphic designer', place: 'Yaba, Lagos' };
-    const a = scoreX(ada, ask, 'hire', NOW);
-    expect(a).toMatchObject({ platform: 'x', handle: '@ada_designs', url: 'https://x.com/ada_designs', verdict: 'solid', nearness: 'city', location: 'Lagos, Nigeria' });
-    expect(scoreX(newbie, ask, 'hire', NOW).verdict).toBe('careful');
-  });
-  it('ranks the account that matches the request and is nearby first', () => {
-    const req: ResearchRequest = { kind: 'hire', source: 'instagram', what: 'graphic designer', place: 'Yaba, Lagos' };
-    const people = xPeople({ results: [{ screen_name: 'far_away', description: 'graphic designer in Oslo', location: 'Oslo', followers_count: 90000 }, { screen_name: 'close_by', description: 'Graphic designer', location: 'Yaba, Lagos', followers_count: 100 }] });
-    expect(rankXPeople(people, req).map((p) => p.username)).toEqual(['close_by', 'far_away']);
+    const a = scoreXSeller(ada, ask, 'hire', NOW);
+    expect(a).toMatchObject({ platform: 'x', handle: '@ada_designs', url: 'https://x.com/ada_designs', verdict: 'solid', relevance: 'match', nearness: 'city', location: 'Lagos, Nigeria' });
+    const n = scoreXSeller(newbie, ask, 'hire', NOW);
+    expect(n.verdict).toBe('careful');
+    expect(n.signals.some((s) => /Brand-new account/.test(s.text))).toBe(true);
   });
 });
 
@@ -138,25 +149,26 @@ const REQ: ResearchRequest = { kind: 'hire', source: 'instagram', what: 'graphic
 const step = (over: Partial<StepState>): StepState => ({ role: 'search', ref: null, outcome: 'PAID', priceAtomic: 7000n, ...over });
 
 describe('the shortlist across Instagram and X', () => {
-  it('buys an X people search before looking inside Instagram accounts', () => {
-    const n = decideNext(REQ, [step({ output: { users: [{ username: 'a_design' }] } })]);
-    expect(n).toMatchObject({ role: 'xsearch', capabilityId: SERVICE.xSearch });
+  it('buys an X search before looking inside Instagram accounts', () => {
+    const accounts = { users: ['a', 'b', 'c'].map((u) => ({ username: `${u}_design`, full_name: `${u} design` })) };
+    expect(decideNext(REQ, [step({ output: accounts })])).toMatchObject({ role: 'xsearch', capabilityId: SERVICE.xSearch });
   });
-  it('X results alone are enough: no wider search is bought when X found people', () => {
-    const steps = [step({ output: { users: [] } }), step({ role: 'xsearch', priceAtomic: 5000n, output: xOut })];
-    expect(foundXPeople(steps)).toHaveLength(2);
-    expect(decideNext(REQ, steps)).toEqual({ action: 'finish', reason: 'done' });
+  it('X results alone are enough: nothing wider is bought when X found sellers', () => {
+    const steps = [step({ output: { users: [{ username: 'a_design' }, { username: 'b_design' }, { username: 'c_design' }] } }), step({ role: 'xsearch', priceAtomic: 5000n, output: xTimeline })];
+    expect(foundXSellers(steps, REQ).length).toBe(3);
+    expect(decideNext(REQ, steps)).toMatchObject({ role: 'vet' }); // it still checks the Instagram accounts it found
   });
-  it('merges both platforms, ranks them, and shows contact details and places', () => {
+  it('merges both platforms, leaves out non-sellers, ranks them, and shows contact details and places', () => {
     const day = 86400;
     const at = Math.floor(NOW.getTime() / 1000);
     const steps = [
       step({ output: { users: [{ username: 'ig_designer', full_name: 'IG Designer' }] } }),
-      step({ role: 'xsearch', priceAtomic: 5000n, output: xOut }),
+      step({ role: 'xsearch', priceAtomic: 5000n, output: xTimeline }),
       step({ role: 'vet', ref: 'ig_designer', priceAtomic: 5000n, output: { username: 'ig_designer', biography: '📍 Surulere, Lagos\nGraphic designer · call +234 803 555 0000', follower_count: 4000, media_count: 150, is_business: true, recent_media: [{ taken_at: at - day * 2, like_count: 200, comment_count: 20 }, { taken_at: at - day * 6, like_count: 190, comment_count: 11 }, { taken_at: at - day * 9, like_count: 210, comment_count: 14 }] } }),
     ];
     const r = assemble(REQ, steps, 'done', NOW);
-    expect(r.items.map((i) => i.platform).sort()).toEqual(['instagram', 'x', 'x']);
+    expect(r.items.map((i) => i.handle).sort()).toEqual(['@ada_designs', '@ig_designer', '@newbie1']);
+    expect(r.skipped.map((s) => s.name).join(' ')).toMatch(/1 other account/); // the traffic chat
     const ig = r.items.find((i) => i.platform === 'instagram')!;
     expect(ig).toMatchObject({ location: 'Surulere, Lagos', nearness: 'city', contact: { phone: '+234 803 555 0000' } });
     expect(r.notes.join(' ')).toMatch(/only what each person published/);
@@ -183,6 +195,8 @@ describe('ranking: decent and close first', () => {
     rating: null,
     prices: null,
     negotiation: null,
+    relevance: 'match',
+    skipReason: null,
     ...over,
   });
   it('a nearby decent account beats a far solid one; worrying accounts come after decent ones', () => {

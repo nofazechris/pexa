@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyRatings, fitScore, initialRating, marketOf, nearbyScore, negotiationFor, overall, priceScore, rankByRating, stars, trustScore } from './rate';
-import { scoreInstagram } from './score';
+import { scoreInstagram } from './vendor';
 import { assemble, type StepState } from './engine';
 import { igProfile } from './read';
 import type { ResearchItem, ResearchRequest } from './types';
@@ -27,6 +27,8 @@ const base = (over: Partial<ResearchItem>): ResearchItem => ({
   rating: initialRating(80, 90),
   prices: null,
   negotiation: null,
+  relevance: 'match',
+  skipReason: null,
   ...over,
 });
 const withPrices = (points: number[], over: Partial<ResearchItem> = {}): ResearchItem => {

@@ -6,8 +6,8 @@
  * Pure: `now` is passed in.
  */
 import { nearness as nearnessOf, placeParts, type Nearness } from '@/lib/geo/place';
-import { NO_CONTACT, type Contact, type IgCandidate, type IgProfile, type LiPerson, type XPerson } from './read';
-import { currencyForPlace, extractPrices, rangeText, summarize, type PricePoint } from './price';
+import { NO_CONTACT, type LiPerson } from './read';
+import { rangeText, summarize, type PricePoint } from './price';
 import { fitScore, initialRating, trustScore } from './rate';
 import type { ItemPrices, ResearchItem, ResearchKind, Signal, Verdict } from './types';
 
@@ -29,7 +29,7 @@ export function agoText(at: Date, now: Date): string {
 }
 
 const LABELS: Record<ResearchKind, Record<Verdict, string>> = {
-  vendors: { solid: 'Looks solid', mixed: 'Mixed signals', careful: 'Be careful', unknown: 'Not checked' },
+  vendors: { solid: 'Established', mixed: 'Unproven', careful: 'High risk', unknown: 'Not checked' },
   hire: { solid: 'Strong match', mixed: 'Possible match', careful: 'Weak match', unknown: 'Not checked' },
 };
 
@@ -46,10 +46,9 @@ function decide(signals: readonly Signal[]): Verdict {
   return goods >= 3 ? 'solid' : 'mixed';
 }
 
-const CONTACT = /(\+?\d[\d\s().-]{8,}\d|[\w.+-]+@[\w-]+\.[\w.]+|whats ?app|wa\.me|\bdm\b|\border\b|\bcall\b|\bbook\b)/i;
 
 /** Words that mean something in a request ("designers" → "designer"). */
-const words = (s: string) =>
+export const words = (s: string) =>
   s
     .toLowerCase()
     .split(/[^a-z0-9]+/)
@@ -64,7 +63,7 @@ export function itemPrices(points: readonly PricePoint[], matched: boolean): Ite
 }
 
 /** How many of the words asked for appear in the text. */
-function wordHits(text: string, what: string): { hits: number; wanted: number } {
+export function wordHits(text: string, what: string): { hits: number; wanted: number } {
   const wanted = words(what);
   const hay = text.toLowerCase();
   return { hits: wanted.filter((w) => hay.includes(w)).length, wanted: wanted.length };
@@ -94,136 +93,6 @@ export function whereIs(explicit: string | null, bio: string | null, place: stri
     return { location: null, nearness: fromBio, signals: [{ tone: 'info', text: `Bio mentions ${fromBio === 'area' ? 'your area' : city}.` }] };
   }
   return { location: null, nearness: 'unknown', signals: [{ tone: 'info', text: 'No location on the profile — ask where they are.' }] };
-}
-
-const asContact = (c: Contact | undefined) => c ?? NO_CONTACT;
-
-// --- Instagram -----------------------------------------------------------------------------------------------
-
-/** An Instagram account, from what its profile lookup showed. `profile` is null when the lookup couldn't be read. */
-export function scoreInstagram(candidate: IgCandidate, profile: IgProfile | null, now: Date, place = '', what = ''): ResearchItem {
-  const handle = candidate.username;
-  const base = {
-    platform: 'instagram' as const,
-    name: profile?.fullName ?? candidate.fullName ?? `@${handle}`,
-    handle: `@${handle}`,
-    url: `https://www.instagram.com/${handle}/`,
-    headline: (profile?.bio ?? candidate.bio)?.slice(0, 140) ?? null,
-  };
-
-  if (!profile) {
-    const stats = candidate.followers !== null ? [`${compact(candidate.followers)} followers`] : [];
-    return { ...base, verdict: 'unknown', verdictLabel: verdictLabel('vendors', 'unknown'), location: null, nearness: 'unknown', distanceKm: null, contact: NO_CONTACT, stats, signals: [{ tone: 'info', text: 'I didn’t look inside this account, so I can’t say how active or real it is.' }], checked: false, rating: null, prices: null, negotiation: null };
-  }
-
-  const signals: Signal[] = [];
-  const stats: string[] = [];
-  const followers = profile.followers ?? candidate.followers;
-  if (followers !== null) stats.push(`${compact(followers)} followers`);
-  if (profile.posts !== null) stats.push(`${compact(profile.posts)} posts`);
-
-  if (profile.isPrivate) signals.push({ tone: 'warn', text: 'Private account — you can’t see their posts or customers before paying.' });
-  if (profile.verified) signals.push({ tone: 'good', text: 'Verified account.' });
-
-  const dated = profile.recent.map((p) => p.at).filter((d): d is Date => d !== null).sort((a, b) => b.getTime() - a.getTime());
-  if (dated.length) {
-    const last = dated[0];
-    const days = Math.floor((now.getTime() - last.getTime()) / 86_400_000);
-    stats.push(`last post ${agoText(last, now)}`);
-    if (days <= 30) signals.push({ tone: 'good', text: `Active — posted ${agoText(last, now)}.` });
-    else if (days > 90) signals.push({ tone: 'warn', text: `Quiet — no new post for ${agoText(last, now).replace(' ago', '')}.` });
-  } else if (!profile.isPrivate) {
-    signals.push({ tone: 'info', text: 'I couldn’t see when they last posted.' });
-  }
-
-  if (profile.posts !== null) {
-    if (profile.posts >= 30) signals.push({ tone: 'good', text: `${compact(profile.posts)} posts — an established page.` });
-    else if (profile.posts < 6) signals.push({ tone: 'warn', text: `Only ${profile.posts} post${profile.posts === 1 ? '' : 's'} — very new or thin.` });
-  }
-
-  const liked = profile.recent.filter((p) => p.likes !== null);
-  if (followers !== null && followers >= 2000 && liked.length >= 3) {
-    const avg = liked.reduce((sum, p) => sum + (p.likes ?? 0) + (p.comments ?? 0), 0) / liked.length;
-    const rate = avg / followers;
-    if (rate < 0.002) signals.push({ tone: 'warn', text: `Few likes for ${compact(followers)} followers — the following may be inflated.` });
-    else if (rate >= 0.01) signals.push({ tone: 'good', text: 'Real engagement — people like and comment on the posts.' });
-  } else if (followers !== null && followers < 100 && (profile.posts ?? 0) < 10) {
-    signals.push({ tone: 'warn', text: 'Very small and new — little to go on.' });
-  }
-
-  if (profile.business || profile.category) signals.push({ tone: 'good', text: `Set up as a business${profile.category ? ` (${profile.category})` : ''}.` });
-  const contact = asContact(profile.contact);
-  if (contact.phone || contact.email || (profile.bio && CONTACT.test(profile.bio))) signals.push({ tone: 'good', text: 'Contact or ordering details are published.' });
-  if (followers !== null && profile.following !== null && followers < 1000 && profile.following > followers * 5) {
-    signals.push({ tone: 'info', text: 'Follows far more accounts than follow them.' });
-  }
-
-  const verdict = decide(signals); // location notes are information only: they never change the verdict
-  const where = whereIs(profile.location, profile.bio ?? candidate.bio, place);
-  const captions = profile.recent.map((p) => p.caption).filter((c): c is string => Boolean(c));
-  // Prices in posts that name what was asked for are comparable between sellers; a seller's other items (slides next to sneakers) are not.
-  const cur = currencyForPlace(place);
-  const wantedWords = words(what);
-  const fromCaptions = captions.map((c) => ({ pts: extractPrices(c, cur), hit: wantedWords.length > 0 && wantedWords.some((w) => c.toLowerCase().includes(w)) }));
-  const matchedPts = fromCaptions.filter((c) => c.hit).flatMap((c) => c.pts);
-  const allPts = [...fromCaptions.flatMap((c) => c.pts), ...extractPrices(profile.bio, cur)];
-  const prices = itemPrices(matchedPts.length ? matchedPts : allPts, matchedPts.length > 0);
-  const { hits, wanted } = wordHits(`${handle} ${profile.fullName ?? candidate.fullName ?? ''} ${profile.bio ?? ''} ${profile.category ?? ''} ${captions.join(' ')}`, what);
-  return { ...base, verdict, verdictLabel: verdictLabel('vendors', verdict), location: where.location, nearness: where.nearness, distanceKm: null, contact, stats, signals: [...signals, ...where.signals], checked: true, rating: initialRating(trustScore(signals), fitScore(hits, wanted)), prices, negotiation: null };
-}
-
-// --- X -------------------------------------------------------------------------------------------------------
-
-/** An X account, from what the people search showed (it carries the profile, so no extra lookup is needed). */
-export function scoreX(p: XPerson, ask: { what: string; place: string }, kind: ResearchKind, now: Date): ResearchItem {
-  const signals: Signal[] = [];
-  const stats: string[] = [];
-  if (p.followers !== null) stats.push(`${compact(p.followers)} followers`);
-  if (p.posts !== null) stats.push(`${compact(p.posts)} posts`);
-  if (p.joined) stats.push(`on X since ${p.joined.getUTCFullYear()}`);
-
-  const wanted = words(ask.what);
-  const hay = `${p.bio ?? ''} ${p.name ?? ''}`.toLowerCase();
-  const hits = wanted.filter((w) => hay.includes(w));
-  if (wanted.length) {
-    if (hits.length) signals.push({ tone: 'good', text: `Bio mentions ${hits.slice(0, 3).join(', ')}.` });
-    else signals.push({ tone: 'info', text: `Bio doesn’t say “${ask.what}”.` });
-  }
-  if (p.verified) signals.push({ tone: 'good', text: 'Verified account.' });
-  if (p.joined) {
-    const days = Math.floor((now.getTime() - p.joined.getTime()) / 86_400_000);
-    if (days >= 365) signals.push({ tone: 'good', text: `Account is ${Math.floor(days / 365)}+ year${days >= 730 ? 's' : ''} old.` });
-    else if (days < 90) signals.push({ tone: 'warn', text: 'Brand-new account.' });
-  }
-  if (p.posts !== null) {
-    if (p.posts >= 200) signals.push({ tone: 'good', text: `${compact(p.posts)} posts — actively used.` });
-    else if (p.posts < 10) signals.push({ tone: 'warn', text: `Only ${p.posts} post${p.posts === 1 ? '' : 's'}.` });
-  }
-  if (p.followers !== null && p.followers < 20) signals.push({ tone: 'warn', text: 'Hardly any followers.' });
-  else if (p.followers !== null && p.followers >= 1000) signals.push({ tone: 'good', text: `${compact(p.followers)} followers.` });
-  if (p.contact.phone || p.contact.email) signals.push({ tone: 'good', text: 'Contact details are published.' });
-
-  const verdict = decide(signals);
-  const where = whereIs(p.location, p.bio, ask.place);
-  return {
-    platform: 'x',
-    name: p.name ?? `@${p.username}`,
-    handle: `@${p.username}`,
-    url: `https://x.com/${p.username}`,
-    headline: p.bio?.slice(0, 140) ?? null,
-    verdict,
-    verdictLabel: verdictLabel(kind, verdict),
-    location: where.location,
-    nearness: where.nearness,
-    distanceKm: null,
-    contact: p.contact,
-    stats,
-    signals: [...signals, ...where.signals],
-    checked: true,
-    rating: initialRating(trustScore(signals), fitScore(hits.length, wanted.length)),
-    prices: itemPrices(extractPrices(p.bio, currencyForPlace(ask.place)), wanted.length > 0 && hits.length > 0),
-    negotiation: null,
-  };
 }
 
 // --- LinkedIn ------------------------------------------------------------------------------------------------
@@ -285,6 +154,8 @@ export function scoreLinkedIn(p: LiPerson, ask: { what: string; place: string },
     rating: initialRating(trustScore(signals), fitScore(hits.length, wanted.length)),
     prices: null,
     negotiation: null,
+    relevance: 'match',
+    skipReason: null,
   };
 }
 

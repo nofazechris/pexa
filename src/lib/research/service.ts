@@ -108,7 +108,7 @@ async function finish(row: ResearchSessionRow, states: StepState[], reason: Fini
     const rated = applyRatings(result.items, { what: result.request.what, place: result.request.place, kind: result.request.kind });
     result.items = rankByRating(rated.items);
     result.market = rated.market;
-    result.summary = buildSummary(result.request, result.items, reason, rated.market);
+    result.summary = buildSummary(result.request, result.items, reason, rated.market, result.skipped.length);
   }
   const failed = reason === 'search_failed' && result.items.length === 0;
   await getDb()

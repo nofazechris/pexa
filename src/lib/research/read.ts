@@ -120,7 +120,7 @@ export const NO_CONTACT: Contact = { phone: null, tel: null, whatsapp: null, ema
 const PHONE_KEYS = ['publicPhoneNumber', 'contactPhoneNumber', 'businessPhoneNumber', 'phoneNumber', 'phone', 'mobile'] as const;
 const PHONE_CC_KEYS = ['publicPhoneCountryCode', 'phoneCountryCode'] as const;
 const EMAIL_KEYS = ['publicEmail', 'businessEmail', 'contactEmail', 'email'] as const;
-const PHONE_RE = /\+?\d[\d\s().-]{7,18}\d/g;
+const PHONE_RE = /(?<![\d,.])\+?\d[\d \t().-]{7,18}\d/g;
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/;
 const WA_RE = /(?:wa\.me\/|api\.whatsapp\.com\/send\?phone=|whatsapp\.com\/send\?phone=)\+?(\d{8,15})/i;
 
@@ -176,7 +176,17 @@ const BIO_PLACE_RE = /(?:📍|📌|located (?:in|at)|based in|find us (?:in|at)|
 
 /** Where an account says it is: a business address or city field, else a 📍 / "based in" line in the bio. */
 export function placeFrom(obj: Json, bio: string | null): string | null {
-  const parts = [asText(findKey(obj, STREET_KEYS, 4)), asText(findKey(obj, CITY_KEYS, 4)), asText(findKey(obj, LOC_KEYS, 4))].filter((p): p is string => Boolean(p));
+  // Instagram sends a business address as a JSON *string* ({"city_name":null,"street_address":null,…}): read it when it holds anything.
+  let address: Json = null;
+  const rawAddress = findKey(obj, ['businessAddressJson', 'business_address_json'], 4);
+  if (typeof rawAddress === 'string' && rawAddress.trim().startsWith('{')) {
+    try {
+      address = JSON.parse(rawAddress);
+    } catch {
+      address = null;
+    }
+  }
+  const parts = [asText(findKey(address, STREET_KEYS, 1)), asText(findKey(address, CITY_KEYS, 1)), asText(findKey(obj, STREET_KEYS, 4)), asText(findKey(obj, CITY_KEYS, 4)), asText(findKey(obj, LOC_KEYS, 4))].filter((p): p is string => Boolean(p));
   const fromFields = parts.length ? [...new Set(parts)].join(', ').slice(0, 100) : null;
   if (fromFields) return fromFields;
   const m = bio?.match(BIO_PLACE_RE);
@@ -255,6 +265,11 @@ export interface IgProfile {
   location: string | null;
   /** Phone, email and links the account itself published. */
   contact: Contact;
+  /** Instagram says the account was created recently. */
+  joinedRecently: boolean | null;
+  /** Verified through Meta Verified (paid business verification), separate from the blue tick. */
+  metaVerified: boolean | null;
+  professional: boolean | null;
   recent: IgPost[];
 }
 
@@ -284,6 +299,9 @@ export function igProfile(output: Json): IgProfile | null {
     website: asText(findKey(output, WEBSITE, 4)),
     location: placeFrom(output, asText(findKey(output, BIO, 4))),
     contact: contactFrom(output, asText(findKey(output, BIO, 4)), asText(findKey(output, WEBSITE, 4))),
+    joinedRecently: asBool(findKey(output, ['isJoinedRecently', 'is_joined_recently'], 4)),
+    metaVerified: asBool(findKey(output, ['isVerifiedByMv4b', 'is_verified_by_mv4b'], 4)),
+    professional: asBool(findKey(output, ['isProfessionalAccount', 'is_professional_account'], 4)),
     recent: media.slice(0, 12).map((m) => ({
       at: asDate(findKey(m, TIME_KEYS, 1)),
       likes: asNumber(findKey(m, LIKE_KEYS, 1)),
@@ -362,45 +380,48 @@ export function liPeople(output: Json): LiPerson[] {
   return out;
 }
 
-// --- X (Twitter) people --------------------------------------------------------------------------------------
+// --- X (Twitter) posts -----------------------------------------------------------------------------------------
+//
+// X's search returns TWEETS, each with a small profile of its author attached (followers, join date, verified, location) but no bio —
+// even when asked for "people". So the unit here is a tweet, and a seller is worked out by looking at everything an author posted.
 
-export interface XPerson {
-  username: string;
+export interface XTweet {
+  author: string;
   name: string | null;
-  bio: string | null;
-  /** The location the person typed into their profile, e.g. "Lagos, Nigeria". */
-  location: string | null;
+  text: string;
+  at: Date | null;
+  likes: number | null;
+  replies: number | null;
+  views: number | null;
   followers: number | null;
-  following: number | null;
-  posts: number | null;
-  verified: boolean | null;
+  /** When the author's account was created. */
   joined: Date | null;
-  contact: Contact;
+  verified: boolean | null;
+  /** The location the author typed into their profile. */
+  location: string | null;
 }
 
-/** People found by an X people search, in the order the search gave them. */
-export function xPeople(output: Json): XPerson[] {
-  const list = findList(output, (o) => typeof findKey(o, USERNAME, 2) === 'string' && (findKey(o, ['description', 'bio', 'followersCount', 'followers_count', 'followerCount'], 2) !== undefined));
-  const seen = new Set<string>();
-  const out: XPerson[] = [];
+/** The tweets in an X search reply, newest-first as given. Items without an author or text (X sometimes sends a blank one) are skipped. */
+export function xTweets(output: Json): XTweet[] {
+  const list = findList(output, (o) => typeof o.screen_name === 'string' && typeof o.text === 'string');
+  const out: XTweet[] = [];
   for (const o of list) {
-    const raw = asText(findKey(o, USERNAME, 2));
-    if (!raw) continue;
-    const username = cleanHandle(raw);
-    if (!/^[a-z0-9_]{1,15}$/.test(username) || seen.has(username)) continue;
-    seen.add(username);
-    const bio = asText(findKey(o, ['description', 'bio', 'biography'], 2));
+    const handle = cleanHandle(String(o.screen_name));
+    const text = String(o.text).trim();
+    if (!/^[a-z0-9_]{1,15}$/.test(handle) || !text || text === 'undefined') continue;
+    const ui = isObj(o.user_info) ? o.user_info : {};
     out.push({
-      username,
-      name: asText(findKey(o, ['name', 'displayName', 'fullName'], 2)),
-      bio,
-      location: asText(findKey(o, ['location', 'locationName'], 2)),
-      followers: asNumber(findKey(o, ['followersCount', 'followers_count', 'followerCount', 'followers'], 2)),
-      following: asNumber(findKey(o, ['friendsCount', 'friends_count', 'followingCount', 'following'], 2)),
-      posts: asNumber(findKey(o, ['statusesCount', 'statuses_count', 'tweetCount', 'postsCount', 'tweets'], 2)),
-      verified: asBool(findKey(o, ['isBlueVerified', 'is_blue_verified', 'verified', 'isVerified'], 2)),
-      joined: asDate(findKey(o, ['createdAt', 'created_at', 'joinedAt', 'joined'], 2)),
-      contact: contactFrom(o, bio, null),
+      author: handle,
+      name: asText(ui.name),
+      text,
+      at: asDate(o.created_at),
+      likes: asNumber(o.favorites),
+      replies: asNumber(o.replies),
+      views: asNumber(o.views),
+      followers: asNumber(ui.followers_count),
+      joined: asDate(ui.created_at),
+      verified: asBool(ui.verified),
+      location: asText(ui.location),
     });
   }
   return out;

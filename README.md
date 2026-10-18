@@ -17,7 +17,7 @@ Pexa is a real Buy *buyer*: every paid lookup is an x402 `transferWithAuthorizat
 | **Ask for anything in the catalog** | "What are people saying about X on Reddit today?" → priced, approved, summarised, receipt saved | any Buy service via search → quote → approve |
 | **External agents** | ChatGPT / Claude use Pexa's tools (incl. `buy_*`) over MCP | `/api/mcp` |
 
-**Pexa researches; it never pays the vendor.** The agent spends a few cents of the user's own money on *information* (Buy lookups) so the user can decide — and haggle — before spending their own money elsewhere. Prices are only compared like-for-like (posts that name the item), a "typical price" needs at least three sellers, and every result says plainly that a public profile can't prove delivery.
+**Pexa researches; it never pays the vendor.** The agent spends a few cents of the user's own money on *information* (Buy lookups) so the user can decide — and haggle — before spending their own money elsewhere. Each seller gets a legitimacy score with hard red flags (no posts, a tiny or brand-new page, a bio saying it replaces a disabled account, a name stuffed with search words cap the score), and anything that isn't actually selling the item — a sneaker-*cleaning* service, an unrelated account — is left out and named. Prices are only compared like-for-like (posts that name the item), a "typical price" needs at least three sellers, and every result says plainly that a public profile can't prove delivery.
 
 **Why it is safe to let an agent spend.** The order of operations is the whole design (`src/lib/buy/service.ts`):
 

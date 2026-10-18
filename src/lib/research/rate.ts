@@ -13,11 +13,15 @@ import type { ItemPrices, MarketPrice, Negotiation, Rating, ResearchItem, Resear
 
 const clamp = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, Math.round(n)));
 
-/** From the good and worrying facts on a card: 55 to start, +12 per good fact, −20 per worry. */
-export function trustScore(signals: readonly Signal[]): number {
+/**
+ * From the good and worrying facts on a card: 55 to start, +12 per good fact, −20 per worry. `cap` is a ceiling set by hard red flags
+ * (no posts, a tiny new page, "old account disabled"): however many good-looking facts there are, such a page cannot score above it.
+ */
+export function trustScore(signals: readonly Signal[], cap = 100, softWarns = 0): number {
   const goods = signals.filter((s) => s.tone === 'good').length;
   const warns = signals.filter((s) => s.tone === 'warn').length;
-  return clamp(55 + 12 * goods - 20 * warns, 5, 98);
+  // A soft worry (a repeated ad, a quiet page) costs 10; a severe one costs 20.
+  return clamp(Math.min(55 + 12 * goods - 20 * (warns - softWarns) - 10 * softWarns, cap), 5, 98);
 }
 
 /** How much of what was asked for shows up: no matching word → 35, all of them → 100. Null when nothing specific was asked. */

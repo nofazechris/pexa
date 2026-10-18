@@ -102,6 +102,10 @@ export interface ResearchItem {
   rating: Rating | null;
   prices: ItemPrices | null;
   negotiation: Negotiation | null;
+  /** Does it sell what was asked for? `adjacent` = something nearby (a cleaning service, a repair shop); `unrelated` = not selling it. Only matches are shown. */
+  relevance: 'match' | 'adjacent' | 'unrelated';
+  /** Why it was left out, in plain words (null for matches). */
+  skipReason: string | null;
 }
 
 export interface ResearchResult {
@@ -114,6 +118,8 @@ export interface ResearchResult {
   spent: string;
   /** What the item typically costs across the sellers found, when enough prices were published. */
   market: MarketPrice | null;
+  /** Accounts that came up but were left out, and why (so nothing is hidden silently). */
+  skipped: { name: string; reason: string }[];
 }
 
 export type ResearchStatus = 'PLANNED' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED';

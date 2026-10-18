@@ -4,10 +4,24 @@
   "description": "A research agent for buying online. Pexa finds vendors and people to hire, estimates what they charge, rates how trustworthy they look and helps you negotiate. It buys the data it needs through Buy (usebuy.ai) with the user's own wallet inside one approved budget, and it never pays vendors or people itself.",
   "image": "https://pexaapp.xyz/og.png",
   "services": [
-    { "name": "web", "endpoint": "https://pexaapp.xyz" },
-    { "name": "MCP", "endpoint": "https://pexaapp.xyz/api/mcp" }
+    {
+      "name": "web",
+      "endpoint": "https://pexaapp.xyz"
+    },
+    {
+      "name": "MCP",
+      "endpoint": "https://pexaapp.xyz/api/mcp"
+    }
   ],
   "x402Support": false,
   "active": true,
-  "supportedTrust": ["reputation"]
+  "supportedTrust": [
+    "reputation"
+  ],
+  "registrations": [
+    {
+      "agentId": 9974,
+      "agentRegistry": "eip155:42220:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
+    }
+  ]
 }

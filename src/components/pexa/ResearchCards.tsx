@@ -280,6 +280,15 @@ export function ResearchResultCard({ m, onTry, getAccessToken }: { m: ChatMessag
       {r.items.map((item) => (
         <ItemRow key={(item.handle ?? item.name) + (item.url ?? '')} item={item} r={r} onTry={onTry} getAccessToken={getAccessToken} />
       ))}
+      {r.expand?.length && onTry ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '0 2px' }}>
+          {r.expand.map((o) => (
+            <button key={o.label} onClick={() => onTry(o.text)} style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '13px', padding: '7px 13px', borderRadius: '10px', cursor: 'pointer' }}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {r.notes.length ? (
         <div style={{ fontSize: '12px', color: color.mutedStrong, lineHeight: 1.55, padding: '0 4px' }}>
           {r.notes.map((n) => (

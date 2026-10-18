@@ -10,6 +10,7 @@ import { ALLOWED_SERVICES, RESEARCH_HARD_CAP_ATOMIC, freshForMs, accountKeys, as
 import { loadVendorMemory, recordRun } from './memory';
 import { applyRadius, applyRatings, rankByRating } from './rate';
 import { priorityFrom } from './request';
+import { expandOptions } from './expand';
 import type { Platform, ResearchKind, ResearchPlanView, ResearchRequest, ResearchResult } from './types';
 
 /**
@@ -134,6 +135,8 @@ async function finish(row: ResearchSessionRow, states: StepState[], reason: Fini
     if (within.outside > 0) result.notes.unshift(`Left out ${within.outside} seller${within.outside === 1 ? '' : 's'} measured farther than ${result.request.radiusKm} km (straight-line distance, not road distance). Ask me to widen the search if you want them.`);
     if (result.request.radiusKm && within.unverified > 0) result.notes.unshift(`I couldn’t measure how far ${within.unverified === 1 ? 'one seller is' : within.unverified + ' sellers are'} from you, so ${within.unverified === 1 ? 'it isn’t' : 'they aren’t'} confirmed to be within ${result.request.radiusKm} km — ask where they are.`);
     result.market = rated.market;
+    const expand = expandOptions(result.request, { shown: result.items.length, outsideRadius: within.outside });
+    if (expand.length) result.expand = expand;
     result.summary = buildSummary(result.request, result.items, reason, rated.market, result.skipped.length);
   }
   const failed = reason === 'search_failed' && result.items.length === 0;

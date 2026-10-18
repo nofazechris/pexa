@@ -21,7 +21,7 @@ export interface ChatLike {
   statement?: { label?: string; count?: number };
   research?: { title?: string; estimate?: string; cap?: string };
   researchResult?: {
-    request?: { kind?: string; what?: string; place?: string };
+    request?: { kind?: string; what?: string; place?: string; platforms?: string[]; radiusKm?: number | null; priority?: string };
     market?: { text?: string; middle?: string } | null;
     items?: { handle?: string | null; name?: string; verdictLabel?: string; rating?: { overall?: number } | null; distanceKm?: number | null; prices?: { text?: string; vsMarket?: { kind?: string; percent?: number } | null } | null; negotiation?: { offer?: string | null } | null }[];
   };
@@ -87,7 +87,7 @@ export function describeCard(m: ChatLike): string | null {
         .join('; ');
       const kind = r?.request?.kind === 'hire' ? 'hiring' : 'vendor';
       const market = r?.market?.text ? ` Typical price: ${r.market.text} (around ${r.market.middle}).` : '';
-      return `[Showed a ${kind} shortlist for ${r?.request?.what ?? 'what they asked'}${r?.request?.place ? ` in ${r.request.place}` : ''}: ${who || 'nobody found'}.${market} Each card shows ratings, prices, negotiation advice and a message to copy. Pexa does not pay vendors — the person deals with them directly]`;
+      return `[Showed a ${kind} shortlist for ${r?.request?.what ?? 'what they asked'}${r?.request?.place ? ` in ${r.request.place}` : ''}${r?.request?.platforms?.length ? ` on ${r.request.platforms.join(', ')}` : ''}${r?.request?.radiusKm ? ` within ${r.request.radiusKm} km` : ''}${r?.request?.priority && r.request.priority !== 'balanced' ? ` (prioritising ${r.request.priority})` : ''}: ${who || 'nobody found'}.${market} Each card shows ratings, prices, negotiation advice and a message to copy. Pexa does not pay vendors — the person deals with them directly]`;
     }
     case 'error':
       return `[Showed an error: ${clip(m.title ?? 'something went wrong', 80)}]`;

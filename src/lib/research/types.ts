@@ -139,6 +139,8 @@ export interface ResearchResult {
   market: MarketPrice | null;
   /** Accounts that came up but were left out, and why (so nothing is hidden silently). */
   skipped: { name: string; reason: string }[];
+  /** Buttons for widening the search (a bigger radius, another platform). Absent when there is nothing sensible to offer. */
+  expand?: { label: string; text: string }[];
 }
 
 export type ResearchStatus = 'PLANNED' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED';

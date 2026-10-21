@@ -42,10 +42,15 @@ const plan = (kind: string, platforms: string, place: RegExp) => (t: Turn) => {
 };
 const asksCity = (t: Turn) => (t.action && t.action.render.type !== 'ask_location' ? `should have asked for the city, but showed a ${t.action.render.type} card` : /city|where|which (?:area|part|town)|location/i.test(t.reply) ? null : `did not ask for a city: "${t.reply.slice(0, 100)}"`);
 
-const yieldCard = (chain: RegExp | null) => (t: Turn) => {
+const yieldCard = (chain: RegExp | null, coin?: RegExp) => (t: Turn) => {
   const r = t.action?.render;
   if (r?.type !== 'yield_list') return `no yield card (said: "${t.reply.slice(0, 90)}")`;
   if (chain && !(r.chains ?? []).some((c) => chain.test(c))) return `wrong chains: ${(r.chains ?? []).join(',') || 'none'}`;
+  // When the person named a coin, the pools listed are for THAT coin (not whatever ranks first).
+  if (coin) {
+    const bad = ((r.items ?? []) as { symbol?: string }[]).filter((i) => !coin.test(i.symbol ?? ''));
+    if (bad.length) return `listed pools for another coin: ${bad.map((b) => b.symbol).join(', ')}`;
+  }
   // The card carries every number; the model's own words must not quote a rate.
   return /\d\s*%/.test(t.reply) ? `the reply quoted a rate: "${t.reply.slice(0, 100)}"` : null;
 };
@@ -102,7 +107,8 @@ const CASES: Case[] = [
     messages: [{ role: 'user', content: 'buy me $50 of Tesla stock' }],
     check: (t) => (t.action ? `showed a ${t.action.render.type} card` : /(can.?t|cannot|don.?t|isn.?t|not able|unable|doesn.?t)/i.test(t.reply) && /stock/i.test(t.reply) ? null : `didn't say it can't: "${t.reply.slice(0, 110)}"`),
   },
-  { name: 'yield: "where can I earn on my USDC on Celo?" → yield card, no rate quoted in words', messages: [{ role: 'user', content: 'where can I earn on my USDC on Celo?' }], check: yieldCard(/celo/i) },
+  { name: 'yield: "where can I earn on my USDC on Celo?" → yield card, no rate quoted in words', messages: [{ role: 'user', content: 'where can I earn on my USDC on Celo?' }], check: yieldCard(/celo/i, /USDC/i) },
+  { name: 'yield: "I have USDT, where can it earn?" → pools for USDT', messages: [{ role: 'user', content: 'I have USDT, where can it earn on Celo?' }], check: yieldCard(/celo/i, /USD₮|USDT/i) },
   { name: 'yield: "best APY on Base" → yield card for Base', messages: [{ role: 'user', content: 'what is the best APY on Base right now?' }], check: yieldCard(/base/i) },
   {
     name: 'yield: "should I put my savings in Aave?" → research, never a recommendation or a promise',

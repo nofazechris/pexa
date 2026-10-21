@@ -61,7 +61,7 @@ export interface EarnPreview {
   expiresAt: string;
 }
 
-export type PreviewResult = { ok: true; preview: EarnPreview } | { ok: false; message: string };
+export type PreviewResult = { ok: true; preview: EarnPreview } | { ok: false; message: string; /** Buttons for the sensible ways forward when what they asked for doesn't fit what they hold. */ suggest?: { label: string; text: string }[] };
 
 export function earnAvailable(): boolean {
   return features.gaslessRelayer && activeNetwork.network === 'mainnet';
@@ -167,7 +167,17 @@ export async function createEarnPreview(userId: string, action: EarnAction, toke
     }
     if (amount < EARN_LIMITS.minAtomic) return { ok: false, message: 'The smallest deposit is $0.10.' };
     if (amount > EARN_LIMITS.maxAtomic) return { ok: false, message: `In beta the largest single deposit is $${formatAmount(EARN_LIMITS.maxAtomic)}. Try a smaller amount.` };
-    if (amount > available) return { ok: false, message: `You have $${formatAmount(available)} ${token} available${token === 'USDC' ? ' (money set aside in vaults isn’t counted)' : ''} — that’s less than $${formatAmount(amount)}.` };
+    if (amount > available) {
+      const base = `You have $${formatAmount(available)} ${token} available${token === 'USDC' ? ' (money set aside in vaults isn’t counted)' : ''} — that’s less than $${formatAmount(amount)}.`;
+      // They may hold the OTHER coin Aave takes: say so, and offer to deposit that instead or convert it first.
+      const other: EarnToken = token === 'USDT' ? 'USDC' : 'USDT';
+      const otherAvailable = await spendable(userId, wallet.address, other).catch(() => 0n);
+      if (otherAvailable >= amount) {
+        const amt = formatAmount(amount, 6).replace(/\.?0+$/, '');
+        return { ok: false, message: `${base} You do have $${formatAmount(otherAvailable)} ${other}: I can deposit that instead, or convert it to ${token} first.`, suggest: [{ label: `Deposit ${other} instead`, text: `Deposit ${amt} ${other} into Aave` }, { label: `Convert ${other} to ${token} first`, text: `Convert ${amt} ${other} to ${token}` }] };
+      }
+      return { ok: false, message: base };
+    }
     if (reserve.headroom !== null && amount > reserve.headroom) return { ok: false, message: `Aave’s ${token} market is nearly full, so it can’t take $${formatAmount(amount)} right now.` };
   } else {
     if (position === 0n) return { ok: false, message: `You don’t have any ${token} in Aave through this wallet.` };

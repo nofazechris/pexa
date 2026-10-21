@@ -126,9 +126,21 @@ export function YieldCard({ data, onTry, getAccessToken }: { data: YieldView; on
         </div>
         <div style={{ fontFamily: MONO, fontSize: '11px', color: color.faint, marginTop: '8px' }}>Data from DefiLlama · read {Number.isNaN(when.getTime()) ? 'just now' : when.toUTCString().slice(5, 22) + ' UTC'}</div>
       </div>
+      {data.holdings ? (
+        <div style={{ fontSize: '12.5px', color: color.mutedStrong, padding: '0 4px' }}>
+          In your wallet: ${Number(data.holdings.USDC).toFixed(2)} USDC · ${Number(data.holdings.USDT).toFixed(2)} USDT{Number(data.holdings.USAT) > 0 ? ` · $${Number(data.holdings.USAT).toFixed(2)} USAT` : ''}
+        </div>
+      ) : null}
       {data.items.map((p) => (
         <Row key={p.id} p={p} onTry={onTry} getAccessToken={getAccessToken} />
       ))}
+      {data.convert && onTry ? (
+        <div style={{ padding: '0 2px' }}>
+          <button onClick={() => onTry(`Convert ${data.convert!.from} to ${data.convert!.to}`)} style={small}>
+            Convert {data.convert.from} to {data.convert.to} first
+          </button>
+        </div>
+      ) : null}
       <div style={{ fontSize: '12px', color: color.mutedStrong, lineHeight: 1.55, padding: '0 4px' }}>
         {data.notes.map((n) => (
           <div key={n} style={{ marginTop: '4px' }}>

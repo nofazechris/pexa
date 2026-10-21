@@ -12,7 +12,7 @@ import { BuyPage } from '@/components/pexa/BuyPage';
 import { BuyQuoteCard, BuyResultCard } from '@/components/pexa/BuyCards';
 import { ResearchPlanCard, ResearchResultCard } from '@/components/pexa/ResearchCards';
 import { WatchlistCard, YieldCard } from '@/components/pexa/YieldCards';
-import { AgentOrb, ThinkingRow, useWaitStage } from '@/components/pexa/AgentOrb';
+import { AgentOrb, ThinkingRow } from '@/components/pexa/AgentOrb';
 import { STAGE_LABEL } from '@/lib/agent/stage';
 import { EarnPreviewCard, EarnReceiptCard } from '@/components/pexa/EarnCards';
 import { AskLocationCard, ChoiceCard } from '@/components/pexa/LocationCard';
@@ -145,9 +145,6 @@ export function PexaApp(props: PexaAppProps) {
   );
   const chat = useAgentChat(deps);
 
-  // How far into a wait the agent is (thinking → searching → walking → solving), for the orb and the status pill.
-  const waitStage = useWaitStage(chat.agentState === 'thinking');
-
   // Agent status pill in the header.
   const pill = ((): { label: string; color: string; bg: string; border: string; dot: string; anim: string } => {
     // Persistent "having trouble" state after a failed turn, until the next success — so downtime
@@ -157,7 +154,7 @@ export function PexaApp(props: PexaAppProps) {
     }
     switch (chat.agentState) {
       case 'thinking':
-        return { label: STAGE_LABEL[waitStage], color: 'var(--pp-primary-hover)', bg: 'var(--pp-primary-tint)', border: 'var(--pp-primary-soft-border)', dot: 'var(--pp-primary)', anim: 'pp-pulse 1.2s ease-in-out infinite' };
+        return { label: chat.liveStage?.label ?? STAGE_LABEL.thinking, color: 'var(--pp-primary-hover)', bg: 'var(--pp-primary-tint)', border: 'var(--pp-primary-soft-border)', dot: 'var(--pp-primary)', anim: 'pp-pulse 1.2s ease-in-out infinite' };
       case 'processing':
         return { label: 'Sending…', color: 'var(--pp-primary-hover)', bg: 'var(--pp-primary-tint)', border: 'var(--pp-primary-soft-border)', dot: 'var(--pp-primary)', anim: 'pp-pulse 1.2s ease-in-out infinite' };
       case 'success':
@@ -305,7 +302,6 @@ export function PexaApp(props: PexaAppProps) {
 /* ----------------------------------------------------------------- Chat screen */
 
 function ChatScreen({ chat, getAccessToken, balance, conversations }: { chat: ReturnType<typeof useAgentChat>; getAccessToken?: () => Promise<string | null>; balance?: string; conversations?: ReturnType<typeof useConversations> }) {
-  const waitStage = useWaitStage(chat.agentState === 'thinking');
   const scrollRef = useRef<HTMLDivElement>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   // Quick picks: people you've paid or been paid by (and saved beneficiaries), for one-tap "send to…".
@@ -406,7 +402,7 @@ function ChatScreen({ chat, getAccessToken, balance, conversations }: { chat: Re
             <ChatRow key={m.id} m={m} watchBridge={m.id === lastBridgeId && !chat.chatClosed} onConfirm={() => chat.confirm(m.id)} onCancel={() => chat.cancel(m.id)} onRetry={(t) => chat.send(t)} onTry={(t) => chat.send(t)} getAccessToken={getAccessToken} />
           ))}
 
-          {chat.agentState === 'thinking' || chat.agentState === 'processing' ? <ThinkingRow stage={chat.agentState === 'processing' ? 'walking' : waitStage} /> : null}
+          {chat.agentState === 'thinking' || chat.agentState === 'processing' ? <ThinkingRow stage={chat.agentState === 'processing' ? 'walking' : (chat.liveStage?.stage ?? 'thinking')} label={chat.agentState === 'processing' ? 'Working on it…' : chat.liveStage?.label} /> : null}
         </div>
       </div>
 

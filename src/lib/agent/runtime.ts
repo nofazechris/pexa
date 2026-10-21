@@ -1,4 +1,6 @@
 import 'server-only';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { SOLVING, THINKING, stageForTool, type Stage, type StageEvent } from './stage';
 import { VENDOR_PAY_REPLY, isBuyConversation, isSocialAccountCheck, isVendorPaymentRequest, platformsFromChoice, shouldForceBuySearch, shouldOfferLocation, shouldOfferPlatformChoice } from './buy-intent';
 import OpenAI from 'openai';
 import { z } from 'zod';
@@ -36,6 +38,8 @@ import { depositCheck } from '@/lib/deposits/check';
 import { createResearch, normalizeRequest } from '@/lib/research/service';
 import { platformChoiceOptions } from '@/lib/research/memory';
 import { researchYields } from '@/lib/yield/service';
+import { readHoldings } from '@/lib/yield/holdings';
+import { coinNamed } from '@/lib/yield/coin';
 import { addWatch, listWatches, removeWatch, type WatchView } from '@/lib/yield/watchlist';
 import { parseWatchIntent, type WatchIntent } from '@/lib/yield/watch-intent';
 import { queryFrom } from '@/lib/yield/rank';
@@ -351,7 +355,10 @@ async function buildRender(ctx: ToolContext, tool: string, args: Record<string, 
     return { type: 'watchlist', items: await listWatches(ctx.userId) };
   }
   if (tool === 'research_yields') {
-    const view = await researchYields(queryFrom(args));
+    emitStage('searching', 'Reading your balances…');
+    const holdings = await readHoldings(ctx.userId);
+    emitStage('searching', 'Reading live pool rates…');
+    const view = await researchYields(queryFrom(args), { holdings });
     return view ? { type: 'yield_list', ...view } : null; // unreachable data: the tool itself explains it to the model
   }
   if (tool === 'plan_research') {
@@ -377,6 +384,7 @@ async function buildRender(ctx: ToolContext, tool: string, args: Record<string, 
 
 /** Convert between the dollar coins: ask for the amount if it's missing, otherwise quote it and show the Confirm card. */
 async function handleSwap(ctx: ToolContext, intent: Extract<SwapIntent, { kind: 'swap' }>): Promise<AgentTurn> {
+  emitStage('walking', 'Getting a price from Uniswap…');
   if (!swapsAvailable()) return { reply: 'Conversions between USDC and USAT aren’t switched on yet.' };
   if (intent.amount === null) return { reply: askSwapAmount(intent.from, intent.to) };
   const r = await createSwapPreview(ctx.userId, intent.from, intent.to, intent.amount);
@@ -390,6 +398,7 @@ async function handleSwap(ctx: ToolContext, intent: Extract<SwapIntent, { kind: 
 
 /** Deposit into / withdraw from Aave on Celo: ask for the coin and the amount if missing, otherwise show the Confirm card. */
 async function handleEarn(ctx: ToolContext, intent: Extract<EarnIntent, { kind: 'earn' }>): Promise<AgentTurn> {
+  emitStage('walking', 'Reading Aave and your balance…');
   if (!earnAvailable()) return { reply: 'Earning isn’t switched on yet.' };
   if (!intent.token) {
     return {
@@ -399,7 +408,8 @@ async function handleEarn(ctx: ToolContext, intent: Extract<EarnIntent, { kind: 
   }
   if (intent.amount === null) return { reply: askEarnAmount(intent.action, intent.token) };
   const r = await createEarnPreview(ctx.userId, intent.action, intent.token, intent.amount);
-  if (!r.ok) return { reply: r.message };
+  // When what they asked for doesn't fit what they hold, say so and offer the sensible ways forward as buttons.
+  if (!r.ok) return r.suggest?.length ? { reply: r.message, action: { tool: 'earn', args: {}, render: { type: 'ask_choice', options: r.suggest } } } : { reply: r.message };
   const p = r.preview;
   return {
     reply: p.action === 'deposit' ? `Here’s the deposit: ${p.amount} ${p.token} into Aave on Celo. Nothing happens until you confirm.` : `Here’s the withdrawal: ${p.amount} ${p.token} from Aave back to your wallet. Nothing happens until you confirm.`,
@@ -409,6 +419,7 @@ async function handleEarn(ctx: ToolContext, intent: Extract<EarnIntent, { kind: 
 
 /** Watching pools: add, stop, or show the list. Read by the app itself; moves no money. */
 async function handleWatch(ctx: ToolContext, intent: Exclude<WatchIntent, { kind: 'none' }>): Promise<AgentTurn> {
+  emitStage(intent.kind === 'show' ? 'searching' : 'walking', intent.kind === 'show' ? 'Reading your watchlist…' : 'Saving that…');
   const card = async (reply: string): Promise<AgentTurn> => ({ reply, action: { tool: 'get_watchlist', args: {}, render: { type: 'watchlist', items: await listWatches(ctx.userId) } } });
   if (intent.kind === 'show') {
     const items = await listWatches(ctx.userId);
@@ -432,6 +443,7 @@ const BRIDGE_DEADLINE_MS = 25_000;
 
 /** "Print my statement for the last 30 days": built from this user's own records, shown as a card with Download and Print. */
 async function handleStatement(ctx: ToolContext, intent: StatementIntent): Promise<AgentTurn> {
+  emitStage('searching', 'Collecting your payments…');
   const data = await buildStatement(ctx.userId, intent.period);
   if (data.count === 0) return { reply: `You have no activity for ${intent.period.label} — nothing came in or went out.` };
   return { reply: statementReply(intent.period.label, data, !intent.named), action: { tool: 'statement', args: {}, render: { type: 'statement', ...data } } };
@@ -442,6 +454,7 @@ async function handleStatement(ctx: ToolContext, intent: StatementIntent): Promi
  * (the same facts the agent's check_deposit tool reads).
  */
 async function handleDepositCheck(ctx: ToolContext): Promise<AgentTurn> {
+  emitStage('searching', 'Checking the chain for your deposit…');
   const r = await depositCheck(ctx.userId);
   return { reply: r.summary };
 }
@@ -467,6 +480,7 @@ function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
  * whoever is sending (or to use from your own wallet). If the sender is on Celo/Pexa the normal wallet address will do.
  */
 async function handleBridge(ctx: ToolContext, intent: Exclude<BridgeIntent, { kind: 'none' }>): Promise<AgentTurn> {
+  emitStage('searching', 'Getting your deposit address…');
   const hasKey = Boolean(env.RELAY_API_KEY);
   if (intent.kind === 'celo') {
     const render = await buildRender(ctx, 'get_deposit_details', {});
@@ -684,7 +698,24 @@ async function completeWithFallback<T>(request: (model: string) => Promise<T>, c
  * money, returning a pending action for the user to confirm. Returns null only when no AI key is
  * configured (the caller then falls back to the simple parser path).
  */
-export async function runAgentTurn(input: { userId: string; messages: AgentMessage[] }): Promise<AgentTurn | null> {
+/** Where the running turn reports what it is doing (set by `runAgentTurn` when the caller wants live progress). */
+const stageSink = new AsyncLocalStorage<(e: StageEvent) => void>();
+
+/** Say what the turn is doing right now. Never throws, and does nothing when nobody is listening. */
+function emitStage(stage: Stage, label: string): void {
+  try {
+    stageSink.getStore()?.({ stage, label });
+  } catch {
+    /* progress is a courtesy; it must never break a turn */
+  }
+}
+
+/** Run one turn. With `onStage`, the caller hears what is really happening as it happens (a model call, a lookup, a step in a flow). */
+export async function runAgentTurn(input: { userId: string; messages: AgentMessage[] }, hooks?: { onStage?: (e: StageEvent) => void }): Promise<AgentTurn | null> {
+  return hooks?.onStage ? stageSink.run(hooks.onStage, () => runAgentTurnInner(input)) : runAgentTurnInner(input);
+}
+
+async function runAgentTurnInner(input: { userId: string; messages: AgentMessage[] }): Promise<AgentTurn | null> {
   // "What do you do?" is answered by the app so it only ever lists what Pexa really does for this user.
   const last = input.messages[input.messages.length - 1];
   if (last?.role === 'user' && isIntroRequest(last.content)) {
@@ -840,9 +871,12 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
 
   // When the agent has to ask which platform to search, what is being searched (so the buttons can carry what Pexa has learned about it).
   let platformAsk: { what: string; place: string } | null = null;
+  // How many tools have run this turn: while none have, the model is thinking; once some have, it is writing the answer from them.
+  let toolsRun = 0;
   // A deposit that just landed as USDC: offer to turn it into USAT (the buttons start an ordinary conversion, which still needs Confirm).
   let usatOffer: ReturnType<typeof usatOfferFor> = null;
   for (let step = 0; step < MAX_STEPS; step++) {
+    emitStage(toolsRun > 0 ? SOLVING.stage : THINKING.stage, toolsRun > 0 ? SOLVING.label : THINKING.label);
     const request = (m: string) =>
       openai.chat.completions.create({
         model: m,
@@ -886,7 +920,17 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
     const changesWatchlist = calls.some((c) => c.function.name === 'watch_pool' || c.function.name === 'unwatch_pool');
     const cardCall = calls.find((c) => CARD_TOOLS.has(c.function.name) && !(changesWatchlist && c.function.name === 'get_watchlist'));
     if (cardCall) {
+      const ev = stageForTool(cardCall.function.name);
+      emitStage(ev.stage, ev.label);
       const args = parseArgs(cardCall.function.arguments);
+      // The coin the person named is the coin the answer is about — their own word wins over whatever the model passed.
+      if (cardCall.function.name === 'research_yields') {
+        const named = coinNamed(lastText);
+        if (named) {
+          args.symbol = named;
+          if (named === 'ETH') args.assets = 'any';
+        }
+      }
       // A tap on "Search Instagram, TikTok and X" means exactly those platforms — the model must not trim the list.
       if (cardCall.function.name === 'plan_research') {
         const picked = platformsFromChoice(lastText);
@@ -914,6 +958,9 @@ export async function runAgentTurn(input: { userId: string; messages: AgentMessa
     let buyApproval: { purchaseId: string; message: string; args: Record<string, unknown> } | null = null;
     for (const call of calls) {
       if (call.type !== 'function') continue;
+      const ev = stageForTool(call.function.name);
+      emitStage(ev.stage, ev.label);
+      toolsRun++;
       let content: string;
       if (CONFIRM_TOOLS.has(call.function.name)) {
         content = JSON.stringify({ error: 'not_ready', message: 'Prepare the action first (quote/preview) before confirming.' });

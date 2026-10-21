@@ -5,6 +5,7 @@ import type { BuyResult, BuyTypedData } from './useBuy';
 import { carryOverSummary, historyForAgent, type ChatLike } from '@/lib/conversations/describe';
 import type { StatementData } from '@/lib/statements/format';
 import type { YieldView } from '@/lib/yield/view';
+import { THINKING, type Stage } from '@/lib/agent/stage';
 import type { WatchView } from '@/lib/yield/watchlist';
 import type { ResearchPlanView, ResearchResult } from '@/lib/research/types';
 import type { ResearchOutcome, ResearchProgress } from './useResearch';
@@ -18,6 +19,12 @@ import type { ResearchOutcome, ResearchProgress } from './useResearch';
  */
 
 export type AgentState = 'idle' | 'thinking' | 'processing' | 'success' | 'error';
+
+/** What the agent is doing right now, as it reported it. */
+export interface LiveStage {
+  stage: Stage;
+  label: string;
+}
 
 /** Mirrors the server's presentQuote / QuoteView. */
 export interface FiatQuoteView {
@@ -212,10 +219,14 @@ export type AgentFailReason = 'network' | 'unavailable' | 'account' | 'server';
 
 export interface AgentChatDeps {
   /** Send a message to the agent; returns its reply, or a typed failure. */
-  sendToAgent: (args: {
-    message: string;
-    history: { role: 'user' | 'assistant'; content: string }[];
-  }) => Promise<{ ok: true; reply: string; action?: PendingActionView; /** The AI couldn’t answer; this came from the app’s own basics. */ degraded?: boolean } | { ok: false; reason: AgentFailReason } | null>;
+  sendToAgent: (
+    args: {
+      message: string;
+      history: { role: 'user' | 'assistant'; content: string }[];
+    },
+    /** Called as the agent reports what it is really doing (a model call, a lookup, a step in a flow). */
+    onStage?: (e: { stage: Stage; label: string }) => void,
+  ) => Promise<{ ok: true; reply: string; action?: PendingActionView; /** The AI couldn’t answer; this came from the app’s own basics. */ degraded?: boolean } | { ok: false; reason: AgentFailReason } | null>;
   /** Execute a confirmed fiat action server-side. */
   executeAction: (args: { tool: string; args: Record<string, unknown> }) => Promise<{
     ok: boolean;
@@ -272,6 +283,7 @@ function plainError(reason: AgentFailReason): { title: string; hint: string } {
 export function useAgentChat(deps: AgentChatDeps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [agentState, setAgentState] = useState<AgentState>('idle');
+  const [liveStage, setLiveStage] = useState<LiveStage | null>(null);
   /** Persistent agent health: 'ok' until a turn fails, back to 'ok' on the next success. */
   const [health, setHealth] = useState<'ok' | 'degraded'>('ok');
   const [draft, setDraft] = useState('');
@@ -315,6 +327,7 @@ export function useAgentChat(deps: AgentChatDeps) {
         setDraft('');
       }
       setAgentState('thinking');
+      setLiveStage({ stage: 'thinking', label: THINKING.label });
 
       // What the agent sees of the chat: what was said, plus a short note for every card that was on screen (an address, a
       // payment preview, a receipt…) — so "check" or "yes" is read in the context of what the person is looking at.
@@ -322,10 +335,11 @@ export function useAgentChat(deps: AgentChatDeps) {
 
       let turn: Awaited<ReturnType<AgentChatDeps['sendToAgent']>> = null;
       try {
-        turn = await d.sendToAgent({ message: raw, history });
+        turn = await d.sendToAgent({ message: raw, history }, (e) => setLiveStage(e));
       } catch {
         turn = null;
       }
+      setLiveStage(null);
       // Any failure (no response, or a typed failure) → plain-language error + mark the agent degraded.
       if (!turn || turn.ok === false) {
         const reason: AgentFailReason = turn && turn.ok === false ? turn.reason : 'network';
@@ -626,5 +640,5 @@ export function useAgentChat(deps: AgentChatDeps) {
     setAgentState('idle');
   }, [messages, chatCloses, chatTitle]);
 
-  return { messages, agentState, health, draft, setDraft, send, confirm, cancel, conversationId, newChat, openChat, chatCloses, chatClosed, continueInNewChat };
+  return { messages, agentState, liveStage, health, draft, setDraft, send, confirm, cancel, conversationId, newChat, openChat, chatCloses, chatClosed, continueInNewChat };
 }

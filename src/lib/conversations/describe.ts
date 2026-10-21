@@ -23,7 +23,7 @@ export interface ChatLike {
   watchlist?: { items?: { symbol?: string; project?: string; chain?: string; since?: string; targetApy?: number | null }[] };
   earn?: { action?: string; token?: string; amount?: string; baseApy?: string; rewardApy?: string | null };
   earnResult?: { ok?: boolean; status?: string; amount?: string | null; position?: string | null; error?: string };
-  yields?: { chains?: string[]; symbol?: string | null; items?: { symbol?: string; project?: string; chain?: string; apy?: number; apyBase?: number; apyReward?: number; tvlUsd?: number; risk?: string }[] };
+  yields?: { convert?: { compare?: string } | null; chains?: string[]; symbol?: string | null; items?: { symbol?: string; project?: string; chain?: string; apy?: number; apyBase?: number; apyReward?: number; tvlUsd?: number; risk?: string }[] };
   research?: { title?: string; estimate?: string; cap?: string };
   researchResult?: {
     request?: { kind?: string; what?: string; place?: string; platforms?: string[]; radiusKm?: number | null; priority?: string };
@@ -97,7 +97,8 @@ export function describeCard(m: ChatLike): string | null {
         .slice(0, 5)
         .map((p) => `${untrustedLabel(p.symbol ?? '?')} on ${untrustedLabel(p.project ?? '?')} (${untrustedLabel(p.chain ?? '?')}): pays steadily ${(p.apyBase ?? 0).toFixed(2)}% plus ${(p.apyReward ?? 0).toFixed(2)}% temporary rewards, about $${Math.round((p.tvlUsd ?? 0) / 1000)}K deposited, ${p.risk ?? 'unrated'} risk`)
         .join('; ');
-      return `[Showed yield research${y?.chains?.length ? ` for ${y.chains.join(', ')}` : ''}: ${top || 'nothing matched'}. It is research, not advice, and moves no money]`;
+      const cmp = y?.convert?.compare ? ` The card also offered to convert first, because ${untrustedLabel(y.convert.compare, 200)}.` : '';
+      return `[Showed yield research${y?.chains?.length ? ` for ${y.chains.join(', ')}` : ''}: ${top || 'nothing matched'}.${cmp} It is research, not advice, and moves no money]`;
     }
     case 'research_plan':
       return `[Showed a plan to search for “${m.research?.title ?? 'a vendor'}” — about ${m.research?.estimate ?? '?'}, never more than ${m.research?.cap ?? '?'}${m.status === 'awaiting' ? ' — waiting for the person to tap Approve' : m.status === 'cancelled' ? ' — it was cancelled' : ''}]`;

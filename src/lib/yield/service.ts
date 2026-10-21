@@ -1,5 +1,5 @@
 import 'server-only';
-import { buildYieldView, type YieldView } from './view';
+import { buildYieldView, type Holdings, type YieldView } from './view';
 import type { RawPool, YieldQuery } from './rank';
 import { toRawPools } from './parse';
 
@@ -30,9 +30,9 @@ async function loadPools(): Promise<{ at: number; pools: RawPool[] } | null> {
 }
 
 /** The ranked shortlist for a request, or null when the data source can't be read. */
-export async function researchYields(q: YieldQuery): Promise<YieldView | null> {
+export async function researchYields(q: YieldQuery, extras: { holdings?: Holdings | null } = {}): Promise<YieldView | null> {
   const loaded = await loadPools();
-  return loaded ? buildYieldView(loaded.pools, q, new Date(loaded.at)) : null;
+  return loaded ? buildYieldView(loaded.pools, q, new Date(loaded.at), extras) : null;
 }
 
 /** The temporary incentive rewards on Aave's Celo market for a coin, from the public data (null when unknown). */

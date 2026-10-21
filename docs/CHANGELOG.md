@@ -2,6 +2,11 @@
 
 What changed, newest first. Each entry says what it does, where it lives, and whether it has been proven with real money.
 
+## 2026-10-21 — Real stages, and answering the coin the person actually named
+
+- **The orb now shows what Pexa is really doing, not a timer.** The server reports each thing it starts while a turn runs (a model call, a lookup, a step in a flow) and the browser shows it live: thinking while the model reads the question, searching while it reads pool data or the chain, walking through steps for flows like a deposit or a saved watch, solving while it writes the answer from what it found. A plain greeting only ever thinks. `/api/agent/chat` streams these as it goes (`src/lib/agent/stage.ts`, `runAgentTurn(…, { onStage })`); a live check (`evals/stages.eval.ts`) asserts the order for a lookup question, a flow the app handles itself, and a greeting.
+- **Fixed: asked about USDC, got USDT.** The yield answer is now about the coin the person named (`src/lib/yield/coin.ts`; "Celo" is never mistaken for a coin). If another coin pays notably more, Pexa says so openly with the steady versus temporary split, shows what the person holds, and offers "Convert USDC to USDT first" — the person decides. A deposit bigger than the coin held, but covered by the other coin Aave takes, now offers "Deposit USDC instead" or "Convert USDC to USDT first" instead of just refusing. Minimum to start and "add funds first" are said when relevant.
+
 ## 2026-10-21 — Thinking orb, and Buy in the investment flow
 
 - **The thinking orb replaces the spinner and the typing dots** (`thinking-orbs`, MIT, no dependencies). Pexa goes through four stages: thinking (calm ring), searching (dotted globe), walking (scattered dots on the move) and solving (converging sphere). It follows the light and dark themes by itself and holds still for reduced-motion users (`src/components/pexa/AgentOrb.tsx`, `src/lib/agent/stage.ts`).

@@ -131,7 +131,7 @@ export default function AppGate() {
       setRecurringPaused: (id: string, paused: boolean) => setRecurringPaused(id, paused),
       cancelRecurring: (id: string) => cancelRecurring(id),
       // The tool-calling agent: one message + recent history in, a reply (+ optional pending action) out.
-      sendToAgent: async (args: { message: string; history: { role: 'user' | 'assistant'; content: string }[] }) => {
+      sendToAgent: async (args: { message: string; history: { role: 'user' | 'assistant'; content: string }[] }, onStage?: (e: { stage: 'thinking' | 'searching' | 'walking' | 'solving'; label: string }) => void) => {
         // A turn can legitimately take a while (a Buy purchase waits for its result), but never forever: after this the chat
         // shows its "couldn't reach Pexa" card with a Retry button instead of spinning.
         const controller = new AbortController();
@@ -140,10 +140,52 @@ export default function AppGate() {
           const token = await getAccessToken();
           const res = await fetch('/api/agent/chat', {
             method: 'POST',
-            headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+            headers: { 'content-type': 'application/json', accept: 'application/x-ndjson', ...(token ? { authorization: `Bearer ${token}` } : {}) },
             body: JSON.stringify(args),
             signal: controller.signal,
           });
+          // The agent reports what it is really doing as it goes, then the answer, one JSON line each.
+          if (res.ok && (res.headers.get('content-type') ?? '').includes('application/x-ndjson') && res.body) {
+            const reader = res.body.getReader();
+            const dec = new TextDecoder();
+            let buf = '';
+            let turn: { reply: string; action?: PendingActionView; degraded?: boolean } | null = null;
+            let failed: { status: number; error: string } | null = null;
+            const take = (line: string) => {
+              if (!line.trim()) return;
+              try {
+                const ev = JSON.parse(line) as { t?: string; stage?: 'thinking' | 'searching' | 'walking' | 'solving'; label?: string; turn?: typeof turn; status?: number; error?: string };
+                if (ev.t === 'stage' && ev.stage && ev.label) onStage?.({ stage: ev.stage, label: ev.label });
+                else if (ev.t === 'turn' && ev.turn) turn = ev.turn;
+                else if (ev.t === 'error') failed = { status: ev.status ?? 500, error: ev.error ?? '' };
+              } catch {
+                /* a partial or odd line is skipped */
+              }
+            };
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buf += dec.decode(value, { stream: true });
+              let nl: number;
+              while ((nl = buf.indexOf('\n')) >= 0) {
+                take(buf.slice(0, nl));
+                buf = buf.slice(nl + 1);
+              }
+            }
+            take(buf);
+            if (failed) {
+              const f: { status: number; error: string } = failed;
+              const reason: AgentFailReason = f.status === 503 ? (f.error === 'database_not_configured' || f.error === 'temporarily_unavailable' ? 'account' : 'unavailable') : 'server';
+              return { ok: false as const, reason };
+            }
+            if (!turn) return { ok: false as const, reason: 'network' as const };
+            const t: { reply: string; action?: PendingActionView; degraded?: boolean } = turn;
+            refreshRequests();
+            refreshRecurring();
+            refreshActivity();
+            refreshBalance();
+            return { ok: true as const, reply: t.reply, action: t.action, degraded: t.degraded };
+          }
           if (!res.ok) {
             // Map the HTTP failure to a plain reason the chat can explain in human terms.
             let code = '';

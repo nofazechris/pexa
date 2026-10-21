@@ -36,6 +36,35 @@ export async function POST(req: Request) {
         .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content.slice(0, 2000) }))
     : [];
 
+  // A browser that asks for it gets the turn as a stream of lines: what the agent is doing as it does it, then the answer.
+  if ((req.headers.get('accept') ?? '').includes('application/x-ndjson')) {
+    const enc = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const send = (o: unknown) => {
+          try {
+            controller.enqueue(enc.encode(JSON.stringify(o) + '\n'));
+          } catch {
+            /* the browser went away */
+          }
+        };
+        try {
+          const user = await getOrCreateUser(auth.user.userId);
+          const turn = await runAgentTurn({ userId: user.id, messages: [...history, { role: 'user', content: message }] }, { onStage: (e) => send({ t: 'stage', ...e }) });
+          if (!turn) send({ t: 'error', status: 503, error: 'agent_unavailable' });
+          else send({ t: 'turn', turn });
+        } catch (e) {
+          const r = errorResponse(e);
+          const body = (await r.json().catch(() => ({}))) as { error?: string };
+          send({ t: 'error', status: r.status, error: body.error ?? '' });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+    return new Response(stream, { headers: { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' } });
+  }
+
   try {
     const user = await getOrCreateUser(auth.user.userId);
     const turn = await runAgentTurn({ userId: user.id, messages: [...history, { role: 'user', content: message }] });

@@ -28,6 +28,7 @@ import { depositCheck } from '@/lib/deposits/check';
 import { createResearch, normalizeRequest } from '@/lib/research/service';
 import { researchYields } from '@/lib/yield/service';
 import { getEarnPositions } from '@/lib/earn/service';
+import { addWatch, listWatches, removeWatch } from '@/lib/yield/watchlist';
 import { queryFrom } from '@/lib/yield/rank';
 
 /**
@@ -694,6 +695,44 @@ export const TOOLS: ToolDef[] = [
       const positions = await getEarnPositions(ctx.userId);
       if (positions === null) throw new ToolError('earn_unavailable', 'Earning isn’t available for this account yet.');
       return { positions, note: positions.length ? 'The balance includes interest earned. “Earned” only counts deposits made through Pexa.' : 'Nothing is deposited in Aave from this wallet.' };
+    },
+  }),
+
+  tool({
+    name: 'watch_pool',
+    description:
+      "Add a yield pool to the person's watchlist: Pexa keeps an eye on it, and tells them (in their notifications) when what it pays steadily moves a lot, the temporary rewards end or start, money leaves the pool, or it reaches a rate they asked for. Use it whenever they say 'watch this', 'add it to my watchlist', 'keep an eye on the Aave USDT pool', 'tell me if it gets above 3%' — including 'watch X and tell me if it changes'. Moves NO money. Say which pool by chain + coin (+ project if they named it); targetApy only when they gave a rate to be told about.",
+    schema: z.object({
+      chain: z.string().min(2).max(30).describe('e.g. "Celo", "Base".'),
+      symbol: z.string().min(2).max(30).describe('The coin, e.g. "USDT", "USDC", "ETH".'),
+      project: z.string().max(40).optional().describe('e.g. "aave-v3", "uniswap-v3" — only if they named it.'),
+      targetApy: z.number().min(0.1).max(100).optional().describe('Tell them when what it pays steadily reaches this percent.'),
+    }),
+    handler: async (ctx, args) => {
+      const r = await addWatch(ctx.userId, { chain: args.chain, project: args.project, symbol: args.symbol }, args.targetApy ?? null);
+      if (!r.ok) throw new ToolError('watch_failed', r.message);
+      return { watching: `${r.watch.symbol} on ${r.watch.project} (${r.watch.chain})`, alreadyWatching: r.alreadyWatching, otherMatches: r.others, note: 'Nothing was bought or deposited. They will be told in their notifications when something changes.' };
+    },
+  }),
+
+  tool({
+    name: 'unwatch_pool',
+    description: "Stop watching a pool: 'stop watching the Aave USDT pool', 'remove the Base one from my watchlist'. Moves no money.",
+    schema: z.object({ chain: z.string().max(30).optional(), symbol: z.string().max(30).optional(), project: z.string().max(40).optional() }),
+    handler: async (ctx, args) => {
+      const r = await removeWatch(ctx.userId, args);
+      if (!r.ok) throw new ToolError('unwatch_failed', r.message);
+      return { message: r.message };
+    },
+  }),
+
+  tool({
+    name: 'get_watchlist',
+    description: "Show the pools the person is ALREADY watching, with how each has changed since they added it. Free and read-only. Use it ONLY when they ask to SEE the list: 'my watchlist', 'what am I watching', 'how are the pools I'm watching doing'. Never to add something — adding is watch_pool.",
+    schema: z.object({}),
+    handler: async (ctx) => {
+      const items = await listWatches(ctx.userId);
+      return { count: items.length, pools: items.map((w) => ({ pool: `${w.symbol} on ${w.project} (${w.chain})`, since: w.since, targetApy: w.targetApy })) };
     },
   }),
 

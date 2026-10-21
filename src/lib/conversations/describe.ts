@@ -20,6 +20,7 @@ export interface ChatLike {
   swapResult?: { ok?: boolean; amountOut?: string | null; error?: string };
   statement?: { label?: string; count?: number };
   choices?: { label?: string }[];
+  watchlist?: { items?: { symbol?: string; project?: string; chain?: string; since?: string; targetApy?: number | null }[] };
   earn?: { action?: string; token?: string; amount?: string; baseApy?: string; rewardApy?: string | null };
   earnResult?: { ok?: boolean; status?: string; amount?: string | null; position?: string | null; error?: string };
   yields?: { chains?: string[]; symbol?: string | null; items?: { symbol?: string; project?: string; chain?: string; apy?: number; apyBase?: number; apyReward?: number; tvlUsd?: number; risk?: string }[] };
@@ -84,6 +85,11 @@ export function describeCard(m: ChatLike): string | null {
       const r = m.earnResult;
       const verb = e?.action === 'withdraw' ? 'withdrawal' : 'deposit';
       return r?.ok ? `[Showed a receipt: the ${verb} of ${r.amount ?? e?.amount ?? '?'} ${e?.token ?? ''} ${r.status === 'PENDING' ? 'was sent and is still confirming' : 'is confirmed on Celo'}${r.position ? `; they now have ${r.position} ${e?.token ?? ''} in Aave` : ''}]` : `[Showed that the ${verb} did not complete: ${clip(r?.error ?? 'unknown reason', 100)}]`;
+    }
+    case 'watchlist': {
+      const items = m.watchlist?.items ?? [];
+      const list = items.slice(0, 8).map((w) => `${untrustedLabel(w.symbol ?? '?')} on ${untrustedLabel(w.project ?? '?')} (${untrustedLabel(w.chain ?? '?')}): ${untrustedLabel(w.since ?? '', 120)}${w.targetApy ? `, wants to be told at ${w.targetApy}%` : ''}`).join('; ');
+      return `[Showed the person’s yield watchlist: ${list || 'empty'}. Watching moves no money]`;
     }
     case 'yield_list': {
       const y = m.yields;

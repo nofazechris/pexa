@@ -43,3 +43,9 @@ export async function aaveCeloRewards(token: 'USDT' | 'USDC'): Promise<{ apyBase
   const p = loaded.pools.filter((x) => x.chain === 'Celo' && x.project === 'aave-v3' && symbols.includes(x.symbol)).sort((a, b) => b.tvlUsd - a.tvlUsd)[0];
   return p ? { apyBase: p.apyBase ?? 0, apyReward: p.apyReward ?? 0 } : null;
 }
+
+/** Every pool in the data (cached ten minutes), or null when the source can't be read. */
+export async function getRawPools(): Promise<RawPool[] | null> {
+  const loaded = await loadPools();
+  return loaded ? loaded.pools : null;
+}

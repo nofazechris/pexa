@@ -4,7 +4,7 @@
  * worded plainly. Pure and tested; the service only gathers the inputs.
  */
 
-export type NotificationKind = 'received' | 'sent' | 'subscription' | 'failed' | 'request' | 'request_paid' | 'request_declined' | 'deposit' | 'purchase';
+export type NotificationKind = 'received' | 'sent' | 'subscription' | 'failed' | 'request' | 'request_paid' | 'request_declined' | 'deposit' | 'purchase' | 'watch';
 
 export interface NotificationItem {
   /** Stable, so the app can tell new from already-seen. */
@@ -16,7 +16,7 @@ export interface NotificationItem {
   at: string;
   unread: boolean;
   /** Where "see more" goes. */
-  tab: 'activity' | 'payments' | 'buy';
+  tab: 'activity' | 'payments' | 'buy' | 'chat';
   /** Worth a pop-up when it arrives while the app is open (money coming in). */
   highlight: boolean;
 }
@@ -26,6 +26,8 @@ export interface FeedInputs {
   requests: Array<{ id: string; direction: 'in' | 'out'; counterparty: string; amount: string; status: string; memo: string | null; at: Date }>;
   purchases: Array<{ id: string; service: string; price: string; token: string; status: string; at: Date }>;
   deposits: Array<{ id: string; amount: string; token: string; from: string; at: Date }>;
+  /** Changes in pools the person watches. */
+  watchAlerts?: Array<{ id: string; title: string; detail: string; at: Date }>;
   seenAt: Date | null;
 }
 
@@ -92,6 +94,10 @@ export function buildFeed(input: FeedInputs): NotificationItem[] {
 
   for (const d of input.deposits) {
     items.push({ id: `dep:${d.id}`, kind: 'deposit', title: `You deposited ${usd(d.amount)}`, detail: `${d.token} · from ${shortAddress(d.from)}`, at: d.at.toISOString(), tab: 'activity', highlight: true });
+  }
+
+  for (const w of input.watchAlerts ?? []) {
+    items.push({ id: `watch:${w.id}`, kind: 'watch', title: w.title, detail: w.detail, at: w.at.toISOString(), tab: 'chat', highlight: true });
   }
 
   const seen = input.seenAt ? input.seenAt.getTime() : Infinity; // no baseline yet → nothing is "new"

@@ -5,6 +5,7 @@ import { getDb, schema } from '@/lib/db';
 import { listPayments } from '@/lib/payments/engine';
 import { listPurchases } from '@/lib/buy/service';
 import { recentDeposits, scanDeposits } from '@/lib/deposits/service';
+import { checkWatches, watchAlertsFor } from '@/lib/yield/watchlist';
 import { buildFeed, type NotificationItem } from './feed';
 
 /**
@@ -38,9 +39,11 @@ async function seenAtFor(userId: string): Promise<Date> {
 
 export async function getNotifications(userId: string): Promise<NotificationsView> {
   await scanDeposits(userId); // never throws; finds anything that arrived from outside Pexa
+  // Look again at the pools they watch (skips any checked in the last 25 minutes); fails soft.
+  await safe(() => checkWatches({ userId }), { watched: 0, alerts: 0 });
 
   const db = getDb();
-  const [payments, requestRows, purchases, deposits, seenAt] = await Promise.all([
+  const [payments, requestRows, purchases, deposits, watchAlerts, seenAt] = await Promise.all([
     safe(() => listPayments(userId, 40), []),
     safe(
       () =>
@@ -54,6 +57,7 @@ export async function getNotifications(userId: string): Promise<NotificationsVie
     ),
     safe(() => listPurchases(userId, 30), []),
     safe(() => recentDeposits(userId, 20), []),
+    safe(() => watchAlertsFor(userId, 30), []),
     seenAtFor(userId),
   ]);
 
@@ -92,6 +96,7 @@ export async function getNotifications(userId: string): Promise<NotificationsVie
     }),
     purchases: purchases.map((b) => ({ id: b.id, service: b.service, price: b.price, token: b.token, status: b.status, at: new Date(b.paidAt ?? b.createdAt) })),
     deposits: deposits.map((d) => ({ id: d.id, amount: d.amount, token: d.token, from: d.from, at: new Date(d.at) })),
+    watchAlerts,
   });
   return { items, unread: items.filter((i) => i.unread).length };
 }

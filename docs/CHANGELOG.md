@@ -2,6 +2,15 @@
 
 What changed, newest first. Each entry says what it does, where it lives, and whether it has been proven with real money.
 
+## 2026-10-21 — Yield watchlist and alerts
+
+- **Watch a pool** instead of (or before) depositing: a "Watch" button on every pool in the yield card, or say "watch the Aave USDT pool on Celo and tell me when it hits 3%". The app reads watch/stop/show requests itself (`src/lib/yield/watch-intent.ts`), saves the pool with its current numbers, and moves no money. "Show my watchlist" gives a card with how each pool has changed since it was added, plus Deposit and Stop watching buttons.
+- **Alerts in the notification bell** when something that matters changes (`src/lib/yield/watch.ts`): what a pool pays steadily moves a lot, temporary rewards end or start, the money in the pool falls sharply, it reaches the rate the person asked for, or it vanishes from the data. At most one alert per kind per pool per day; each alert is measured against the last values the person was told about.
+- **When it checks:** whenever the person opens the app or their notifications (skips pools checked in the last 25 minutes), and on the daily cron tick (new `watch` step). Pexa never promises instant alerts. In-app only; no push or email yet.
+- New tables `yield_watches` and `watch_alerts` (migration `0026`, applied); API route `/api/watch`; tools `watch_pool`, `unwatch_pool`, `get_watchlist`.
+- **Fixed on the way:** the cheap default model chose the wrong tool for "watch X and tell me if it changes" (now read deterministically); "add … Aave USDC … to my watchlist" was read as a deposit (the earn parser no longer treats "add" or any watch/track/alert wording as a deposit); a watchlist card can no longer pre-empt a watch that was asked for in the same turn.
+- No stocks: there are none on Celo and recommending them is broker territory; Pexa says so if asked.
+
 ## 2026-10-21 — Aave deposit and withdrawal on Celo (built, tried on dev first)
 
 - **Deposit USDT or USDC into Aave v3 on Celo, and withdraw** (`src/lib/earn/*`, `/api/earn/[id]`, `useEarn.ts`, `EarnCards.tsx`). Read by the app itself ("deposit $10 USDT into Aave", the "Deposit USDT into Aave" button on a yield card, "withdraw everything from Aave"); a Confirm card states what Aave pays (and how much of any headline is temporary rewards) and the risk; the person's own wallet signs; Pexa covers the network fee.

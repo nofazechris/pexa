@@ -825,6 +825,59 @@ export const earnActions = pgTable(
 );
 
 export type EarnActionRow = typeof earnActions.$inferSelect;
+
+/**
+ * A pool a person is watching: what it looked like when they added it (the baseline), what we last saw, and an optional rate they
+ * want to be told about. Holds public pool facts only.
+ */
+export const yieldWatches = pgTable(
+  "yield_watches",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The DefiLlama pool id. */
+    poolId: text("pool_id").notNull(),
+    chain: text("chain").notNull(),
+    project: text("project").notNull(),
+    symbol: text("symbol").notNull(),
+    /** Alert when what the pool pays steadily reaches this percent. */
+    targetApy: real("target_apy"),
+    baselineApyBase: real("baseline_apy_base").notNull(),
+    baselineApyReward: real("baseline_apy_reward").notNull(),
+    baselineTvl: real("baseline_tvl").notNull(),
+    /** What we last told them about (or the baseline): the reference the next change is measured against. */
+    lastApyBase: real("last_apy_base").notNull(),
+    lastApyReward: real("last_apy_reward").notNull(),
+    lastTvl: real("last_tvl").notNull(),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("yield_watches_user_pool_uq").on(t.userId, t.poolId), index("yield_watches_active_idx").on(t.active)],
+);
+
+/** Something worth telling a person about a pool they watch. Shown in their notifications. */
+export const watchAlerts = pgTable(
+  "watch_alerts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    watchId: uuid("watch_id")
+      .notNull()
+      .references(() => yieldWatches.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    detail: text("detail").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("watch_alerts_user_time_idx").on(t.userId, t.createdAt), index("watch_alerts_watch_kind_idx").on(t.watchId, t.kind, t.createdAt)],
+);
+
+export type YieldWatchRow = typeof yieldWatches.$inferSelect;
 export type AgentConversationRow = typeof agentConversations.$inferSelect;
 export type BridgeAddressRow = typeof bridgeAddresses.$inferSelect;
 export type WalletDepositRow = typeof walletDeposits.$inferSelect;

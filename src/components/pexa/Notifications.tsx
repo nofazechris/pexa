@@ -20,6 +20,7 @@ const ICON: Record<NotificationKind, { glyph: string; bg: string; fg: string }> 
   request: { glyph: '?', bg: 'var(--pp-warning-tint)', fg: color.warning },
   request_declined: { glyph: '×', bg: 'var(--pp-neutral)', fg: 'var(--pp-muted)' },
   purchase: { glyph: '✦', bg: color.primarySoft, fg: color.primary },
+  watch: { glyph: '◉', bg: color.primarySoft, fg: color.primary },
   failed: { glyph: '!', bg: 'var(--pp-danger-tint)', fg: 'var(--pp-danger-text)' },
 };
 

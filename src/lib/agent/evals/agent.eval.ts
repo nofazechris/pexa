@@ -52,6 +52,27 @@ const yieldCard = (chain: RegExp | null) => (t: Turn) => {
 
 const CASES: Case[] = [
   {
+    name: 'watch: "watch the Moola cUSD pool on Celo" → saved, nothing deposited or bought',
+    messages: [{ role: 'user', content: 'watch the Moola cUSD pool on Celo and tell me if it changes' }],
+    // Saved by the app itself: it says so and shows the watchlist, and never offers a deposit.
+    check: (t) => (t.action?.render.type === 'watchlist' && /now watching|already watching/i.test(t.reply) && /nothing was deposited/i.test(t.reply) ? null : `didn't confirm watching: ${t.action?.render.type ?? 'no card'} "${t.reply.slice(0, 110)}"`),
+  },
+  {
+    name: 'watch: "add the Aave USDC pool on Celo to my watchlist" → watched, never a deposit',
+    messages: [{ role: 'user', content: 'add the Aave USDC pool on Celo to my watchlist' }],
+    check: (t) => (t.action?.render.type === 'watchlist' && !/how much/i.test(t.reply) ? null : `unexpected: ${t.action?.render.type ?? 'no card'} "${t.reply.slice(0, 100)}"`),
+  },
+  {
+    name: 'watch: "show my watchlist" → a watchlist card',
+    messages: [{ role: 'user', content: 'show my watchlist' }],
+    check: (t) => (t.action?.render.type === 'watchlist' ? null : `no watchlist card: ${t.action?.render.type ?? 'none'} "${t.reply.slice(0, 80)}"`),
+  },
+  {
+    name: 'watch: "stop watching the Moola cUSD pool" → stopped',
+    messages: [{ role: 'user', content: 'stop watching the Moola cUSD pool on Celo' }],
+    check: (t) => (/stopped watching/i.test(t.reply) ? null : `didn't confirm: "${t.reply.slice(0, 110)}"`),
+  },
+  {
     name: 'earn: "deposit $10 into Aave" with no coin → asks USDT or USDC with buttons',
     messages: [{ role: 'user', content: 'deposit $10 into Aave' }],
     check: (t) => (t.action?.render.type === 'ask_choice' && (t.action.render.options ?? []).map((o) => o.label).join(',') === 'USDT,USDC' ? null : `should ask which coin: ${t.action?.render.type ?? 'no card'} "${t.reply.slice(0, 80)}"`),
@@ -219,8 +240,9 @@ const log = (s: string) => {
 describe('agent evaluation (live)', () => {
   it('runs every case and reports', async () => {
     if (OUT) writeFileSync(OUT, '');
+    const runStart = new Date();
     const { getDb, schema } = await import('@/lib/db');
-    const { eq, and } = await import('drizzle-orm');
+    const { eq, and, gte } = await import('drizzle-orm');
     const { runAgentTurn } = await import('@/lib/agent/runtime');
     // A flaky connection is not the agent being unintelligent: retry lookups, and retry a case whose answer was an infrastructure failure.
     const retry = async <T,>(fn: () => Promise<T>, tries = 6): Promise<T> => {
@@ -258,7 +280,8 @@ describe('agent evaluation (live)', () => {
       else failures.push(`${c.name} — ${why}`);
       log(`${why === null ? 'PASS' : 'FAIL'}  ${c.name}  (${Date.now() - t0}ms)${why ? `\n        ${why}` : `\n        said: ${said.slice(0, 110)}`}`);
     }
-    // The eval only ever makes plans (nothing is bought); tidy them away.
+    // The eval only ever makes plans (nothing is bought); tidy them away — and any watch it created (its alerts go with it).
+    await retry(() => getDb().delete(schema.yieldWatches).where(and(eq(schema.yieldWatches.userId, prof.userId), gte(schema.yieldWatches.createdAt, runStart))));
     await retry(() => getDb().delete(schema.researchSessions).where(and(eq(schema.researchSessions.userId, prof.userId), eq(schema.researchSessions.status, 'PLANNED'))));
     log(`\n${pass}/${CASES.length} passed`);
     expect(failures, failures.join('\n')).toEqual([]);

@@ -29,6 +29,14 @@ describe('reading a withdrawal', () => {
   });
 });
 
+describe('watching is not depositing', () => {
+  it('never reads a watch request about Aave as a deposit', () => {
+    for (const t of ['add the Aave USDC pool on Celo to my watchlist', 'watch the aave usdt pool', 'keep an eye on aave usdc on celo', 'track aave usdt and alert me', 'tell me when aave usdt hits 3%']) {
+      expect(parseEarnIntent(t).kind, t).toBe('none');
+    }
+  });
+});
+
 describe('not an earn action', () => {
   it('"deposit" alone is about receiving money', () => {
     for (const t of ['I want to deposit crypto', 'deposit 10 USDC', 'how do I deposit money', 'receive USDC from Arbitrum', 'send 10 USDC to @ada', 'put 10 USDC in my vault']) {

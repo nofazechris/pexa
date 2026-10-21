@@ -24,10 +24,12 @@ export const askEarnToken = (action: EarnAction, amount: string | 'all' | null) 
 export const askEarnAmount = (action: EarnAction, token: EarnToken) =>
   `How much ${token} do you want to ${action === 'deposit' ? 'deposit into' : 'withdraw from'} Aave? (A number like 5 or 25.50${action === 'withdraw' ? ' — or “all”' : ''}.)`;
 
-const DEPOSIT_VERBS = /\b(deposit|put|invest|lend|supply|stake|park|move|add)\b/i;
+const DEPOSIT_VERBS = /\b(deposit|put|invest|lend|supply|stake|park|move)\b/i;
 const WITHDRAW_VERBS = /\b(withdraw|take (?:it |them |my \w+ )?out|cash out|pull|remove|redeem|get (?:it|my money) back)\b/i;
 const EARN_CONTEXT = /\b(aave|earn(?:ing|ings)?|yield|lend(?:ing)?|interest|apy)\b/i;
 const NOT_EARN = /\b(receive|incoming|send|pay|payment|transfer|bridge|vault|statement)\b/i;
+/** Watching a pool is not depositing into it, even when the pool is Aave's. */
+const WATCHING = /\b(watch(?:list|ing)?|track(?:ing)?|monitor|alert|notify|keep an eye)\b/i;
 const AMOUNT_RE = /\$?\s*(\d[\d,]*(?:\.\d+)?)/;
 const ALL_RE = /\b(all|everything|whole balance|entire balance|max)\b/i;
 
@@ -65,6 +67,7 @@ export function parseEarnIntent(text: string, previousAssistant?: string): EarnI
     if (parseAmount(bare.replace(/^\$/, '').replace(/,/g, '')) !== null) return { kind: 'earn', action, token, amount: bare.replace(/^\$/, '').replace(/,/g, '') };
   }
 
+  if (WATCHING.test(t)) return { kind: 'none' };
   if (NOT_EARN.test(t) && !/\baave\b/i.test(t)) return { kind: 'none' };
   if (!EARN_CONTEXT.test(t)) return { kind: 'none' };
 

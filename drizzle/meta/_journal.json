@@ -183,6 +183,13 @@
       "when": 1792600387159,
       "tag": "0025_watery_stone_men",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1792602039641,
+      "tag": "0026_rich_jamie_braddock",
+      "breakpoints": true
     }
   ]
 }

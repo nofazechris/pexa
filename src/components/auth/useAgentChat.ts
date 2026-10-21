@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { BuyResult, BuyTypedData } from './useBuy';
 import { carryOverSummary, historyForAgent, type ChatLike } from '@/lib/conversations/describe';
 import type { StatementData } from '@/lib/statements/format';
+import type { YieldView } from '@/lib/yield/view';
 import type { ResearchPlanView, ResearchResult } from '@/lib/research/types';
 import type { ResearchOutcome, ResearchProgress } from './useResearch';
 
@@ -46,6 +47,7 @@ export interface PendingActionView {
     | ({ type: 'recurring_preview' } & RecurringCardData)
     | ({ type: 'research_plan' } & ResearchPlanView)
     | { type: 'ask_location' }
+    | ({ type: 'yield_list' } & YieldView)
     | { type: 'ask_choice'; options: { label: string; text: string; hint?: string; recommended?: boolean }[] }
     | { type: 'buy_quote'; purchaseId: string; service: string; price: string; priceAtomic: string; token: string; detail: string; expiresAt: string; from: string; typedData: BuyTypedData; note: string };
 }
@@ -127,7 +129,7 @@ export interface RecurringCardData {
 export interface ChatMessage {
   id: number;
   role: 'user' | 'agent';
-  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge' | 'swap_preview' | 'swap_receipt' | 'statement' | 'research_plan' | 'research_result' | 'ask_location' | 'ask_choice';
+  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge' | 'swap_preview' | 'swap_receipt' | 'statement' | 'research_plan' | 'research_result' | 'ask_location' | 'ask_choice' | 'yield_list';
   text?: string;
   /** A "find me a vendor / someone to hire" plan waiting for the budget to be approved, how far it has got, and its shortlist. */
   research?: ResearchPlanView;
@@ -141,6 +143,8 @@ export interface ChatMessage {
   bridge?: BridgeCardData;
   /** A statement for a period (shown with Download / Print). */
   statement?: StatementData;
+  /** Yield research shown as a card. */
+  yields?: YieldView;
   /** A conversion to confirm, and (on the receipt) what happened to it. */
   swap?: SwapCardData;
   swapResult?: SwapOutcome;
@@ -316,6 +320,10 @@ export function useAgentChat(deps: AgentChatDeps) {
           const { type: _s, ...card } = action.render;
           void _s;
           push({ role: 'agent', type: 'swap_preview', swap: card, status: 'awaiting' });
+        } else if (action.render.type === 'yield_list') {
+          const { type: _y, ...card } = action.render;
+          void _y;
+          push({ role: 'agent', type: 'yield_list', yields: card });
         } else if (action.render.type === 'ask_location') {
           push({ role: 'agent', type: 'ask_location' });
         } else if (action.render.type === 'ask_choice') {

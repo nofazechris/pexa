@@ -2,6 +2,13 @@
 
 What changed, newest first. Each entry says what it does, where it lives, and whether it has been proven with real money.
 
+## 2026-10-21 — Yield research (read-only)
+
+- **`research_yields` agent tool and card** (`src/lib/yield/*`, `src/components/pexa/YieldCards.tsx`): where money can earn on Celo or any chain, from DefiLlama's free public data. Ranks by what a pool pays steadily (base interest or fees, plus 40% of rewards), never the headline rate; splits "pays steadily" from "temporary rewards"; flags small pools, reward-heavy rates, spikes, impermanent loss, non-stable assets, outliers and unusually high stablecoin rates. Never says "safe". Other chains are research only. The agent states no rates itself (the card carries every number); three live eval cases enforce that.
+- **Found in a visual check with real data:** the source marks Celo's Aave USD₮ as "not a stablecoin" (now detected by symbol) and marks the big Aave pools as statistical outliers (now kept, flagged). A 27% stablecoin pool no longer reads "lower risk".
+- **Verified on-chain (for the next step):** Aave v3 on Celo, Pool `0x3E59A31363E2ad014dcbc521c4a0d5757d9f3402`. USDT and USDC are active reserves; USAT is not a reserve, so it cannot be deposited there.
+- Not built yet: the Aave deposit, the thinking-orb UI.
+
 ## 2026-10-18 — Celo hackathon requirements, swap tagging, USAT offer (`e8bd630`)
 
 - **Swap and approval calldata carry the ERC-8021 tag** (`src/lib/relayer/tag.ts`, `src/lib/swap/service.ts`). Verified by simulation against the real router and the USDC/USDT/USAT contracts (same result tagged and untagged). **Unproven on a live swap** until one real conversion is made; check it with `npm run agent:tag -- verify 0xTX`.

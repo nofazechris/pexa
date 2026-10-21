@@ -26,6 +26,8 @@ import { periodFromArgs } from '@/lib/statements/period';
 import { buildStatement } from '@/lib/statements/build';
 import { depositCheck } from '@/lib/deposits/check';
 import { createResearch, normalizeRequest } from '@/lib/research/service';
+import { researchYields } from '@/lib/yield/service';
+import { queryFrom } from '@/lib/yield/rank';
 
 /**
  * MCP tool surface (§ integrations).
@@ -661,6 +663,24 @@ export const TOOLS: ToolDef[] = [
       const made = await createResearch(ctx.userId, req.request);
       if (!made.ok) throw new ToolError('research_unavailable', made.message);
       return { plan: made.plan, note: 'Nothing was bought. The person must tap Approve on the plan card.' };
+    },
+  }),
+
+  tool({
+    name: 'research_yields',
+    description:
+      "Research where money can earn a yield — lending markets, staking, liquidity pools — on Celo or any other chain, from DefiLlama's public data. Free and read-only: it moves NOTHING and gives no advice. The app shows a card with each pool's steady rate vs temporary rewards, size and risks, ranked by what the pool pays steadily. Use it for 'where can I earn on my USDC', 'best APY', 'staking pools', 'top yields on Base', 'can I earn on USAT'. Stablecoins only unless the person asks for other assets. Never state a rate yourself: only what this returns.",
+    schema: z.object({
+      chains: z.array(z.string()).max(5).optional().describe('Chain names, e.g. ["Celo"], ["Base","Arbitrum"]. Leave empty to search every chain. If the person says nothing about a chain, use ["Celo"] — that is where Pexa can act.'),
+      assets: z.enum(['stablecoins', 'any']).optional().describe('"stablecoins" (default) or "any" when they ask about ETH, CELO, BTC and so on.'),
+      symbol: z.string().max(20).optional().describe('A coin to focus on, e.g. "USDC", "USDT", "USAT", "ETH".'),
+      minTvlUsd: z.number().min(0).optional().describe('Only when they ask to include small pools (lower it) or only big ones (raise it).'),
+      limit: z.number().min(1).max(8).optional(),
+    }),
+    handler: async (_ctx, args) => {
+      const view = await researchYields(queryFrom(args));
+      if (!view) throw new ToolError('yield_unavailable', 'The yield data source didn’t answer just now. Try again in a minute.');
+      return { asOf: view.asOf, pools: view.items, notes: view.notes };
     },
   }),
 

@@ -20,6 +20,7 @@ export interface ChatLike {
   swapResult?: { ok?: boolean; amountOut?: string | null; error?: string };
   statement?: { label?: string; count?: number };
   choices?: { label?: string }[];
+  yields?: { chains?: string[]; symbol?: string | null; items?: { symbol?: string; project?: string; chain?: string; apy?: number; apyBase?: number; apyReward?: number; tvlUsd?: number; risk?: string }[] };
   research?: { title?: string; estimate?: string; cap?: string };
   researchResult?: {
     request?: { kind?: string; what?: string; place?: string; platforms?: string[]; radiusKm?: number | null; priority?: string };
@@ -71,6 +72,14 @@ export function describeCard(m: ChatLike): string | null {
       return m.choices?.length ? `[Showed buttons for the person to choose: ${m.choices.map((c) => c.label ?? '').filter(Boolean).slice(0, 5).join(' / ')}]` : '[Showed buttons for the person to choose a platform: Instagram, TikTok, X or all three]';
     case 'ask_location':
       return '[Showed a button for the person to share their area (a neighbourhood name, not exact coordinates), because the assistant asked where they are]';
+    case 'yield_list': {
+      const y = m.yields;
+      const top = (y?.items ?? [])
+        .slice(0, 5)
+        .map((p) => `${untrustedLabel(p.symbol ?? '?')} on ${untrustedLabel(p.project ?? '?')} (${untrustedLabel(p.chain ?? '?')}): pays steadily ${(p.apyBase ?? 0).toFixed(2)}% plus ${(p.apyReward ?? 0).toFixed(2)}% temporary rewards, about $${Math.round((p.tvlUsd ?? 0) / 1000)}K deposited, ${p.risk ?? 'unrated'} risk`)
+        .join('; ');
+      return `[Showed yield research${y?.chains?.length ? ` for ${y.chains.join(', ')}` : ''}: ${top || 'nothing matched'}. It is research, not advice, and moves no money]`;
+    }
     case 'research_plan':
       return `[Showed a plan to search for “${m.research?.title ?? 'a vendor'}” — about ${m.research?.estimate ?? '?'}, never more than ${m.research?.cap ?? '?'}${m.status === 'awaiting' ? ' — waiting for the person to tap Approve' : m.status === 'cancelled' ? ' — it was cancelled' : ''}]`;
     case 'research_result': {

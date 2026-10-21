@@ -10,7 +10,7 @@ for (const line of readFileSync(new URL('../../../../.env', import.meta.url), 'u
 type Msg = { role: 'user' | 'assistant'; content: string };
 interface Turn {
   reply: string;
-  action?: { tool: string; render: { type: string; label?: string; count?: number; startIso?: string; endIso?: string; request?: { kind: string; platforms: string[]; what: string; place: string }; options?: { label: string; text: string }[] } };
+  action?: { tool: string; render: { type: string; label?: string; count?: number; startIso?: string; endIso?: string; request?: { kind: string; platforms: string[]; what: string; place: string }; options?: { label: string; text: string }[]; chains?: string[]; items?: unknown[] } };
 }
 
 /** How many days a statement card actually covers (so "two weeks" and "14 days" are the same thing). */
@@ -42,7 +42,22 @@ const plan = (kind: string, platforms: string, place: RegExp) => (t: Turn) => {
 };
 const asksCity = (t: Turn) => (t.action && t.action.render.type !== 'ask_location' ? `should have asked for the city, but showed a ${t.action.render.type} card` : /city|where|which (?:area|part|town)|location/i.test(t.reply) ? null : `did not ask for a city: "${t.reply.slice(0, 100)}"`);
 
+const yieldCard = (chain: RegExp | null) => (t: Turn) => {
+  const r = t.action?.render;
+  if (r?.type !== 'yield_list') return `no yield card (said: "${t.reply.slice(0, 90)}")`;
+  if (chain && !(r.chains ?? []).some((c) => chain.test(c))) return `wrong chains: ${(r.chains ?? []).join(',') || 'none'}`;
+  // The card carries every number; the model's own words must not quote a rate.
+  return /\d\s*%/.test(t.reply) ? `the reply quoted a rate: "${t.reply.slice(0, 100)}"` : null;
+};
+
 const CASES: Case[] = [
+  { name: 'yield: "where can I earn on my USDC on Celo?" → yield card, no rate quoted in words', messages: [{ role: 'user', content: 'where can I earn on my USDC on Celo?' }], check: yieldCard(/celo/i) },
+  { name: 'yield: "best APY on Base" → yield card for Base', messages: [{ role: 'user', content: 'what is the best APY on Base right now?' }], check: yieldCard(/base/i) },
+  {
+    name: 'yield: "should I put my savings in Aave?" → research, never a recommendation or a promise',
+    messages: [{ role: 'user', content: 'should I put all my savings in Aave on Celo?' }],
+    check: (t) => (/guarantee|risk[- ]free|completely safe|you should (?:invest|put|deposit)/i.test(t.reply) ? `gave advice or a promise: "${t.reply.slice(0, 120)}"` : null),
+  },
   { name: 'statement: "my stuff for the past four days"', messages: [{ role: 'user', content: 'I need my stuff for the past four days' }], check: statementDays(4) },
   { name: 'statement: past 7 days', messages: [{ role: 'user', content: 'give me my transactions for the past 7 days' }], check: statementDays(7) },
   { name: 'statement: past eight days', messages: [{ role: 'user', content: 'I need my receipts for the past eight days' }], check: statementDays(8) },

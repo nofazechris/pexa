@@ -29,6 +29,7 @@ import { createResearch, normalizeRequest } from '@/lib/research/service';
 import { researchYields } from '@/lib/yield/service';
 import { getEarnPositions } from '@/lib/earn/service';
 import { addWatch, listWatches, removeWatch } from '@/lib/yield/watchlist';
+import { listTickerWatches } from '@/lib/research/stocks/watchlist';
 import { queryFrom } from '@/lib/yield/rank';
 
 /**
@@ -732,8 +733,8 @@ export const TOOLS: ToolDef[] = [
     description: "Show the pools the person is ALREADY watching, with how each has changed since they added it. Free and read-only. Use it ONLY when they ask to SEE the list: 'my watchlist', 'what am I watching', 'how are the pools I'm watching doing'. Never to add something — adding is watch_pool.",
     schema: z.object({}),
     handler: async (ctx) => {
-      const items = await listWatches(ctx.userId);
-      return { count: items.length, pools: items.map((w) => ({ pool: `${w.symbol} on ${w.project} (${w.chain})`, since: w.since, targetApy: w.targetApy })) };
+      const [items, stocks] = await Promise.all([listWatches(ctx.userId), listTickerWatches(ctx.userId)]);
+      return { count: items.length + stocks.length, pools: items.map((w) => ({ pool: `${w.symbol} on ${w.project} (${w.chain})`, since: w.since, targetApy: w.targetApy })), stocks: stocks.map((s) => ({ stock: s.symbol, price: s.price, priceSince: s.priceSince, talk: s.talk })) };
     },
   }),
 

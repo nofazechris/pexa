@@ -73,6 +73,6 @@ export function sinceText(baseline: Snapshot, now: Snapshot | null): string {
 }
 
 /** Of the alerts, drop any kind already sent for this watch inside the cooldown. */
-export function withoutRecent(alerts: readonly WatchAlert[], recent: readonly { kind: string; at: Date }[], now: Date): WatchAlert[] {
+export function withoutRecent<T extends { kind: string }>(alerts: readonly T[], recent: readonly { kind: string; at: Date }[], now: Date): T[] {
   return alerts.filter((a) => !recent.some((r) => r.kind === a.kind && now.getTime() - r.at.getTime() < ALERT_COOLDOWN_MS));
 }

@@ -7,6 +7,7 @@ import type { StatementData } from '@/lib/statements/format';
 import type { YieldView } from '@/lib/yield/view';
 import { THINKING, type Stage } from '@/lib/agent/stage';
 import type { WatchView } from '@/lib/yield/watchlist';
+import type { TickerWatchView } from '@/lib/research/stocks/watchlist';
 import type { ResearchPlanView, ResearchResult } from '@/lib/research/types';
 import type { ResearchOutcome, ResearchProgress } from './useResearch';
 
@@ -57,7 +58,7 @@ export interface PendingActionView {
     | ({ type: 'research_plan' } & ResearchPlanView)
     | { type: 'ask_location' }
     | ({ type: 'yield_list' } & YieldView)
-    | { type: 'watchlist'; items: WatchView[] }
+    | { type: 'watchlist'; items: WatchView[]; tickers: TickerWatchView[] }
     | { type: 'ask_choice'; options: { label: string; text: string; hint?: string; recommended?: boolean }[] }
     | { type: 'buy_quote'; purchaseId: string; service: string; price: string; priceAtomic: string; token: string; detail: string; expiresAt: string; from: string; typedData: BuyTypedData; note: string };
 }
@@ -182,7 +183,7 @@ export interface ChatMessage {
   /** Yield research shown as a card. */
   yields?: YieldView;
   /** The pools the person is watching, shown as a card. */
-  watchlist?: { items: WatchView[] };
+  watchlist?: { items: WatchView[]; tickers: TickerWatchView[] };
   /** A conversion to confirm, and (on the receipt) what happened to it. */
   swap?: SwapCardData;
   earn?: EarnCardData;
@@ -372,7 +373,7 @@ export function useAgentChat(deps: AgentChatDeps) {
           void _s;
           push({ role: 'agent', type: 'swap_preview', swap: card, status: 'awaiting' });
         } else if (action.render.type === 'watchlist') {
-          push({ role: 'agent', type: 'watchlist', watchlist: { items: action.render.items } });
+          push({ role: 'agent', type: 'watchlist', watchlist: { items: action.render.items, tickers: action.render.tickers ?? [] } });
         } else if (action.render.type === 'yield_list') {
           const { type: _y, ...card } = action.render;
           void _y;

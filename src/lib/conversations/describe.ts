@@ -20,7 +20,7 @@ export interface ChatLike {
   swapResult?: { ok?: boolean; amountOut?: string | null; error?: string };
   statement?: { label?: string; count?: number };
   choices?: { label?: string }[];
-  watchlist?: { items?: { symbol?: string; project?: string; chain?: string; since?: string; targetApy?: number | null }[] };
+  watchlist?: { items?: { symbol?: string; project?: string; chain?: string; since?: string; targetApy?: number | null }[]; tickers?: { symbol?: string; priceSince?: string; talk?: string }[] };
   earn?: { action?: string; token?: string; amount?: string; baseApy?: string; rewardApy?: string | null };
   earnResult?: { ok?: boolean; status?: string; amount?: string | null; position?: string | null; error?: string };
   yields?: { convert?: { compare?: string } | null; chains?: string[]; symbol?: string | null; items?: { symbol?: string; project?: string; chain?: string; apy?: number; apyBase?: number; apyReward?: number; tvlUsd?: number; risk?: string }[] };
@@ -90,7 +90,8 @@ export function describeCard(m: ChatLike): string | null {
     case 'watchlist': {
       const items = m.watchlist?.items ?? [];
       const list = items.slice(0, 8).map((w) => `${untrustedLabel(w.symbol ?? '?')} on ${untrustedLabel(w.project ?? '?')} (${untrustedLabel(w.chain ?? '?')}): ${untrustedLabel(w.since ?? '', 120)}${w.targetApy ? `, wants to be told at ${w.targetApy}%` : ''}`).join('; ');
-      return `[Showed the person’s yield watchlist: ${list || 'empty'}. Watching moves no money]`;
+      const stocks = (m.watchlist?.tickers ?? []).slice(0, 8).map((t) => `$${untrustedLabel(t.symbol ?? '?', 8)}: ${untrustedLabel(t.priceSince ?? '', 80)}; talk: ${untrustedLabel(t.talk ?? '', 100)}`).join('; ');
+      return `[Showed the person’s watchlist. Pools: ${list || 'none'}. Stocks: ${stocks || 'none'}. Watching moves no money]`;
     }
     case 'yield_list': {
       const y = m.yields;

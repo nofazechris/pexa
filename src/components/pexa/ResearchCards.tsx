@@ -266,7 +266,7 @@ function ItemRow({ item, r, onTry, getAccessToken }: { item: ResearchItem; r: Re
 export function ResearchResultCard({ m, onTry, getAccessToken }: { m: ChatMessage; onTry?: (text: string) => void; getAccessToken?: () => Promise<string | null> }) {
   const r = m.researchResult;
   if (!r) return null;
-  if (r.stocks) return <StockResultCard r={r} />;
+  if (r.stocks) return <StockResultCard r={r} getAccessToken={getAccessToken} />;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', maxWidth: '460px' }}>
       <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '14px 16px' }}>

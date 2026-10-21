@@ -129,3 +129,46 @@ describe('joining the talk with real prices', () => {
     expect(items[0].fit).toMatch(/cautious|play it safe|size it small/i);
   });
 });
+
+import { focusOf } from './build';
+
+describe('refreshing the talk about one stock', () => {
+  const FOCUS: ResearchRequest = { kind: 'stocks', platforms: ['x', 'reddit'], what: '$NVDA', place: '' };
+  it('knows a single stock from an open-ended research', () => {
+    expect(focusOf('$NVDA')).toBe('NVDA');
+    expect(focusOf('$nvda')).toBe('NVDA');
+    expect(focusOf('AI stocks')).toBeNull();
+    expect(focusOf('stocks')).toBeNull();
+  });
+  it('searches only for that stock: two on X and one on Reddit, a cent or two in all', () => {
+    const qs = stockQueries('$NVDA');
+    expect(qs.map((q) => q.role)).toEqual(['sx1', 'sx2', 'sr1']);
+    expect(String(qs[0].input.query)).toContain('$NVDA');
+    expect(qs[2].input).toMatchObject({ type: 'post', sort: 'hot', timeRange: 'week' });
+    const p = describePlan(FOCUS);
+    expect(p.title).toBe('Refresh the talk about $NVDA');
+    expect(p.estimate).toBe('$0.015');
+    expect(p.steps.join(' ')).toMatch(/compare with last time/);
+  });
+  it('buys the three and finishes', () => {
+    const steps: StepState[] = [];
+    const bought: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const n = decideNext(FOCUS, steps);
+      if (n.action === 'finish') break;
+      bought.push(n.role);
+      steps.push(step({ role: n.role, output: n.role.startsWith('sx') ? xOut(4, 'NVDA') : redditOut('NVDA') }));
+    }
+    expect(bought).toEqual(['sx1', 'sx2', 'sr1']);
+  });
+  it('answers with that stock even when almost nobody is talking about it — that is the finding', () => {
+    const r = assemble(FOCUS, [step({ role: 'sx1', output: xOut(1, 'NVDA') })], 'done', NOW);
+    expect(r.stocks?.candidates).toHaveLength(1);
+    expect(r.stocks?.candidates[0]).toMatchObject({ symbol: 'NVDA', authors: 1 });
+    expect(r.summary).toMatch(/1 different people were talking about it|0 different people|1 different/);
+  });
+  it('with plenty of talk, counts the people', () => {
+    const r = assemble(FOCUS, [step({ role: 'sx1', output: xOut(7, 'NVDA') }), step({ role: 'sr1', output: redditOut('NVDA') })], 'done', NOW);
+    expect(r.stocks?.candidates[0].authors).toBe(9);
+  });
+});

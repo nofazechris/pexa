@@ -44,6 +44,7 @@ import { CHOICES, EMPTY_PROFILE, QUESTION, applyAnswer, maxPoolRisk, minPoolSize
 import { parseInvestIntent, themeLabel } from './invest-intent';
 import { coinNamed } from '@/lib/yield/coin';
 import { addWatch, listWatches, removeWatch, type WatchView } from '@/lib/yield/watchlist';
+import { addTickerWatch, listTickerWatches, removeTickerWatch, type TickerWatchView } from '@/lib/research/stocks/watchlist';
 import { parseWatchIntent, type WatchIntent } from '@/lib/yield/watch-intent';
 import { queryFrom } from '@/lib/yield/rank';
 import type { YieldView } from '@/lib/yield/view';
@@ -201,6 +202,7 @@ Buying services on Celo's Buy marketplace (you can spend the user's dollar stabl
 - YIELD RESEARCH — "where can I earn on my USDC", "best APY / yield", "staking pools", "what pays the most on Celo / Base", "can I earn on USAT": call research_yields. The app turns it into a card; keep your own words to ONE short sentence and state NO rates, sizes or rankings yourself — only what the card (or the bracketed note in the history) shows. Say it is research, not financial advice, if they ask whether to invest; never tell anyone what to buy or that something is safe or guaranteed. If they ask why the headline number differs from "pays steadily", explain that part is temporary rewards. Pexa can only move money on Celo: pools on other chains are research only. The card moves nothing.
 - INVESTING (you are a financial research agent, not a broker): the app itself asks a new person three quick questions (how they feel about risk, when they need the money, roughly how much) before researching, then runs stock research through Buy (X and Reddit) joined with real prices, or yield research. Pexa CANNOT buy or sell stocks — say so plainly, never pretend. Always separate what the data shows from what you think; never promise returns, never call anything safe, never tell someone how much to invest. If what they say doesn't match what you're doing (a different coin, a different goal), say so and find common ground in plain words instead of silently doing something else.
 - PROTOCOL CHECK (Buy): "Search X and Reddit for recent posts about <protocol> on <chain>: hacks, exploits, depegs or withdrawal problems" (the "Check what people say" button on a pool) is a normal Buy request: search X posts (latest) and Reddit with the protocol's name plus words like exploit, hack, depeg, "can't withdraw", paid by the person's own wallet after they approve each quote. When the results come back, report ONLY what the posts say — roughly how many are relevant, how recent, and a plain paraphrase of the newest few — and say that social posts are not proof either way. Never say a protocol is safe or unsafe, and never tell them to deposit or not to.
+- STOCK WATCH: "watch $NVDA" / "stop watching $AMD" / "refresh the talk about $NVDA" are read by the app itself. Watching a stock moves no money and tells the person (in their notifications) when its price moves 10% or more; the price is checked free when they open the app and once a day, but the talk on X and Reddit costs a few cents through Buy, so it is only refreshed when they ask. Never claim to be watching the talk continuously.
 - WATCHLIST: after showing yield research, end with ONE short question offering to watch a pool or (for Aave on Celo) deposit — the cards have Watch and Deposit buttons. "Watch / keep an eye on / tell me if it changes / tell me when it reaches 3%" → call watch_pool (chain + coin, targetApy only if they gave a rate). "My watchlist / what am I watching" → get_watchlist (a card). "Stop watching X" → unwatch_pool. Watching moves no money and only tells them, in their notifications, when a pool's steady rate moves a lot, rewards end or start, money leaves it, or it reaches their rate. After watch_pool or unwatch_pool just confirm in one short sentence — do not also call get_watchlist. Never promise they will be told instantly: checks run when they open the app and once a day.
 - EARNING ON AAVE: depositing into and withdrawing from Aave on Celo is handled by the app itself (a Confirm card shows up — you never do it and never say it is done). Only USDT and USDC can go in (USAT is not an Aave market: it must be converted to USDT first); beta cap $25 per deposit; the person can take it out whenever Aave has cash. For "how much do I have in Aave / what have I earned" call get_earn_position and report exactly what it returns. If they want to put money in but name no coin, the app asks. Never promise a return, never say it is safe, never tell them how much to deposit. Pexa cannot buy stocks: if asked, say so and offer yield research instead. Pools on other chains are research only; if their money is on another chain they can bring it to Celo first (getting paid from another network).
 - Summarize search results for a person, not a developer: lead with the answer, quote at most a short phrase, name sources (platform, rough date), skip IDs and URLs unless asked.
@@ -268,7 +270,7 @@ export interface PendingAction {
     /** An Aave deposit or withdrawal waiting for the person's Confirm (they sign it with their own wallet). */
     | ({ type: 'earn_preview' } & EarnPreview)
     /** The pools the person is watching, with how each has changed since. Nothing to confirm. */
-    | { type: 'watchlist'; items: WatchView[] }
+    | { type: 'watchlist'; items: WatchView[]; tickers: TickerWatchView[] }
     /** Yield research: ranked pools with steady rate vs rewards and the risks. Nothing to confirm; moves no money. */
     | ({ type: 'yield_list' } & YieldView)
     /** Buttons for picking one of a few options (which platform to search); each sends its `text` as the person's next message. */
@@ -356,7 +358,7 @@ async function buildRender(ctx: ToolContext, tool: string, args: Record<string, 
     return { type: 'statement', ...data };
   }
   if (tool === 'get_watchlist') {
-    return { type: 'watchlist', items: await listWatches(ctx.userId) };
+    return { type: 'watchlist', items: await listWatches(ctx.userId), tickers: await listTickerWatches(ctx.userId) };
   }
   if (tool === 'research_yields') {
     emitStage('searching', 'Reading your balances…');
@@ -431,10 +433,23 @@ async function handleEarn(ctx: ToolContext, intent: Extract<EarnIntent, { kind: 
 /** Watching pools: add, stop, or show the list. Read by the app itself; moves no money. */
 async function handleWatch(ctx: ToolContext, intent: Exclude<WatchIntent, { kind: 'none' }>): Promise<AgentTurn> {
   emitStage(intent.kind === 'show' ? 'searching' : 'walking', intent.kind === 'show' ? 'Reading your watchlist…' : 'Saving that…');
-  const card = async (reply: string): Promise<AgentTurn> => ({ reply, action: { tool: 'get_watchlist', args: {}, render: { type: 'watchlist', items: await listWatches(ctx.userId) } } });
+  const card = async (reply: string): Promise<AgentTurn> => ({ reply, action: { tool: 'get_watchlist', args: {}, render: { type: 'watchlist', items: await listWatches(ctx.userId), tickers: await listTickerWatches(ctx.userId) } } });
   if (intent.kind === 'show') {
-    const items = await listWatches(ctx.userId);
-    return card(items.length ? 'Here are the pools you’re watching.' : 'You’re not watching any pools yet — ask me to research yields and tap Watch on one.');
+    const [pools, stocks] = await Promise.all([listWatches(ctx.userId), listTickerWatches(ctx.userId)]);
+    return card(pools.length || stocks.length ? 'Here is what you’re watching.' : 'You’re not watching anything yet — ask me to research yields or stocks and tap Watch on one.');
+  }
+  if (intent.kind === 'watch_ticker') {
+    const r = await addTickerWatch(ctx.userId, intent.symbol);
+    if (!r.ok) return { reply: r.message };
+    const w = r.watch;
+    return card(`${r.alreadyWatching ? 'You’re already watching' : 'Now watching'} $${w.symbol}${w.name ? ` (${w.name})` : ''}${w.price !== null ? ` — it’s $${w.price.toFixed(2)} now` : ''}. I’ll tell you in your notifications when its price moves 10% or more from here. I check the price when you open the app and once a day. Talk on X and Reddit costs a few cents through Buy to look at, so I only refresh it when you ask (“refresh the talk about $${w.symbol}”). Nothing was bought.`);
+  }
+  if (intent.kind === 'unwatch_ticker') {
+    const r = await removeTickerWatch(ctx.userId, { symbol: intent.symbol });
+    return r.ok ? card(r.message) : { reply: r.message };
+  }
+  if (intent.kind === 'refresh_ticker') {
+    return planStockResearch(ctx, `$${intent.symbol}`, `I can refresh the talk about $${intent.symbol}: I’ll read the newest posts on X and Reddit through Buy and count how many different people are talking, then show it next to the price and compare with last time. It costs about a cent or two; approve below and I’ll run it.`);
   }
   if (intent.kind === 'unwatch') {
     if (!intent.chain && !intent.project && !intent.symbol) return card('Tap “Stop watching” on the ones you want to drop.');
@@ -489,13 +504,18 @@ async function handleProfileAnswer(ctx: ToolContext, input: { userId: string; me
 
 /** Stock research: plan it (nothing is bought until the person approves the small budget). */
 async function handleStocks(ctx: ToolContext, theme: string | null): Promise<AgentTurn> {
-  emitStage('walking', 'Planning the stock research…');
+  return planStockResearch(ctx, themeLabel(theme), 'I can research that: I’ll read what people are posting on X and Reddit through Buy, then check each stock’s real price history. It costs a few cents; approve below and I’ll run it.');
+}
+
+/** Plan a stock research (open-ended, or `$SYMBOL` for one stock's talk): nothing is bought until the person approves the small budget. */
+async function planStockResearch(ctx: ToolContext, what: string, reply: string): Promise<AgentTurn> {
+  emitStage('walking', 'Planning the research…');
   if (!buyAvailable()) return { reply: 'Research uses Buy, which runs on Celo mainnet only.' };
-  const req = normalizeRequest({ kind: 'stocks', what: themeLabel(theme) });
+  const req = normalizeRequest({ kind: 'stocks', what });
   if (!req.ok) return { reply: req.message };
   const made = await createResearch(ctx.userId, req.request);
   if (!made.ok) return { reply: made.message };
-  return { reply: 'I can research that: I’ll read what people are posting on X and Reddit through Buy, then check each stock’s real price history. It costs a few cents; approve below and I’ll run it.', action: { tool: 'plan_research', args: {}, render: { type: 'research_plan', ...made.plan } } };
+  return { reply, action: { tool: 'plan_research', args: {}, render: { type: 'research_plan', ...made.plan } } };
 }
 
 const BRIDGE_DEADLINE_MS = 25_000;
@@ -1041,7 +1061,7 @@ async function runAgentTurnInner(input: { userId: string; messages: AgentMessage
           render.type === 'statement'
             ? statementReply(render.label, render, args.days === undefined && args.from === undefined)
             : render.type === 'watchlist'
-              ? render.items.length ? 'Here are the pools you’re watching.' : 'You’re not watching any pools yet — ask me to research yields and tap Watch on one.'
+              ? render.items.length || render.tickers.length ? 'Here is what you’re watching.' : 'You’re not watching anything yet — ask me to research yields or stocks and tap Watch on one.'
               : render.type === 'yield_list'
               ? 'Here’s what I found — it’s research, not advice.'
               : render.type === 'research_plan'

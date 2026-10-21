@@ -5,6 +5,7 @@ import { color } from '@/lib/design/tokens';
 import type { YieldView } from '@/lib/yield/view';
 import { checkText, type YieldPool } from '@/lib/yield/rank';
 import type { WatchView } from '@/lib/yield/watchlist';
+import type { TickerWatchView } from '@/lib/research/stocks/watchlist';
 
 /**
  * The yield research card: a ranked list of pools where every number is the data source's, split into what a pool pays
@@ -217,22 +218,64 @@ function WatchRow({ w, onTry, getAccessToken, onRemoved }: { w: WatchView; onTry
   );
 }
 
-/** The pools the person is watching, with how each has changed since they added it. Nothing here moves money. */
-export function WatchlistCard({ items, onTry, getAccessToken }: { items: WatchView[]; onTry?: (text: string) => void; getAccessToken?: () => Promise<string | null> }) {
+function TickerRow({ w, onTry, getAccessToken, onRemoved }: { w: TickerWatchView; onTry?: (text: string) => void; getAccessToken?: () => Promise<string | null>; onRemoved: (id: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '14px', padding: '13px 15px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <div style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '-.01em' }}>
+          ${w.symbol} {w.name ? <span style={{ fontWeight: 400, color: color.mutedStrong }}>· {w.name}</span> : null}
+        </div>
+        <span style={{ fontSize: '11.5px', color: color.mutedStrong }}>stock</span>
+      </div>
+      <div style={{ fontSize: '22px', fontWeight: 600, letterSpacing: '-.03em', fontVariantNumeric: 'tabular-nums', marginTop: '6px' }}>{w.price !== null ? `$${w.price.toFixed(2)}` : '—'}</div>
+      <div style={{ fontSize: '12.5px', lineHeight: 1.5, color: color.mutedStrong, marginTop: '6px' }}>Since you added it: {w.priceSince}. Talk: {w.talk}.</div>
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginTop: '10px' }}>
+        {onTry ? (
+          <button onClick={() => onTry(`Refresh the talk about $${w.symbol}`)} style={small} title="Reads the newest posts on X and Reddit through Buy: a cent or two from your wallet, after you approve.">
+            Refresh the talk
+          </button>
+        ) : null}
+        <button
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            const r = await callWatch(getAccessToken, { action: 'remove_ticker', id: w.id });
+            if (r.ok) onRemoved(w.id);
+            else setBusy(false);
+          }}
+          style={{ ...small, opacity: busy ? 0.6 : 1 }}
+        >
+          Stop watching
+        </button>
+        <a href={w.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: color.primary, textDecoration: 'none' }}>
+          See the chart ↗
+        </a>
+      </div>
+    </div>
+  );
+}
+
+/** What the person is watching — pools and stocks — with how each has changed since they added it. Nothing here moves money. */
+export function WatchlistCard({ items, tickers = [], onTry, getAccessToken }: { items: WatchView[]; tickers?: TickerWatchView[]; onTry?: (text: string) => void; getAccessToken?: () => Promise<string | null> }) {
   const [gone, setGone] = useState<string[]>([]);
   const shown = items.filter((w) => !gone.includes(w.id));
+  const stocks = tickers.filter((t) => !gone.includes(t.id));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', maxWidth: '460px' }}>
       <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '14px 16px' }}>
         <div style={{ fontFamily: MONO, fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>YOUR WATCHLIST</div>
         <div style={{ fontSize: '14px', lineHeight: 1.5, marginTop: '8px', color: color.ink }}>
-          {shown.length ? `Watching ${shown.length} pool${shown.length === 1 ? '' : 's'}. I’ll tell you in your notifications when one changes a lot, its rewards end, money leaves it, or it reaches a rate you asked for.` : 'You’re not watching any pools. Ask me to research yields and tap Watch on one.'}
+          {shown.length || stocks.length ? `Watching ${shown.length} pool${shown.length === 1 ? '' : 's'} and ${stocks.length} stock${stocks.length === 1 ? '' : 's'}. I’ll tell you in your notifications when a pool changes a lot, its rewards end, money leaves it, or it reaches a rate you asked for, and when a stock’s price moves 10% or more.` : 'You’re not watching anything. Ask me to research yields or stocks and tap Watch on one.'}
         </div>
       </div>
       {shown.map((w) => (
         <WatchRow key={w.id} w={w} onTry={onTry} getAccessToken={getAccessToken} onRemoved={(id) => setGone((g) => [...g, id])} />
       ))}
-      <div style={{ fontSize: '12px', color: color.mutedStrong, lineHeight: 1.55, padding: '0 4px' }}>I check when you open the app and once a day. {YIELD_NOTE}</div>
+      {stocks.map((t) => (
+        <TickerRow key={t.id} w={t} onTry={onTry} getAccessToken={getAccessToken} onRemoved={(id) => setGone((g) => [...g, id])} />
+      ))}
+      <div style={{ fontSize: '12px', color: color.mutedStrong, lineHeight: 1.55, padding: '0 4px' }}>I check pools and prices when you open the app and once a day; the talk about a stock is only refreshed when you ask, because it costs a few cents. {YIELD_NOTE}</div>
     </div>
   );
 }

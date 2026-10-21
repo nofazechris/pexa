@@ -6,7 +6,7 @@
  * Each platform the person chose is its own small pipeline — search, search again under the name sellers use if few turned up, then
  * look inside each promising account individually — and the answers are merged, rated and ranked together.
  */
-import { candidatesFrom as stockCandidates, postsFromSteps, stockQueries } from './stocks/build';
+import { candidatesFrom as stockCandidates, focusOf, postsFromSteps, stockQueries } from './stocks/build';
 import { cityOf, searchKeywords, themeFor } from './commerce';
 import { igCandidates, igProfile, liPeople, tiktokCandidates, tiktokProfile, xTweets, type IgCandidate } from './read';
 import { mergeSameBusiness } from './dedupe';
@@ -113,6 +113,16 @@ const NAME: Record<Platform, string> = { instagram: 'Instagram', tiktok: 'TikTok
 const list = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 export function describePlan(req: ResearchRequest): PlanText {
+  if (req.kind === 'stocks' && focusOf(req.what)) {
+    const sym = focusOf(req.what);
+    return {
+      title: `Refresh the talk about $${sym}`,
+      steps: [`Search X for the most-liked and the newest posts about $${sym} (two searches)`, `Search Reddit for $${sym} (one search)`, 'Count how many different people are talking, leaving out copy-pasted promotion, and compare with last time', 'Show it next to the stock’s price — nothing is bought or sold, and nothing here is advice'],
+      estimate: dollars(15_000n),
+      cap: dollars(100_000n),
+      capAtomic: 100_000n,
+    };
+  }
   if (req.kind === 'stocks') {
     return {
       title: sentence(`research ${req.what} people are talking about`),
@@ -318,7 +328,8 @@ export function decideNext(req: ResearchRequest, steps: readonly StepState[]): N
 
 /** Stock research: the tickers with real attention. Prices are joined on the server afterwards (it needs the network). */
 function assembleStocks(req: ResearchRequest, steps: readonly StepState[], reason: FinishReason, now: Date): ResearchResult {
-  const { candidates, read } = stockCandidates(steps, now);
+  const focus = focusOf(req.what);
+  const { candidates, read } = stockCandidates(steps, now, focus);
   const notes: string[] = [];
   if (reason === 'uncertain') notes.push('One payment didn’t confirm, so I stopped. It may have gone through — check Purchases & receipts before searching again.');
   if (reason === 'limit') notes.push('I stopped at my purchase limit for one search.');
@@ -327,7 +338,7 @@ function assembleStocks(req: ResearchRequest, steps: readonly StepState[], reaso
   const spent = steps.filter((s) => s.outcome === 'PAID' || s.outcome === 'UNCERTAIN').reduce((a, s) => a + s.priceAtomic, 0n);
   return {
     request: req,
-    summary: candidates.length ? `I read ${read.x + read.reddit} posts and found ${candidates.length} tickers that different people are talking about.` : 'I couldn’t find a stock that several different people were talking about.',
+    summary: focus ? `I read ${read.x + read.reddit} posts about $${focus}: ${candidates[0]?.authors ?? 0} different people were talking about it.` : candidates.length ? `I read ${read.x + read.reddit} posts and found ${candidates.length} tickers that different people are talking about.` : 'I couldn’t find a stock that several different people were talking about.',
     items: [],
     notes,
     spent: dollars(spent),

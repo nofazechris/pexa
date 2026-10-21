@@ -152,6 +152,8 @@ export interface StockResearch {
   unverified: string[];
   /** What the person told us, reflected back, when they have a profile. */
   profileNote: string | null;
+  /** Set when this is a refresh of the talk about one stock ("NVDA"). */
+  focus?: string;
   /** The tickers found before prices were looked up (cleared once the card is built). */
   candidates: import('./stocks/heat').Heat[];
 }

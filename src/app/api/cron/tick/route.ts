@@ -6,6 +6,7 @@ import { runDueRecurring } from '@/lib/recurring/worker';
 import { runDueRules } from '@/lib/rules/worker';
 import { reconcileFiatOrders } from '@/lib/fiat/settlement';
 import { runWatchChecks } from '@/lib/yield/watchlist';
+import { runTickerChecks } from '@/lib/research/stocks/watchlist';
 
 /**
  * Consolidated cron dispatcher. One scheduled trigger runs every periodic worker in sequence:
@@ -45,6 +46,8 @@ async function handle(req: Request): Promise<Response> {
       await step('rules', runDueRules),
       // Look again at every pool someone is watching and write alerts for what changed.
       await step('watch', runWatchChecks),
+      // The price of every watched stock (free to read); the talk costs Buy purchases, so it is only refreshed when a person asks.
+      await step('tickers', runTickerChecks),
       // Fiat reconciliation is a no-op unless the fiat feature is configured; skip it otherwise.
       features.fiat ? await step('fiat', reconcileFiatOrders) : { fiat: { ok: true, skipped: true } },
     );

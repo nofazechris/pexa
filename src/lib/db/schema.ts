@@ -879,6 +879,56 @@ export const watchAlerts = pgTable(
 
 export type YieldWatchRow = typeof yieldWatches.$inferSelect;
 
+/**
+ * A stock ticker a person is watching: what the talk and the price looked like when they added it (the baseline), the last talk
+ * snapshot (updated when they refresh it, which costs a few cents through Buy), and the price we last told them about.
+ */
+export const tickerWatches = pgTable(
+  "ticker_watches",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    symbol: text("symbol").notNull(),
+    name: text("name"),
+    baselineAuthors: integer("baseline_authors").notNull().default(0),
+    baselinePosts: integer("baseline_posts").notNull().default(0),
+    baselinePrice: real("baseline_price"),
+    /** The talk as of the last refresh. */
+    lastAuthors: integer("last_authors").notNull().default(0),
+    lastPosts: integer("last_posts").notNull().default(0),
+    tractionAt: timestamp("traction_at", { withTimezone: true }),
+    /** The price we last told them about (or the baseline): the next price alert is measured against it. */
+    refPrice: real("ref_price"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("ticker_watches_user_symbol_uq").on(t.userId, t.symbol), index("ticker_watches_active_idx").on(t.active)],
+);
+
+/** Something worth telling a person about a stock they watch. Shown in their notifications. */
+export const tickerAlerts = pgTable(
+  "ticker_alerts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    watchId: uuid("watch_id")
+      .notNull()
+      .references(() => tickerWatches.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    detail: text("detail").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ticker_alerts_user_time_idx").on(t.userId, t.createdAt), index("ticker_alerts_watch_kind_idx").on(t.watchId, t.kind, t.createdAt)],
+);
+
+export type TickerWatchRow = typeof tickerWatches.$inferSelect;
+
 /** What a person told Pexa about how they invest (risk comfort, time horizon, roughly how much). Theirs alone; shapes what Pexa shows them. */
 export const investorProfiles = pgTable("investor_profiles", {
   userId: uuid("user_id")

@@ -3,6 +3,7 @@ import { rateLimit } from '@/lib/security/ratelimit';
 import { withUser, errorResponse, jsonError } from '@/lib/http';
 import { getOrCreateUser } from '@/lib/users/service';
 import { addWatch, listWatches, removeWatch } from '@/lib/yield/watchlist';
+import { addTickerWatch, removeTickerWatch } from '@/lib/research/stocks/watchlist';
 
 /**
  * The person's yield watchlist. POST {action:'add', poolId | chain+symbol(+project), targetApy?} or {action:'remove', id}.
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
   const tooMany = rateLimit('watch', auth.user.userId, { max: 30, windowMs: 60_000 });
   if (tooMany) return tooMany;
 
-  let body: { action?: unknown; poolId?: unknown; id?: unknown; chain?: unknown; project?: unknown; symbol?: unknown; targetApy?: unknown };
+  let body: { action?: unknown; poolId?: unknown; id?: unknown; chain?: unknown; project?: unknown; symbol?: unknown; targetApy?: unknown; authors?: unknown; posts?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -40,6 +41,14 @@ export async function POST(req: Request) {
     if (body.action === 'add') {
       const r = await addWatch(user.id, { poolId: str(body.poolId, 80), chain: str(body.chain, 30), project: str(body.project, 40), symbol: str(body.symbol, 30) }, typeof body.targetApy === 'number' ? body.targetApy : null);
       return r.ok ? NextResponse.json(r) : NextResponse.json(r, { status: 409 });
+    }
+    if (body.action === 'add_ticker') {
+      const r = await addTickerWatch(user.id, str(body.symbol, 8) ?? '', { authors: typeof body.authors === 'number' ? body.authors : undefined, posts: typeof body.posts === 'number' ? body.posts : undefined });
+      return r.ok ? NextResponse.json(r) : NextResponse.json(r, { status: 409 });
+    }
+    if (body.action === 'remove_ticker') {
+      const r = await removeTickerWatch(user.id, { id: str(body.id, 40) });
+      return r.ok ? NextResponse.json(r) : NextResponse.json(r, { status: 404 });
     }
     if (body.action === 'remove') {
       const r = await removeWatch(user.id, { id: str(body.id, 40) });

@@ -73,6 +73,26 @@ const CASES: Case[] = [
     check: (t) => (t.action?.render.type === 'watchlist' && !/how much/i.test(t.reply) ? null : `unexpected: ${t.action?.render.type ?? 'no card'} "${t.reply.slice(0, 100)}"`),
   },
   {
+    name: 'stock watch: "watch $NVDA" → saved with its real price, nothing bought',
+    messages: [{ role: 'user', content: 'watch $NVDA' }],
+    check: (t) => (t.action?.render.type === 'watchlist' && /now watching \$NVDA/i.test(t.reply) && /nothing was bought/i.test(t.reply) && /\$\d/.test(t.reply) ? null : `didn't confirm: ${t.action?.render.type ?? 'no card'} "${t.reply.slice(0, 120)}"`),
+  },
+  {
+    name: 'stock watch: "refresh the talk about $NVDA" → a small Buy research plan for that one stock',
+    messages: [{ role: 'user', content: 'refresh the talk about $NVDA' }],
+    check: (t) => (t.action?.render.type === 'research_plan' && t.action.render.request?.kind === 'stocks' && t.action.render.request?.what === '$NVDA' ? null : `no plan: ${t.action?.render.type ?? 'no card'} "${t.reply.slice(0, 100)}"`),
+  },
+  {
+    name: 'stock watch: "stop watching $NVDA" → stopped',
+    messages: [{ role: 'user', content: 'stop watching $NVDA' }],
+    check: (t) => (/stopped watching \$NVDA/i.test(t.reply) ? null : `didn't confirm: "${t.reply.slice(0, 110)}"`),
+  },
+  {
+    name: 'stock watch: a made-up symbol is refused, not watched',
+    messages: [{ role: 'user', content: 'watch $ZZZZQ' }],
+    check: (t) => (!t.action && /couldn.t find a stock/i.test(t.reply) ? null : `unexpected: ${t.action?.render.type ?? 'no card'} "${t.reply.slice(0, 110)}"`),
+  },
+  {
     name: 'watch: "show my watchlist" → a watchlist card',
     messages: [{ role: 'user', content: 'show my watchlist' }],
     check: (t) => (t.action?.render.type === 'watchlist' ? null : `no watchlist card: ${t.action?.render.type ?? 'none'} "${t.reply.slice(0, 80)}"`),
@@ -296,6 +316,7 @@ describe('agent evaluation (live)', () => {
     });
     // The eval only ever makes plans (nothing is bought); tidy them away — and any watch it created (its alerts go with it).
     await retry(() => getDb().delete(schema.yieldWatches).where(and(eq(schema.yieldWatches.userId, prof.userId), gte(schema.yieldWatches.createdAt, runStart))));
+    await retry(() => getDb().delete(schema.tickerWatches).where(and(eq(schema.tickerWatches.userId, prof.userId), gte(schema.tickerWatches.createdAt, runStart))));
     await retry(() => getDb().delete(schema.researchSessions).where(and(eq(schema.researchSessions.userId, prof.userId), eq(schema.researchSessions.status, 'PLANNED'))));
     log(`\n${pass}/${CASES.length} passed`);
     expect(failures, failures.join('\n')).toEqual([]);

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { color } from '@/lib/design/tokens';
 import type { ResearchResult, StockItem } from '@/lib/research/types';
 
@@ -23,7 +24,38 @@ function Stat({ label, value, c }: { label: string; value: string; c?: string })
   );
 }
 
-function Item({ s }: { s: StockItem }) {
+/** "Watch" on a stock: saves it with how much talk there is now, and tells the person when its price moves a lot. Moves no money. */
+function WatchStock({ s, getAccessToken }: { s: StockItem; getAccessToken?: () => Promise<string | null> }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
+  const [note, setNote] = useState('');
+  if (!getAccessToken) return null;
+  return (
+    <>
+      <button
+        disabled={state === 'busy' || state === 'done'}
+        onClick={async () => {
+          setState('busy');
+          try {
+            const token = await getAccessToken();
+            const res = await fetch('/api/watch', { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ action: 'add_ticker', symbol: s.symbol, authors: s.heat.authors, posts: s.heat.posts }) });
+            const data = (await res.json().catch(() => ({}))) as { message?: string };
+            setState(res.ok ? 'done' : 'error');
+            setNote(res.ok ? '' : (data.message ?? 'Couldn’t save that.'));
+          } catch {
+            setState('error');
+            setNote('Couldn’t reach Pexa just now.');
+          }
+        }}
+        style={{ border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '13px', fontWeight: 500, padding: '7px 13px', borderRadius: '10px', cursor: state === 'done' ? 'default' : 'pointer', opacity: state === 'busy' ? 0.6 : 1 }}
+      >
+        {state === 'done' ? 'Watching ✓' : state === 'busy' ? 'Saving…' : 'Watch'}
+      </button>
+      {state === 'error' ? <span style={{ fontSize: '12px', color: color.warning }}> {note}</span> : null}
+    </>
+  );
+}
+
+function Item({ s, getAccessToken }: { s: StockItem; getAccessToken?: () => Promise<string | null> }) {
   return (
     <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '14px', padding: '13px 15px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -66,7 +98,8 @@ function Item({ s }: { s: StockItem }) {
         </div>
       ) : null}
 
-      <div style={{ marginTop: '9px', fontSize: '12px' }}>
+      <div style={{ marginTop: '10px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', fontSize: '12px' }}>
+        <WatchStock s={s} getAccessToken={getAccessToken} />
         <a href={`https://finance.yahoo.com/quote/${encodeURIComponent(s.symbol)}`} target="_blank" rel="noopener noreferrer" style={{ color: color.primary, textDecoration: 'none' }}>
           See the chart ↗
         </a>
@@ -75,13 +108,13 @@ function Item({ s }: { s: StockItem }) {
   );
 }
 
-export function StockResultCard({ r }: { r: ResearchResult }) {
+export function StockResultCard({ r, getAccessToken }: { r: ResearchResult; getAccessToken?: () => Promise<string | null> }) {
   const s = r.stocks;
   if (!s) return null;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', maxWidth: '460px' }}>
       <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '14px 16px' }}>
-        <div style={{ fontFamily: MONO, fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>STOCK RESEARCH · {s.theme.toUpperCase()}</div>
+        <div style={{ fontFamily: MONO, fontSize: '10.5px', letterSpacing: '.12em', color: color.faint }}>{s.focus ? `THE TALK ABOUT $${s.focus}` : `STOCK RESEARCH · ${s.theme.toUpperCase()}`}</div>
         <div style={{ fontSize: '14.5px', lineHeight: 1.5, marginTop: '8px', color: color.ink }}>{r.summary}</div>
         {s.profileNote ? <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '8px' }}>{s.profileNote}</div> : null}
         <div style={{ fontFamily: MONO, fontSize: '11.5px', color: color.faint, marginTop: '8px' }}>
@@ -89,7 +122,7 @@ export function StockResultCard({ r }: { r: ResearchResult }) {
         </div>
       </div>
       {s.items.map((it) => (
-        <Item key={it.symbol} s={it} />
+        <Item key={it.symbol} s={it} getAccessToken={getAccessToken} />
       ))}
       {r.notes.length ? (
         <div style={{ fontSize: '12px', color: color.mutedStrong, lineHeight: 1.55, padding: '0 4px' }}>

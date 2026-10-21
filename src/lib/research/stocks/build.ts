@@ -1,6 +1,6 @@
 import { xTweets } from '../read';
 import { collectMentions, type Post } from './tickers';
-import { rankHeat, type Heat } from './heat';
+import { heatOf, rankHeat, type Heat } from './heat';
 import { redditPosts } from './reddit';
 import { assessStock } from './assess';
 import type { PriceStats } from './prices';
@@ -21,8 +21,23 @@ export interface StockQuery {
   label: string;
 }
 
+/** "$NVDA" → "NVDA": the one stock a research is about (a refresh of the talk), or null for open-ended discovery. */
+export function focusOf(what: string): string | null {
+  const m = what.trim().match(/^\$([A-Za-z]{1,5})$/);
+  return m ? m[1].toUpperCase() : null;
+}
+
 /** The four searches: two on X (the most-liked posts, and the newest), two on Reddit (what's hot, and the best-argued write-ups). */
 export function stockQueries(theme: string): StockQuery[] {
+  const focus = focusOf(theme);
+  if (focus) {
+    // One stock: what people said about it in the last few days, on X (most-liked, then newest) and on Reddit.
+    return [
+      { role: 'sx1', capabilityId: STOCK_SERVICE.xSearch, input: { query: `$${focus} min_faves:5 within_time:3d lang:en`, type: 'top' }, label: `Searching X for the most-liked posts about $${focus}` },
+      { role: 'sx2', capabilityId: STOCK_SERVICE.xSearch, input: { query: `$${focus} within_time:2d lang:en`, type: 'latest' }, label: `Searching X for the newest posts about $${focus}` },
+      { role: 'sr1', capabilityId: STOCK_SERVICE.redditSearch, input: { query: `${focus} stock`, type: 'post', sort: 'hot', timeRange: 'week' }, label: `Searching Reddit for $${focus}` },
+    ];
+  }
   const t = theme.replace(/\bstocks?\b/gi, '').replace(/[()"]/g, ' ').replace(/\s+/g, ' ').trim();
   const q = (s: string) => `${s}${t ? ` ${t}` : ''}`.slice(0, 500);
   return [
@@ -59,9 +74,12 @@ export function postsFromSteps(steps: readonly Step[]): { posts: Post[]; x: numb
 }
 
 /** The tickers with the most real attention, before any price is looked up. */
-export function candidatesFrom(steps: readonly Step[], now: Date): { candidates: Heat[]; read: { x: number; reddit: number } } {
+export function candidatesFrom(steps: readonly Step[], now: Date, focus: string | null = null): { candidates: Heat[]; read: { x: number; reddit: number } } {
   const { posts, x, reddit } = postsFromSteps(steps);
-  return { candidates: rankHeat(collectMentions(posts), now).slice(0, 12), read: { x, reddit } };
+  const mentions = collectMentions(posts);
+  // For one stock the answer is that stock's own attention, even when it is very little (that is the finding).
+  if (focus) return { candidates: [heatOf(focus, mentions.get(focus) ?? [], now)], read: { x, reddit } };
+  return { candidates: rankHeat(mentions, now).slice(0, 12), read: { x, reddit } };
 }
 
 export type PriceLookup = { status: 'ok'; stats: PriceStats } | { status: 'unknown' } | { status: 'error' };

@@ -5,8 +5,13 @@
  * Pure.
  */
 
+import { parseTickerIntent } from '@/lib/research/stocks/watch-intent';
+
 export type WatchIntent =
   | { kind: 'none' }
+  | { kind: 'watch_ticker'; symbol: string }
+  | { kind: 'unwatch_ticker'; symbol: string }
+  | { kind: 'refresh_ticker'; symbol: string }
   | { kind: 'show' }
   | { kind: 'watch'; chain: string; project?: string; symbol: string; targetApy?: number; chainAssumed: boolean }
   | { kind: 'unwatch'; chain?: string; project?: string; symbol?: string };
@@ -40,6 +45,10 @@ function find(text: string): { chain?: string; project?: string; symbol?: string
 export function parseWatchIntent(text: string): WatchIntent {
   const t = text.trim();
   if (!t || t.length > 220) return { kind: 'none' };
+
+  // A stock (a cashtag, or a symbol beside "stock") is watched in its own way.
+  const stock = parseTickerIntent(t);
+  if (stock) return stock;
 
   if (STOP.test(t)) {
     const f = find(t);

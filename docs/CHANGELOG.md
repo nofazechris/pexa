@@ -2,6 +2,13 @@
 
 What changed, newest first. Each entry says what it does, where it lives, and whether it has been proven with real money.
 
+## 2026-10-21 — Watching stocks
+
+- **Watch a stock** with the Watch button on a stock card, or say "watch $NVDA" (a cashtag, or a symbol next to the word "stock"). Pexa saves it with its real price and how much talk there is, and moves no money. A made-up symbol is refused; "stop watching $AMD" and "show my watchlist" work too, and the watchlist card now shows pools and stocks together.
+- **Price alerts are free and automatic:** the price is checked when the person opens the app (or their notifications) and once a day; a move of 10% or more since the last message becomes an alert in the bell, at most once a day per kind. The alert states the facts (the old price, the new price, the three-month move) and says plainly that a stock that ran up can fall back.
+- **The talk costs money, so it is the person's tap.** "Refresh the talk" plans a tiny Buy search (two on X, one on Reddit, about a cent and a half) that the person approves; it then counts how many different people are talking about that one stock, shows it next to the price, and compares with last time ("15 people talking, up from 4"). A big rise or fade also goes to the bell. Pexa never claims to be watching the talk continuously: that would need automatic signing for purchases, which is not set up.
+- New tables `ticker_watches` and `ticker_alerts` (migration `0028`, applied); cron tick has a `tickers` step. Live evals cover watching, refreshing, stopping, and a made-up symbol.
+
 ## 2026-10-21 — Getting to know the investor, and stock research
 
 - **Pexa gets to know you first.** The first time someone asks about investing or where to earn, Pexa asks three quick questions with buttons: how they feel about risk, when they might need the money, and roughly how much they could put in. It is asked once, can be skipped, and carries on with what they originally asked. "Reset my investing profile" starts over; "what do you know about me" reflects it back. The answers shape what is shown: pools riskier than the person's comfort (and, for a cautious person, small pools) are hidden, with a note saying how many and how to see them. New table `investor_profiles` (migration `0027`); `src/lib/profile/investor.ts`.

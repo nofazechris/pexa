@@ -14,6 +14,7 @@ import { useRecurring } from '@/components/auth/useRecurring';
 import { useBuy, type BuyTypedData } from '@/components/auth/useBuy';
 import { useResearch, type ResearchProgress } from '@/components/auth/useResearch';
 import { useSwap } from '@/components/auth/useSwap';
+import { useEarn } from '@/components/auth/useEarn';
 import { useConversations } from '@/components/auth/useConversations';
 import type { PendingActionView, AgentFailReason } from '@/components/auth/useAgentChat';
 import { Spinner, Text, ToastProvider } from '@/components/ui';
@@ -46,6 +47,7 @@ export default function AppGate() {
   const { executeBuy, cancelBuy } = useBuy();
   const { executeResearch, cancelResearch } = useResearch(executeBuy);
   const { executeSwap, cancelSwap } = useSwap();
+  const { executeEarn, cancelEarn } = useEarn();
   const conversations = useConversations();
   const router = useRouter();
 
@@ -99,6 +101,14 @@ export default function AppGate() {
         return r;
       },
       cancelSwap,
+      // Deposit into / withdraw from Aave on Celo: the wallet signs what the server prepared; balances refresh when it lands.
+      executeEarn: async (earnId: string, token: string, action: string) => {
+        const r = await executeEarn(earnId, token, action);
+        refreshBalance();
+        refreshActivity();
+        return r;
+      },
+      cancelEarn,
       // Set up a confirmed recurring payment; the server re-validates the person, amount and schedule.
       createRecurring: async (args: { payee: string; amount: string; cadence: string }) => {
         try {
@@ -186,7 +196,7 @@ export default function AppGate() {
         }
       },
     }),
-    [pay, refreshBalance, refreshActivity, refreshRequests, refreshRecurring, markRequestPaid, setRecurringPaused, cancelRecurring, getAccessToken, executeBuy, cancelBuy, executeResearch, cancelResearch, executeSwap, cancelSwap],
+    [pay, refreshBalance, refreshActivity, refreshRequests, refreshRecurring, markRequestPaid, setRecurringPaused, cancelRecurring, getAccessToken, executeBuy, cancelBuy, executeResearch, cancelResearch, executeSwap, cancelSwap, executeEarn, cancelEarn],
   );
 
   useEffect(() => {
@@ -282,6 +292,8 @@ export default function AppGate() {
       cancelResearch={hooks.cancelResearch}
       executeSwap={hooks.executeSwap}
       cancelSwap={hooks.cancelSwap}
+      executeEarn={hooks.executeEarn}
+      cancelEarn={hooks.cancelEarn}
       createRecurring={hooks.createRecurring}
       conversations={conversations}
       payRequest={hooks.payRequest}

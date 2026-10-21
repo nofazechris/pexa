@@ -20,6 +20,8 @@ export interface ChatLike {
   swapResult?: { ok?: boolean; amountOut?: string | null; error?: string };
   statement?: { label?: string; count?: number };
   choices?: { label?: string }[];
+  earn?: { action?: string; token?: string; amount?: string; baseApy?: string; rewardApy?: string | null };
+  earnResult?: { ok?: boolean; status?: string; amount?: string | null; position?: string | null; error?: string };
   yields?: { chains?: string[]; symbol?: string | null; items?: { symbol?: string; project?: string; chain?: string; apy?: number; apyBase?: number; apyReward?: number; tvlUsd?: number; risk?: string }[] };
   research?: { title?: string; estimate?: string; cap?: string };
   researchResult?: {
@@ -72,6 +74,17 @@ export function describeCard(m: ChatLike): string | null {
       return m.choices?.length ? `[Showed buttons for the person to choose: ${m.choices.map((c) => c.label ?? '').filter(Boolean).slice(0, 5).join(' / ')}]` : '[Showed buttons for the person to choose a platform: Instagram, TikTok, X or all three]';
     case 'ask_location':
       return '[Showed a button for the person to share their area (a neighbourhood name, not exact coordinates), because the assistant asked where they are]';
+    case 'earn_preview': {
+      const e = m.earn;
+      const verb = e?.action === 'withdraw' ? 'withdraw' : 'deposit';
+      return `[Showed a Confirm card to ${verb} ${e?.amount ?? '?'} ${e?.token ?? ''} ${verb === 'deposit' ? 'into' : 'from'} Aave on Celo (Aave pays about ${e?.baseApy ?? '?'}% a year${e?.rewardApy ? ` plus ${e.rewardApy}% temporary rewards` : ''})${m.status === 'awaiting' ? ' — waiting for the person to tap Confirm' : m.status === 'cancelled' ? ' — it was cancelled' : ''}]`;
+    }
+    case 'earn_receipt': {
+      const e = m.earn;
+      const r = m.earnResult;
+      const verb = e?.action === 'withdraw' ? 'withdrawal' : 'deposit';
+      return r?.ok ? `[Showed a receipt: the ${verb} of ${r.amount ?? e?.amount ?? '?'} ${e?.token ?? ''} ${r.status === 'PENDING' ? 'was sent and is still confirming' : 'is confirmed on Celo'}${r.position ? `; they now have ${r.position} ${e?.token ?? ''} in Aave` : ''}]` : `[Showed that the ${verb} did not complete: ${clip(r?.error ?? 'unknown reason', 100)}]`;
+    }
     case 'yield_list': {
       const y = m.yields;
       const top = (y?.items ?? [])

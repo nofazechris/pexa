@@ -44,6 +44,7 @@ export interface PendingActionView {
     | ({ type: 'bridge' } & BridgeCardData)
     | ({ type: 'statement' } & StatementData)
     | ({ type: 'swap_preview' } & SwapCardData)
+    | ({ type: 'earn_preview' } & EarnCardData)
     | ({ type: 'recurring_preview' } & RecurringCardData)
     | ({ type: 'research_plan' } & ResearchPlanView)
     | { type: 'ask_location' }
@@ -75,6 +76,32 @@ export interface SwapCardData {
   slippagePercent: string;
   expiresAt: string;
   network: string;
+}
+
+/** An Aave deposit or withdrawal waiting for Confirm (mirrors the server's EarnPreview). */
+export interface EarnCardData {
+  earnId: string;
+  action: 'deposit' | 'withdraw';
+  token: 'USDT' | 'USDC';
+  amount: string;
+  isMax: boolean;
+  protocol: string;
+  network: string;
+  baseApy: string;
+  rewardApy: string | null;
+  position: string;
+  expiresAt: string;
+}
+
+/** What a finished Aave deposit or withdrawal reports (read from the chain by the server). */
+export interface EarnOutcome {
+  ok: boolean;
+  status?: 'CONFIRMED' | 'PENDING';
+  amount?: string | null;
+  position?: string | null;
+  txHash?: string | null;
+  explorerUrl?: string | null;
+  error?: string;
 }
 
 /** What a finished conversion reports (read from the chain by the server). */
@@ -129,7 +156,7 @@ export interface RecurringCardData {
 export interface ChatMessage {
   id: number;
   role: 'user' | 'agent';
-  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge' | 'swap_preview' | 'swap_receipt' | 'statement' | 'research_plan' | 'research_result' | 'ask_location' | 'ask_choice' | 'yield_list';
+  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge' | 'swap_preview' | 'swap_receipt' | 'statement' | 'research_plan' | 'research_result' | 'ask_location' | 'ask_choice' | 'yield_list' | 'earn_preview' | 'earn_receipt';
   text?: string;
   /** A "find me a vendor / someone to hire" plan waiting for the budget to be approved, how far it has got, and its shortlist. */
   research?: ResearchPlanView;
@@ -147,6 +174,8 @@ export interface ChatMessage {
   yields?: YieldView;
   /** A conversion to confirm, and (on the receipt) what happened to it. */
   swap?: SwapCardData;
+  earn?: EarnCardData;
+  earnResult?: EarnOutcome;
   swapResult?: SwapOutcome;
   /** Card payloads. */
   kind?: 'send' | 'buy' | 'sell';
@@ -207,6 +236,10 @@ export interface AgentChatDeps {
   executeSwap?: (swapId: string, from: string) => Promise<SwapOutcome>;
   /** Drop a quoted conversion (best effort). */
   cancelSwap?: (swapId: string) => Promise<void>;
+  /** Run a confirmed Aave deposit or withdrawal: the wallet signs, the server verifies on-chain. */
+  executeEarn?: (earnId: string, token: string, action: string) => Promise<EarnOutcome>;
+  /** Drop a quoted Aave action (best effort). */
+  cancelEarn?: (earnId: string) => Promise<void>;
   /** Decline a quoted Buy purchase (best effort). */
   cancelBuy?: (purchaseId: string) => Promise<void>;
   /** Set up a confirmed recurring payment (the server re-validates everything). */
@@ -324,6 +357,10 @@ export function useAgentChat(deps: AgentChatDeps) {
           const { type: _y, ...card } = action.render;
           void _y;
           push({ role: 'agent', type: 'yield_list', yields: card });
+        } else if (action.render.type === 'earn_preview') {
+          const { type: _e, ...card } = action.render;
+          void _e;
+          push({ role: 'agent', type: 'earn_preview', earn: card, status: 'awaiting' });
         } else if (action.render.type === 'ask_location') {
           push({ role: 'agent', type: 'ask_location' });
         } else if (action.render.type === 'ask_choice') {
@@ -393,6 +430,18 @@ export function useAgentChat(deps: AgentChatDeps) {
         const create = d.createRecurring;
         const r = create ? await create({ payee: card.username, amount: card.amount, cadence: card.cadence }) : { ok: false, error: 'Recurring payments aren’t available here.' };
         push({ role: 'agent', type: 'recurring_receipt', recurring: card, recurringResult: r });
+        if (r.ok) {
+          setAgentState('success');
+        } else {
+          setStatus(id, 'failed');
+          setAgentState('error');
+        }
+      } else if (m.type === 'earn_preview' && m.earn) {
+        const card = m.earn;
+        const r = d.executeEarn ? await d.executeEarn(card.earnId, card.token, card.action) : { ok: false, error: 'Earning isn’t available here.' };
+        // The preview card learns the outcome too, so it stops showing the spinner.
+        setMessages((prev) => prev.map((x) => (x.id === id ? { ...x, earnResult: r } : x)));
+        push({ role: 'agent', type: 'earn_receipt', earn: card, earnResult: r });
         if (r.ok) {
           setAgentState('success');
         } else {
@@ -480,9 +529,10 @@ export function useAgentChat(deps: AgentChatDeps) {
       const m = messages.find((x) => x.id === id);
       if (m?.type === 'buy_quote' && m.buy) void depsRef.current.cancelBuy?.(m.buy.purchaseId);
       if (m?.type === 'swap_preview' && m.swap) void depsRef.current.cancelSwap?.(m.swap.swapId);
+      if (m?.type === 'earn_preview' && m.earn) void depsRef.current.cancelEarn?.(m.earn.earnId);
       if (m?.type === 'research_plan' && m.research) void depsRef.current.cancelResearch?.(m.research.sessionId);
       setStatus(id, 'cancelled');
-      push({ role: 'agent', type: 'text', text: m?.type === 'buy_quote' || m?.type === 'research_plan' ? 'Cancelled. Nothing was charged.' : m?.type === 'recurring_preview' ? 'Cancelled. Nothing was set up.' : m?.type === 'swap_preview' ? 'Cancelled. Nothing was converted.' : 'Cancelled. Nothing was sent.' });
+      push({ role: 'agent', type: 'text', text: m?.type === 'buy_quote' || m?.type === 'research_plan' ? 'Cancelled. Nothing was charged.' : m?.type === 'recurring_preview' ? 'Cancelled. Nothing was set up.' : m?.type === 'swap_preview' ? 'Cancelled. Nothing was converted.' : m?.type === 'earn_preview' ? (m.earn?.action === 'withdraw' ? 'Cancelled. Nothing was withdrawn.' : 'Cancelled. Nothing was deposited.') : 'Cancelled. Nothing was sent.' });
       setAgentState('idle');
     },
     [messages, push, setStatus],

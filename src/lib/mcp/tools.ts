@@ -27,6 +27,7 @@ import { buildStatement } from '@/lib/statements/build';
 import { depositCheck } from '@/lib/deposits/check';
 import { createResearch, normalizeRequest } from '@/lib/research/service';
 import { researchYields } from '@/lib/yield/service';
+import { getEarnPositions } from '@/lib/earn/service';
 import { queryFrom } from '@/lib/yield/rank';
 
 /**
@@ -681,6 +682,18 @@ export const TOOLS: ToolDef[] = [
       const view = await researchYields(queryFrom(args));
       if (!view) throw new ToolError('yield_unavailable', 'The yield data source didn’t answer just now. Try again in a minute.');
       return { asOf: view.asOf, pools: view.items, notes: view.notes };
+    },
+  }),
+
+  tool({
+    name: 'get_earn_position',
+    description:
+      "What the person has deposited in Aave on Celo right now (USDT / USDC), read from the chain: the balance (which includes what it has earned), how much they put in through Pexa, the interest earned since, and the rate Aave pays. Free and read-only. Use it for 'how much do I have in Aave', 'what have I earned', 'my deposits'. Report exactly what it returns; never estimate.",
+    schema: z.object({}),
+    handler: async (ctx) => {
+      const positions = await getEarnPositions(ctx.userId);
+      if (positions === null) throw new ToolError('earn_unavailable', 'Earning isn’t available for this account yet.');
+      return { positions, note: positions.length ? 'The balance includes interest earned. “Earned” only counts deposits made through Pexa.' : 'Nothing is deposited in Aave from this wallet.' };
     },
   }),
 

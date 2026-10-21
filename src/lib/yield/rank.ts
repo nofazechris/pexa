@@ -48,6 +48,8 @@ export interface YieldPool {
   /** Plain-words reasons for the risk level. */
   flags: string[];
   url: string;
+  /** Set when Pexa can deposit into this pool for the person (Aave v3 on Celo, USDT or USDC). */
+  depositToken: 'USDT' | 'USDC' | null;
   /** Rank score: base APY plus 40% of rewards. Shown only through the order. */
   steady: number;
 }
@@ -88,6 +90,13 @@ export function isStable(p: Pick<RawPool, 'symbol' | 'stablecoin'>): boolean {
     .split(/[-/\s+]+/)
     .filter(Boolean);
   return parts.length > 0 && parts.every((s) => STABLE_PARTS.has(s));
+}
+
+/** The only pools Pexa can put money into: Aave v3 on Celo, for USDT and USDC (USAT is not an Aave market). */
+export function depositTokenFor(p: Pick<RawPool, 'chain' | 'project' | 'symbol'>): 'USDT' | 'USDC' | null {
+  if (p.chain !== 'Celo' || p.project !== 'aave-v3') return null;
+  if (p.symbol === 'USD₮' || p.symbol === 'USDT') return 'USDT';
+  return p.symbol === 'USDC' ? 'USDC' : null;
 }
 
 const num = (v: number | null | undefined) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -163,6 +172,7 @@ export function assess(p: RawPool): YieldPool | null {
     risk: high ? 'high' : medium ? 'medium' : 'lower',
     flags,
     url: `https://defillama.com/yields/pool/${encodeURIComponent(p.pool)}`,
+    depositToken: depositTokenFor(p),
     steady: base + 0.4 * reward,
   };
 }

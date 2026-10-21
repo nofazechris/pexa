@@ -2,6 +2,15 @@
 
 What changed, newest first. Each entry says what it does, where it lives, and whether it has been proven with real money.
 
+## 2026-10-21 — Aave deposit and withdrawal on Celo (built, tried on dev first)
+
+- **Deposit USDT or USDC into Aave v3 on Celo, and withdraw** (`src/lib/earn/*`, `/api/earn/[id]`, `useEarn.ts`, `EarnCards.tsx`). Read by the app itself ("deposit $10 USDT into Aave", the "Deposit USDT into Aave" button on a yield card, "withdraw everything from Aave"); a Confirm card states what Aave pays (and how much of any headline is temporary rewards) and the risk; the person's own wallet signs; Pexa covers the network fee.
+- **Safety:** the browser only signs an approve of the coin to the Aave pool, a deposit credited to the person's OWN address, or a withdrawal sent to their OWN address (`isExpectedEarnTx`). The server re-reads the market (active, not frozen, not paused, under the supply cap, enough liquidity) at prepare time, checks the transaction on-chain at finalize, and reports what the chain says moved. Beta limits $0.10–$25 per deposit.
+- **Tagged:** the approve, supply and withdraw calldata carry the attribution tag. Verified by simulation that tagged and untagged calls behave identically against the real pool.
+- `get_earn_position` tool: balance in Aave (incl. interest), net deposited through Pexa, interest earned, current rate.
+- New table `earn_actions` (migration `0025`, applied). Live eval cases for the coin question, USAT refusal, withdrawal and "can't buy stocks".
+- **Unproven until a real deposit is signed:** Privy `sendTransaction` → Aave `supply` on Celo, withdraw-everything, and the tag on-chain.
+
 ## 2026-10-21 — Yield research (read-only)
 
 - **`research_yields` agent tool and card** (`src/lib/yield/*`, `src/components/pexa/YieldCards.tsx`): where money can earn on Celo or any chain, from DefiLlama's free public data. Ranks by what a pool pays steadily (base interest or fees, plus 40% of rewards), never the headline rate; splits "pays steadily" from "temporary rewards"; flags small pools, reward-heavy rates, spikes, impermanent loss, non-stable assets, outliers and unusually high stablecoin rates. Never says "safe". Other chains are research only. The agent states no rates itself (the card carries every number); three live eval cases enforce that.

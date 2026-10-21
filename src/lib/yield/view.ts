@@ -27,6 +27,7 @@ export function buildYieldView(raw: readonly RawPool[], q: YieldQuery, asOf: Dat
     notes.push(why ?? 'Nothing matched. Try another coin, another chain, or ask me to include smaller pools.');
   } else {
     if (items.some((p) => p.rewardShare >= 0.5 && p.apyReward > 0)) notes.push('Rewards are temporary incentives. The rate people will earn once they end is the “pays steadily” figure.');
+    if (items.some((p) => p.depositToken)) notes.push('Pexa can deposit into the Aave pools above for you (USDT or USDC, up to $25 at a time in beta) — you confirm every step.');
     if (items.some((p) => p.chain.toLowerCase() !== 'celo')) notes.push('Pexa can only move money on Celo. For pools on other chains this is research only; you would need to deposit there yourself.');
     if (q.symbol && /usat/i.test(q.symbol) && !items.some((p) => p.kind === 'lending')) notes.push('USAT has no lending market on Celo; it only appears in trading pools.');
   }

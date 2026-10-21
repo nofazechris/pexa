@@ -19,7 +19,7 @@ const RISK = {
 const pct = (n: number) => `${n.toFixed(n >= 10 ? 1 : 2)}%`;
 const usd = (n: number) => (n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : `$${Math.round(n / 1e3)}K`);
 
-function Row({ p }: { p: YieldPool }) {
+function Row({ p, onTry }: { p: YieldPool; onTry?: (text: string) => void }) {
   const risk = RISK[p.risk];
   return (
     <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '14px', padding: '13px 15px' }}>
@@ -58,11 +58,16 @@ function Row({ p }: { p: YieldPool }) {
         </a>
         <span style={{ color: color.faint }}> · {p.kind}</span>
       </div>
+      {p.depositToken && onTry ? (
+        <button onClick={() => onTry(`Deposit ${p.depositToken} into Aave on Celo`)} style={{ marginTop: '10px', border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '13px', fontWeight: 500, padding: '7px 13px', borderRadius: '10px', cursor: 'pointer' }}>
+          Deposit {p.depositToken} into Aave
+        </button>
+      ) : null}
     </div>
   );
 }
 
-export function YieldCard({ data }: { data: YieldView }) {
+export function YieldCard({ data, onTry }: { data: YieldView; onTry?: (text: string) => void }) {
   const where = data.chains.length ? data.chains.join(', ') : 'all chains';
   const when = new Date(data.asOf);
   return (
@@ -75,7 +80,7 @@ export function YieldCard({ data }: { data: YieldView }) {
         <div style={{ fontFamily: MONO, fontSize: '11px', color: color.faint, marginTop: '8px' }}>Data from DefiLlama · read {Number.isNaN(when.getTime()) ? 'just now' : when.toUTCString().slice(5, 22) + ' UTC'}</div>
       </div>
       {data.items.map((p) => (
-        <Row key={p.id} p={p} />
+        <Row key={p.id} p={p} onTry={onTry} />
       ))}
       <div style={{ fontSize: '12px', color: color.mutedStrong, lineHeight: 1.55, padding: '0 4px' }}>
         {data.notes.map((n) => (

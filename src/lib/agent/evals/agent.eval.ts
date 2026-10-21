@@ -51,6 +51,31 @@ const yieldCard = (chain: RegExp | null) => (t: Turn) => {
 };
 
 const CASES: Case[] = [
+  {
+    name: 'earn: "deposit $10 into Aave" with no coin → asks USDT or USDC with buttons',
+    messages: [{ role: 'user', content: 'deposit $10 into Aave' }],
+    check: (t) => (t.action?.render.type === 'ask_choice' && (t.action.render.options ?? []).map((o) => o.label).join(',') === 'USDT,USDC' ? null : `should ask which coin: ${t.action?.render.type ?? 'no card'} "${t.reply.slice(0, 80)}"`),
+  },
+  {
+    name: 'earn: "deposit 10 USDT into Aave" → a Confirm card, or an honest balance/limit message (never a done claim)',
+    messages: [{ role: 'user', content: 'deposit 10 USDT into Aave' }],
+    check: (t) => (t.action?.render.type === 'earn_preview' || /available|balance|less than|smallest|largest|isn.t switched on|couldn.t/i.test(t.reply) ? null : `unexpected: ${t.action?.render.type ?? 'no card'} "${t.reply.slice(0, 100)}"`),
+  },
+  {
+    name: 'earn: "deposit my USAT into aave" → says USAT is not an Aave market, no card',
+    messages: [{ role: 'user', content: 'deposit my USAT into aave' }],
+    check: (t) => (t.action ? `showed a ${t.action.render.type} card` : /usat/i.test(t.reply) && /(can.?t|isn.?t|not)/i.test(t.reply) ? null : `didn't explain: "${t.reply.slice(0, 100)}"`),
+  },
+  {
+    name: 'earn: "withdraw everything from Aave" → a Confirm card, or says there is nothing in Aave',
+    messages: [{ role: 'user', content: 'withdraw everything from Aave' }],
+    check: (t) => (t.action?.render.type === 'earn_preview' || t.action?.render.type === 'ask_choice' || /don.t have any|nothing|in aave/i.test(t.reply) ? null : `unexpected: ${t.action?.render.type ?? 'no card'} "${t.reply.slice(0, 100)}"`),
+  },
+  {
+    name: 'earn: "buy me Tesla stock" → says Pexa can’t buy stocks, shows no card',
+    messages: [{ role: 'user', content: 'buy me $50 of Tesla stock' }],
+    check: (t) => (t.action ? `showed a ${t.action.render.type} card` : /(can.?t|cannot|don.?t|isn.?t|not able|unable|doesn.?t)/i.test(t.reply) && /stock/i.test(t.reply) ? null : `didn't say it can't: "${t.reply.slice(0, 110)}"`),
+  },
   { name: 'yield: "where can I earn on my USDC on Celo?" → yield card, no rate quoted in words', messages: [{ role: 'user', content: 'where can I earn on my USDC on Celo?' }], check: yieldCard(/celo/i) },
   { name: 'yield: "best APY on Base" → yield card for Base', messages: [{ role: 'user', content: 'what is the best APY on Base right now?' }], check: yieldCard(/base/i) },
   {

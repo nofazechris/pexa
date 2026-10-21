@@ -786,6 +786,45 @@ export const swaps = pgTable(
 );
 
 export type SwapRow = typeof swaps.$inferSelect;
+
+/**
+ * Deposits into, and withdrawals from, Aave on Celo — one row per action the person confirmed in chat. The person's own wallet
+ * signs; this records what they agreed to and what the chain later proved.
+ */
+export const earnActions = pgTable(
+  "earn_actions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    walletAddress: text("wallet_address").notNull(),
+    /** deposit | withdraw */
+    action: text("action").notNull(),
+    /** USDT | USDC */
+    token: text("token").notNull(),
+    /** Atomic (6-decimal) amount as a decimal string. For "withdraw everything" this is the balance at preview time. */
+    amount: text("amount").notNull(),
+    /** Withdraw everything (the call uses the maximum so no interest is left behind). */
+    isMax: boolean("is_max").notNull().default(false),
+    /** The rate shown when the person agreed, in basis points of APY (base rate only, rewards excluded). */
+    baseApyBps: integer("base_apy_bps"),
+    /** PREVIEW → PREPARED → CONFIRMED | FAILED | CANCELLED | EXPIRED */
+    status: text("status").notNull().default("PREVIEW"),
+    gasDripTx: text("gas_drip_tx"),
+    approveTx: text("approve_tx"),
+    actionTx: text("action_tx"),
+    /** What the chain says moved (atomic), read from the transaction's own logs. */
+    amountOut: text("amount_out"),
+    error: text("error"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("earn_actions_tx_uq").on(t.actionTx), index("earn_actions_user_time_idx").on(t.userId, t.createdAt)],
+);
+
+export type EarnActionRow = typeof earnActions.$inferSelect;
 export type AgentConversationRow = typeof agentConversations.$inferSelect;
 export type BridgeAddressRow = typeof bridgeAddresses.$inferSelect;
 export type WalletDepositRow = typeof walletDeposits.$inferSelect;

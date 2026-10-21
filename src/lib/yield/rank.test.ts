@@ -137,3 +137,21 @@ describe('what counts as a stablecoin pool', () => {
     expect(assess(pool({ apy: 14, apyBase: 14, apyReward: 0, apyMean30d: 14 }))!.risk).toBe('medium');
   });
 });
+
+import { depositTokenFor } from './rank';
+
+describe('which pools Pexa can deposit into', () => {
+  it('only Aave v3 on Celo, for USDT and USDC', () => {
+    expect(depositTokenFor({ chain: 'Celo', project: 'aave-v3', symbol: 'USD₮' })).toBe('USDT');
+    expect(depositTokenFor({ chain: 'Celo', project: 'aave-v3', symbol: 'USDC' })).toBe('USDC');
+    expect(depositTokenFor({ chain: 'Celo', project: 'aave-v3', symbol: 'WETH' })).toBeNull();
+    expect(depositTokenFor({ chain: 'Base', project: 'aave-v3', symbol: 'USDC' })).toBeNull();
+    expect(depositTokenFor({ chain: 'Celo', project: 'moola-market', symbol: 'CUSD' })).toBeNull();
+    expect(depositTokenFor({ chain: 'Celo', project: 'uniswap-v3', symbol: 'USD₮-USAT' })).toBeNull();
+  });
+  it('is carried on the ranked pool', () => {
+    const aave = assess(pool({ pool: 'a', project: 'aave-v3', symbol: 'USD₮', stablecoin: false }))!;
+    expect(aave.depositToken).toBe('USDT');
+    expect(assess(pool({ pool: 'b', chain: 'Base', project: 'aave-v3', symbol: 'USDC' }))!.depositToken).toBeNull();
+  });
+});

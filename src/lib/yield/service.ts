@@ -34,3 +34,12 @@ export async function researchYields(q: YieldQuery): Promise<YieldView | null> {
   const loaded = await loadPools();
   return loaded ? buildYieldView(loaded.pools, q, new Date(loaded.at)) : null;
 }
+
+/** The temporary incentive rewards on Aave's Celo market for a coin, from the public data (null when unknown). */
+export async function aaveCeloRewards(token: 'USDT' | 'USDC'): Promise<{ apyBase: number; apyReward: number } | null> {
+  const loaded = await loadPools();
+  if (!loaded) return null;
+  const symbols = token === 'USDT' ? ['USD₮', 'USDT'] : ['USDC'];
+  const p = loaded.pools.filter((x) => x.chain === 'Celo' && x.project === 'aave-v3' && symbols.includes(x.symbol)).sort((a, b) => b.tvlUsd - a.tvlUsd)[0];
+  return p ? { apyBase: p.apyBase ?? 0, apyReward: p.apyReward ?? 0 } : null;
+}

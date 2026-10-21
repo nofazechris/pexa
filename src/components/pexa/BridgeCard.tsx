@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { color } from '@/lib/design/tokens';
 import type { BridgeCardData } from '@/components/auth/useAgentChat';
 import { BRIDGE_CHAINS } from '@/lib/bridge/chains';
+import { AgentOrb } from '@/components/pexa/AgentOrb';
 
 /**
  * "Get paid from <network>": the deposit address to send to. Nothing to confirm here — Pexa never moves anything on the
@@ -126,7 +127,7 @@ Only USDC, and only on ${data.chain}. It reaches me automatically in my Pexa wal
             </span>
           ) : (
             <>
-              {phase === 'stopped' ? null : <span style={{ width: 12, height: 12, border: `2px solid ${color.primarySoftBorder}`, borderTopColor: color.primary, borderRadius: '50%', animation: 'pp-spin .8s linear infinite', display: 'inline-block', flex: 'none' }} />}
+              {phase === 'stopped' ? null : <AgentOrb stage="searching" size={20} />}
               <span style={{ flex: 1, minWidth: '160px', fontSize: '13px', color: color.mutedStrong, lineHeight: 1.45 }}>
                 {phase === 'processing'
                   ? `Deposit detected on ${data.chain} — converting it to USDC on Celo…`

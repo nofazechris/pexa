@@ -52,6 +52,11 @@ const yieldCard = (chain: RegExp | null) => (t: Turn) => {
 
 const CASES: Case[] = [
   {
+    name: 'check: the "Check what people say" button → a Buy quote to search X or Reddit (paid by the person, never automatic)',
+    messages: [{ role: 'user', content: 'Search X and Reddit for recent posts about Aave on Celo: hacks, exploits, depegs or withdrawal problems' }],
+    check: (t) => (t.action?.render.type === 'buy_quote' ? null : `no Buy quote: ${t.action?.render.type ?? 'no card'} "${t.reply.slice(0, 100)}"`),
+  },
+  {
     name: 'watch: "watch the Moola cUSD pool on Celo" → saved, nothing deposited or bought',
     messages: [{ role: 'user', content: 'watch the Moola cUSD pool on Celo and tell me if it changes' }],
     // Saved by the app itself: it says so and shows the watchlist, and never offers a deposit.

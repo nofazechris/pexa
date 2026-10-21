@@ -2,6 +2,14 @@
 
 What changed, newest first. Each entry says what it does, where it lives, and whether it has been proven with real money.
 
+## 2026-10-21 — Thinking orb, and Buy in the investment flow
+
+- **The thinking orb replaces the spinner and the typing dots** (`thinking-orbs`, MIT, no dependencies). Pexa goes through four stages: thinking (calm ring), searching (dotted globe), walking (scattered dots on the move) and solving (converging sphere). It follows the light and dark themes by itself and holds still for reduced-motion users (`src/components/pexa/AgentOrb.tsx`, `src/lib/agent/stage.ts`).
+- **Research runs use the real steps:** "Searching…" shows the searching stage, "Checking @x" the walking stage, and a "Reading what came back" beat between purchases the solving stage. **Chat turns use time**: the server does not stream progress yet, so the stage follows how long the wait has lasted and the labels stay generic ("Looking things up…").
+- Swap, deposit, Buy-payment, bridge and research cards use the small orb in place of their old spinner.
+- **Buy and yields:** the Buy catalog (168 services) has no DeFi, yield, price or on-chain data service, so pool numbers come from DefiLlama and Aave's own contracts. Buy's role in the investment flow is a **"Check what people say"** button on every pool and watchlist item: it searches X and Reddit through Buy for recent hack, exploit, depeg or withdrawal chatter about the protocol, a few cents from the person's own wallet after they approve each quote. The agent reports only what the posts say, never "safe" or "unsafe". Live eval case added.
+- The installed orb library (0.3.2) uses a `theme` prop and reads `data-theme` itself; the `dark` prop in the pasted docs does not exist in this version.
+
 ## 2026-10-21 — Yield watchlist and alerts
 
 - **Watch a pool** instead of (or before) depositing: a "Watch" button on every pool in the yield card, or say "watch the Aave USDT pool on Celo and tell me when it hits 3%". The app reads watch/stop/show requests itself (`src/lib/yield/watch-intent.ts`), saves the pool with its current numbers, and moves no money. "Show my watchlist" gives a card with how each pool has changed since it was added, plus Deposit and Stop watching buttons.

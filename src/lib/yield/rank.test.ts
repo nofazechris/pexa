@@ -155,3 +155,22 @@ describe('which pools Pexa can deposit into', () => {
     expect(assess(pool({ pool: 'b', chain: 'Base', project: 'aave-v3', symbol: 'USDC' }))!.depositToken).toBeNull();
   });
 });
+
+import { checkText, protocolName } from './rank';
+import { shouldForceBuySearch } from '@/lib/agent/buy-intent';
+
+describe('the "Check what people say" request', () => {
+  it('writes a protocol the way people write it', () => {
+    expect(protocolName('aave-v3')).toBe('Aave');
+    expect(protocolName('moola-market')).toBe('Moola');
+    expect(protocolName('uniswap-v3')).toBe('Uniswap');
+    expect(protocolName('aerodrome-slipstream')).toBe('Aerodrome Slipstream');
+    expect(protocolName('harvest-finance')).toBe('Harvest');
+  });
+  it('asks Buy to search X and Reddit for incident chatter on the right chain', () => {
+    expect(checkText({ project: 'aave-v3', chain: 'Celo' })).toBe('Search X and Reddit for recent posts about Aave on Celo: hacks, exploits, depegs or withdrawal problems');
+  });
+  it('is a normal Buy request, so it opens with a catalog search and ends at a quote the person approves', () => {
+    expect(shouldForceBuySearch([{ role: 'user', content: checkText({ project: 'aave-v3', chain: 'Celo' }) }])).toBe(true);
+  });
+});

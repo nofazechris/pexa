@@ -2,6 +2,7 @@
 
 import { color } from '@/lib/design/tokens';
 import type { ChatMessage } from '@/components/auth/useAgentChat';
+import { AgentOrb } from '@/components/pexa/AgentOrb';
 
 /**
  * Chat cards for Buy purchases. The Approve card is the human checkpoint for a price the agent found;
@@ -52,7 +53,7 @@ export function BuyQuoteCard({ m, onConfirm, onCancel }: { m: ChatMessage; onCon
         <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginTop: '14px', paddingTop: '13px', borderTop: `1px solid ${color.borderFaint}`, fontSize: '13px', color: m.status === 'cancelled' || m.status === 'failed' ? color.warning : color.mutedStrong }}>
           {paying ? (
             <>
-              <span style={{ width: 12, height: 12, border: `2px solid ${color.primarySoftBorder}`, borderTopColor: color.primary, borderRadius: '50%', animation: 'pp-spin .8s linear infinite', display: 'inline-block' }} />
+              <AgentOrb stage="walking" size={20} />
               Paying and waiting for the result…
             </>
           ) : m.status === 'cancelled' && m.restored ? (

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { color } from '@/lib/design/tokens';
 import type { YieldView } from '@/lib/yield/view';
-import type { YieldPool } from '@/lib/yield/rank';
+import { checkText, type YieldPool } from '@/lib/yield/rank';
 import type { WatchView } from '@/lib/yield/watchlist';
 
 /**
@@ -104,6 +104,11 @@ function Row({ p, onTry, getAccessToken }: { p: YieldPool; onTry?: (text: string
           </button>
         ) : null}
         <WatchButton poolId={p.id} getAccessToken={getAccessToken} />
+        {onTry ? (
+          <button onClick={() => onTry(checkText(p))} style={small} title="Searches X and Reddit through Buy for recent hack, exploit or withdrawal chatter. A few cents, paid from your wallet after you approve.">
+            Check what people say
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -173,6 +178,11 @@ function WatchRow({ w, onTry, getAccessToken, onRemoved }: { w: WatchView; onTry
         {w.depositToken && onTry ? (
           <button onClick={() => onTry(`Deposit ${w.depositToken} into Aave on Celo`)} style={small}>
             Deposit {w.depositToken} into Aave
+          </button>
+        ) : null}
+        {onTry ? (
+          <button onClick={() => onTry(checkText(w))} style={small} title="Searches X and Reddit through Buy for recent hack, exploit or withdrawal chatter. A few cents, paid from your wallet after you approve.">
+            Check what people say
           </button>
         ) : null}
         <button

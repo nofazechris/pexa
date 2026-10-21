@@ -12,6 +12,8 @@ import { BuyPage } from '@/components/pexa/BuyPage';
 import { BuyQuoteCard, BuyResultCard } from '@/components/pexa/BuyCards';
 import { ResearchPlanCard, ResearchResultCard } from '@/components/pexa/ResearchCards';
 import { WatchlistCard, YieldCard } from '@/components/pexa/YieldCards';
+import { AgentOrb, ThinkingRow, useWaitStage } from '@/components/pexa/AgentOrb';
+import { STAGE_LABEL } from '@/lib/agent/stage';
 import { EarnPreviewCard, EarnReceiptCard } from '@/components/pexa/EarnCards';
 import { AskLocationCard, ChoiceCard } from '@/components/pexa/LocationCard';
 import { ConversionsPanel, SwapPreviewCard, SwapReceiptCard } from '@/components/pexa/SwapCards';
@@ -143,6 +145,9 @@ export function PexaApp(props: PexaAppProps) {
   );
   const chat = useAgentChat(deps);
 
+  // How far into a wait the agent is (thinking → searching → walking → solving), for the orb and the status pill.
+  const waitStage = useWaitStage(chat.agentState === 'thinking');
+
   // Agent status pill in the header.
   const pill = ((): { label: string; color: string; bg: string; border: string; dot: string; anim: string } => {
     // Persistent "having trouble" state after a failed turn, until the next success — so downtime
@@ -152,7 +157,7 @@ export function PexaApp(props: PexaAppProps) {
     }
     switch (chat.agentState) {
       case 'thinking':
-        return { label: 'Thinking…', color: 'var(--pp-primary-hover)', bg: 'var(--pp-primary-tint)', border: 'var(--pp-primary-soft-border)', dot: 'var(--pp-primary)', anim: 'pp-pulse 1.2s ease-in-out infinite' };
+        return { label: STAGE_LABEL[waitStage], color: 'var(--pp-primary-hover)', bg: 'var(--pp-primary-tint)', border: 'var(--pp-primary-soft-border)', dot: 'var(--pp-primary)', anim: 'pp-pulse 1.2s ease-in-out infinite' };
       case 'processing':
         return { label: 'Sending…', color: 'var(--pp-primary-hover)', bg: 'var(--pp-primary-tint)', border: 'var(--pp-primary-soft-border)', dot: 'var(--pp-primary)', anim: 'pp-pulse 1.2s ease-in-out infinite' };
       case 'success':
@@ -300,6 +305,7 @@ export function PexaApp(props: PexaAppProps) {
 /* ----------------------------------------------------------------- Chat screen */
 
 function ChatScreen({ chat, getAccessToken, balance, conversations }: { chat: ReturnType<typeof useAgentChat>; getAccessToken?: () => Promise<string | null>; balance?: string; conversations?: ReturnType<typeof useConversations> }) {
+  const waitStage = useWaitStage(chat.agentState === 'thinking');
   const scrollRef = useRef<HTMLDivElement>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   // Quick picks: people you've paid or been paid by (and saved beneficiaries), for one-tap "send to…".
@@ -400,14 +406,7 @@ function ChatScreen({ chat, getAccessToken, balance, conversations }: { chat: Re
             <ChatRow key={m.id} m={m} watchBridge={m.id === lastBridgeId && !chat.chatClosed} onConfirm={() => chat.confirm(m.id)} onCancel={() => chat.cancel(m.id)} onRetry={(t) => chat.send(t)} onTry={(t) => chat.send(t)} getAccessToken={getAccessToken} />
           ))}
 
-          {chat.agentState === 'thinking' || chat.agentState === 'processing' ? (
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', animation: 'pp-fade .2s ease both' }}>
-              <AgentAvatar />
-              <div style={{ display: 'flex', gap: '4px', border: `1px solid ${color.borderFaint}`, background: color.surface, borderRadius: '14px 14px 14px 4px', padding: '11px 13px' }}>
-                <Dot delay="0s" /><Dot delay=".16s" /><Dot delay=".32s" />
-              </div>
-            </div>
-          ) : null}
+          {chat.agentState === 'thinking' || chat.agentState === 'processing' ? <ThinkingRow stage={chat.agentState === 'processing' ? 'walking' : waitStage} /> : null}
         </div>
       </div>
 
@@ -443,9 +442,6 @@ function AgentAvatar() {
       <PrivyPayLogo size={13} />
     </div>
   );
-}
-function Dot({ delay }: { delay: string }) {
-  return <span style={{ width: 5, height: 5, borderRadius: '50%', background: color.primary, display: 'inline-block', animation: `pp-pulse 1.1s ease-in-out ${delay} infinite` }} />;
 }
 
 function ChatRow({ m, onConfirm, onCancel, onRetry, onTry, watchBridge, getAccessToken }: { m: ChatMessage; watchBridge?: boolean; onConfirm: () => void; onCancel: () => void; onRetry?: (text: string) => void; onTry?: (text: string) => void; getAccessToken?: () => Promise<string | null> }) {
@@ -928,7 +924,7 @@ function ReceiveCard({ m, getAccessToken }: { m: ChatMessage; getAccessToken?: (
       <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${color.borderFaint}` }}>
         {status === 'watching' ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-            <span style={{ width: 14, height: 14, border: `2px solid ${color.primarySoftBorder}`, borderTopColor: color.primary, borderRadius: '50%', animation: 'pp-spin .8s linear infinite', display: 'inline-block', flex: 'none' }} />
+            <AgentOrb stage="searching" size={20} />
             <span style={{ fontSize: '13px', color: color.mutedStrong }}>Waiting for your deposit…</span>
             <button onClick={checkNow} disabled={checking} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', color: color.primary, fontSize: '13px', fontWeight: 500, cursor: 'pointer', padding: 0 }}>{checking ? 'Checking…' : 'Check now'}</button>
           </div>

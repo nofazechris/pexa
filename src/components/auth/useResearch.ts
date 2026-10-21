@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 import { useAuth } from './AuthProvider';
 import type { BuyResult, BuyTypedData } from './useBuy';
 import type { ResearchResult } from '@/lib/research/types';
+import { LABEL_READING } from '@/lib/agent/stage';
 
 /**
  * Browser half of a research ("find me a vendor"). The user approved ONE budget; the server decides each next purchase
@@ -65,6 +66,8 @@ export function useResearch(executeBuy: (args: { purchaseId: string; from: strin
           if (data.kind === 'pay' && data.purchaseId && data.typedData && data.from) {
             onProgress({ label: data.label ?? 'Working…', step: data.step ?? loop + 1, spent: data.spent ?? '', cap: data.cap ?? '' });
             const paid = await executeBuy({ purchaseId: data.purchaseId, from: data.from, typedData: data.typedData });
+            // The answer is in: while it is read and the next step chosen, the orb moves to its "solving" stage.
+            onProgress({ label: LABEL_READING, step: data.step ?? loop + 1, spent: data.spent ?? '', cap: data.cap ?? '' });
             // Never got as far as paying (signing declined, connection dropped): pause, don't guess.
             if (!paid.ok && !paid.purchase) return { ok: false, error: paid.error ?? 'The search paused before paying. Nothing was charged for this lookup.', final: false };
             continue; // a failed/uncertain lookup is the server's call: it skips it or stops, never retries a payment

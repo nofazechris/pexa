@@ -213,6 +213,27 @@ export function coverageNote(raw: readonly RawPool[], chain: string, symbol: str
   return null;
 }
 
+/** "aave-v3" → "Aave", "moola-market" → "Moola", "aerodrome-slipstream" → "Aerodrome Slipstream": a protocol's name as people write it. */
+export function protocolName(project: string): string {
+  const base = project
+    .replace(/-v\d+(?:\.\d+)?$/i, '')
+    .replace(/-(?:market|protocol|finance|dex)$/i, '')
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(' ');
+  return base || project;
+}
+
+/**
+ * The request behind a pool's "Check what people say" button. It goes through Buy (X and Reddit search, a fraction of a cent
+ * each, paid by the person's own wallet after they approve), so the check is the person's own purchase, not something Pexa
+ * does on its own.
+ */
+export function checkText(p: { project: string; chain: string }): string {
+  return `Search X and Reddit for recent posts about ${protocolName(p.project)} on ${p.chain}: hacks, exploits, depegs or withdrawal problems`;
+}
+
 /** Tidy the model's proposed arguments into a query: strings trimmed and clipped, numbers bounded, anything odd ignored. */
 export function queryFrom(args: Record<string, unknown>): YieldQuery {
   const chains = Array.isArray(args.chains) ? args.chains.filter((c): c is string => typeof c === 'string').map((c) => c.trim().slice(0, 30)).filter(Boolean).slice(0, 5) : [];

@@ -5,6 +5,8 @@ import { color } from '@/lib/design/tokens';
 import type { ChatMessage } from '@/components/auth/useAgentChat';
 import type { ResearchItem, ResearchResult, Verdict } from '@/lib/research/types';
 import { distanceText } from '@/lib/geo/place';
+import { stageForLabel } from '@/lib/agent/stage';
+import { AgentOrb } from '@/components/pexa/AgentOrb';
 
 const PLATFORM_NAME = { instagram: 'Instagram', tiktok: 'TikTok', x: 'X', linkedin: 'LinkedIn' } as const;
 
@@ -69,7 +71,7 @@ export function ResearchPlanCard({ m, onConfirm, onCancel }: { m: ChatMessage; o
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '14px', paddingTop: '13px', borderTop: `1px solid ${color.borderFaint}`, fontSize: '13px', color: m.status === 'cancelled' || m.status === 'failed' ? color.warning : color.mutedStrong }}>
           {running ? (
             <>
-              <span style={{ width: 12, height: 12, border: `2px solid ${color.primarySoftBorder}`, borderTopColor: color.primary, borderRadius: '50%', animation: 'pp-spin .8s linear infinite', display: 'inline-block', flexShrink: 0 }} />
+              <AgentOrb stage={stageForLabel(progress?.label)} size={20} />
               <span>
                 {progress ? progress.label : 'Starting…'}
                 {progress ? <span style={{ color: color.faint }}> · {progress.spent} of {progress.cap}</span> : null}

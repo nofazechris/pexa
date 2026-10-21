@@ -42,9 +42,12 @@ import { readHoldings } from '@/lib/yield/holdings';
 import { getInvestorProfile, resetInvestorProfile, saveInvestorProfile } from '@/lib/profile/service';
 import { CHOICES, EMPTY_PROFILE, QUESTION, applyAnswer, maxPoolRisk, minPoolSize, nextStep, stepAsked, summary as profileSummary, type Step } from '@/lib/profile/investor';
 import { parseInvestIntent, themeLabel } from './invest-intent';
+import { assistantRun } from './history';
+import { originalRequest } from './original-request';
 import { coinNamed } from '@/lib/yield/coin';
 import { addWatch, listWatches, removeWatch, type WatchView } from '@/lib/yield/watchlist';
 import { addTickerWatch, listTickerWatches, removeTickerWatch, type TickerWatchView } from '@/lib/research/stocks/watchlist';
+import { resolveWatchPronoun } from '@/lib/research/stocks/watch-intent';
 import { parseWatchIntent, type WatchIntent } from '@/lib/yield/watch-intent';
 import { queryFrom } from '@/lib/yield/rank';
 import type { YieldView } from '@/lib/yield/view';
@@ -444,6 +447,16 @@ async function handleWatch(ctx: ToolContext, intent: Exclude<WatchIntent, { kind
     const w = r.watch;
     return card(`${r.alreadyWatching ? 'You’re already watching' : 'Now watching'} $${w.symbol}${w.name ? ` (${w.name})` : ''}${w.price !== null ? ` — it’s $${w.price.toFixed(2)} now` : ''}. I’ll tell you in your notifications when its price moves 10% or more from here. I check the price when you open the app and once a day. Talk on X and Reddit costs a few cents through Buy to look at, so I only refresh it when you ask (“refresh the talk about $${w.symbol}”). Nothing was bought.`);
   }
+  if (intent.kind === 'watch_tickers') {
+    const done: string[] = [];
+    const failed: string[] = [];
+    for (const symbol of intent.symbols) {
+      const r = await addTickerWatch(ctx.userId, symbol);
+      (r.ok ? done : failed).push(symbol);
+    }
+    if (!done.length) return { reply: `I couldn’t add ${failed.map((s) => '$' + s).join(', ')} just now. Try again in a moment.` };
+    return card(`Now watching ${done.map((s) => '$' + s).join(', ')}${failed.length ? ` (couldn’t add ${failed.map((s) => '$' + s).join(', ')})` : ''}. I’ll tell you in your notifications when a price moves 10% or more. I check prices when you open the app and once a day; the talk on X and Reddit costs a few cents through Buy, so I refresh it only when you ask. Nothing was bought.`);
+  }
   if (intent.kind === 'unwatch_ticker') {
     const r = await removeTickerWatch(ctx.userId, { symbol: intent.symbol });
     return r.ok ? card(r.message) : { reply: r.message };
@@ -473,18 +486,6 @@ function askProfile(step: Step, prefix = ''): AgentTurn {
   return { reply: `${prefix}${QUESTION[step]}`, action: { tool: 'profile', args: {}, render: { type: 'ask_choice', options: CHOICES[step] } } };
 }
 
-/** The request the person made before the questions started: the user message just before the first question in the trailing run. */
-function requestBeforeQuestions(messages: AgentMessage[]): string | null {
-  let first = -1;
-  for (let i = messages.length - 2; i >= 0; i--) {
-    const m = messages[i];
-    if (m.role === 'assistant' && stepAsked(m.content)) first = i;
-    else if (m.role === 'assistant' && first !== -1) break;
-  }
-  const before = first > 0 ? messages[first - 1] : null;
-  return before?.role === 'user' ? before.content : null;
-}
-
 /** The person answered one of the profile questions: save it, ask the next, and when done carry on with what they first asked. */
 async function handleProfileAnswer(ctx: ToolContext, input: { userId: string; messages: AgentMessage[] }, step: Step, answer: string): Promise<AgentTurn> {
   const current = (await getInvestorProfile(ctx.userId)) ?? EMPTY_PROFILE;
@@ -494,7 +495,7 @@ async function handleProfileAnswer(ctx: ToolContext, input: { userId: string; me
   const next = nextStep(r.profile);
   if (next) return askProfile(next);
   // Done (or skipped): reflect it back and go on with what they came for.
-  const original = requestBeforeQuestions(input.messages);
+  const original = originalRequest(input.messages);
   if (original) {
     const carried = await runAgentTurnInner({ userId: input.userId, messages: [{ role: 'user', content: original }] });
     if (carried) return { ...carried, reply: `${profileSummary(r.profile)} ${carried.reply}`.trim() };
@@ -804,8 +805,7 @@ async function runAgentTurnInner(input: { userId: string; messages: AgentMessage
 
   // An answer to one of the "get to know you" questions: save it and carry on. Read before anything else, since answers are short.
   if (last?.role === 'user') {
-    const prev = input.messages[input.messages.length - 2];
-    const step = stepAsked(prev?.role === 'assistant' ? prev.content : undefined);
+    const step = stepAsked(assistantRun(input.messages));
     if (step) {
       try {
         return await withDeadline(handleProfileAnswer({ userId: input.userId }, input, step, last.content), 60_000);
@@ -850,8 +850,7 @@ async function runAgentTurnInner(input: { userId: string; messages: AgentMessage
 
   // "I have USDC on Arbitrum, how do I get it to Celo?" — the app hands out the deposit address itself.
   if (last?.role === 'user') {
-    const prev = input.messages[input.messages.length - 2];
-    const asked = prev?.role === 'assistant' && prev.content.includes(ASK_NETWORK_MARKER);
+    const asked = Boolean(assistantRun(input.messages)?.includes(ASK_NETWORK_MARKER));
     const bridge = parseBridgeIntent(last.content, asked);
     if (bridge.kind !== 'none') {
       try {
@@ -867,7 +866,12 @@ async function runAgentTurnInner(input: { userId: string; messages: AgentMessage
 
   // "Watch the Aave USDT pool" / "stop watching …" / "show my watchlist" — read by the app itself; saving a watch moves no money.
   if (last?.role === 'user') {
-    const watch = parseWatchIntent(last.content);
+    let watch = parseWatchIntent(last.content);
+    // "watch them" / "track all the stocks you just suggested": the stocks Pexa just showed.
+    if (watch.kind === 'none') {
+      const symbols = resolveWatchPronoun(last.content, input.messages);
+      if (symbols) watch = { kind: 'watch_tickers', symbols };
+    }
     if (watch.kind !== 'none') {
       try {
         return await withDeadline(handleWatch({ userId: input.userId }, watch), 25_000);
@@ -880,8 +884,7 @@ async function runAgentTurnInner(input: { userId: string; messages: AgentMessage
 
   // "Deposit $10 USDT into Aave" / "withdraw from Aave" — read by the app itself: it only prepares the action; the person's Confirm runs it.
   if (last?.role === 'user') {
-    const prev = input.messages[input.messages.length - 2];
-    const earn = parseEarnIntent(last.content, prev?.role === 'assistant' ? prev.content : undefined);
+    const earn = parseEarnIntent(last.content, assistantRun(input.messages));
     if (earn.kind === 'usat') return { reply: 'USAT can’t be deposited into Aave — it isn’t one of Aave’s markets. I can convert it to USDT first (say “convert 10 USAT to USDT”), and then deposit that.' };
     if (earn.kind === 'earn') {
       try {
@@ -911,8 +914,7 @@ async function runAgentTurnInner(input: { userId: string; messages: AgentMessage
 
   // "Convert $5 to USAT" — read by the app itself, like sending: it only prepares a quote; the person's Confirm runs it.
   if (last?.role === 'user') {
-    const prev = input.messages[input.messages.length - 2];
-    const swap = parseSwapIntent(last.content, prev?.role === 'assistant' ? prev.content : undefined);
+    const swap = parseSwapIntent(last.content, assistantRun(input.messages));
     if (swap.kind === 'swap') {
       try {
         return await withDeadline(handleSwap({ userId: input.userId }, swap), 25_000);

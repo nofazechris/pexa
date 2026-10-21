@@ -26,8 +26,7 @@ export const askEarnAmount = (action: EarnAction, token: EarnToken) =>
 
 const DEPOSIT_VERBS = /\b(deposit|put|invest|lend|supply|stake|park|move)\b/i;
 const WITHDRAW_VERBS = /\b(withdraw|take (?:it |them |my \w+ )?out|cash out|pull|remove|redeem|get (?:it|my money) back)\b/i;
-const EARN_CONTEXT = /\b(aave|earn(?:ing|ings)?|yield|lend(?:ing)?|interest|apy)\b/i;
-const NOT_EARN = /\b(receive|incoming|send|pay|payment|transfer|bridge|vault|statement)\b/i;
+const QUESTIONISH = /\?\s*$|^\s*(?:is|are|can|could|should|what|which|how|why|does|do|will|would|tell me)\b/i;
 /** Watching a pool is not depositing into it, even when the pool is Aave's. */
 const WATCHING = /\b(watch(?:list|ing)?|track(?:ing)?|monitor|alert|notify|keep an eye)\b/i;
 const AMOUNT_RE = /\$?\s*(\d[\d,]*(?:\.\d+)?)/;
@@ -68,8 +67,11 @@ export function parseEarnIntent(text: string, previousAssistant?: string): EarnI
   }
 
   if (WATCHING.test(t)) return { kind: 'none' };
-  if (NOT_EARN.test(t) && !/\baave\b/i.test(t)) return { kind: 'none' };
-  if (!EARN_CONTEXT.test(t)) return { kind: 'none' };
+  // Putting money into Aave is an instruction only when Aave is named. "I want to stake my USDC, best APY" is a request to RESEARCH
+  // where to earn, not a decision to use Aave; it must not jump straight to "how much do you want to deposit into Aave?".
+  if (!/\baave\b/i.test(t)) return { kind: 'none' };
+  // And a question is a question: "is it only with Aave I can invest?" asks, it doesn't instruct (unless it names an amount).
+  if (QUESTIONISH.test(t) && !/\d/.test(t)) return { kind: 'none' };
 
   const withdraw = WITHDRAW_VERBS.test(t);
   const deposit = DEPOSIT_VERBS.test(t);

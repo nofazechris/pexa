@@ -12,6 +12,7 @@ export type WatchIntent =
   | { kind: 'watch_ticker'; symbol: string }
   | { kind: 'unwatch_ticker'; symbol: string }
   | { kind: 'refresh_ticker'; symbol: string }
+  | { kind: 'watch_tickers'; symbols: string[] }
   | { kind: 'show' }
   | { kind: 'watch'; chain: string; project?: string; symbol: string; targetApy?: number; chainAssumed: boolean }
   | { kind: 'unwatch'; chain?: string; project?: string; symbol?: string };

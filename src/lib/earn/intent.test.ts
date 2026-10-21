@@ -7,7 +7,6 @@ describe('reading a deposit into Aave', () => {
   it('reads the usual phrasings', () => {
     expect(parseEarnIntent('deposit $10 USDT into Aave')).toEqual(earn('deposit', 'USDT', '10'));
     expect(parseEarnIntent('put 25 usdc in aave')).toEqual(earn('deposit', 'USDC', '25'));
-    expect(parseEarnIntent('invest 5 USDT to earn yield')).toEqual(earn('deposit', 'USDT', '5'));
     expect(parseEarnIntent('lend my usdt on aave')).toEqual(earn('deposit', 'USDT', null));
     expect(parseEarnIntent('Deposit USDT into Aave on Celo')).toEqual(earn('deposit', 'USDT', null)); // the yield card's button
   });
@@ -37,6 +36,22 @@ describe('watching is not depositing', () => {
   });
 });
 
+describe('researching where to earn is not choosing Aave', () => {
+  it('"stake / invest / earn" without naming Aave is a request to research, never a deposit', () => {
+    for (const t of ['i want to stake my usdc on celo, i need the best stake apy', 'i want to invest my usdc and get the good apy for my crypto', 'invest 5 USDT to earn yield', 'put my usdt to work', 'lend my usdc somewhere safe']) {
+      expect(parseEarnIntent(t).kind, t).toBe('none');
+    }
+  });
+  it('a question about Aave is a question, not an instruction', () => {
+    for (const t of ['is it only with aave i can invest', 'can I put my usdc in aave?', 'how do I deposit into aave', 'what does aave pay on usdt', 'should I lend on aave']) {
+      expect(parseEarnIntent(t).kind, t).toBe('none');
+    }
+  });
+  it('but naming an amount makes it an instruction even as a question', () => {
+    expect(parseEarnIntent('can you put 5 usdc in aave?')).toEqual({ kind: 'earn', action: 'deposit', token: 'USDC', amount: '5' });
+  });
+});
+
 describe('not an earn action', () => {
   it('"deposit" alone is about receiving money', () => {
     for (const t of ['I want to deposit crypto', 'deposit 10 USDC', 'how do I deposit money', 'receive USDC from Arbitrum', 'send 10 USDC to @ada', 'put 10 USDC in my vault']) {
@@ -50,7 +65,8 @@ describe('not an earn action', () => {
   });
   it('USAT can’t be deposited, and the person is told', () => {
     expect(parseEarnIntent('deposit my USAT into aave')).toEqual({ kind: 'usat' });
-    expect(parseEarnIntent('lend 5 usat to earn')).toEqual({ kind: 'usat' });
+    expect(parseEarnIntent('lend 5 usat on aave')).toEqual({ kind: 'usat' });
+    expect(parseEarnIntent('lend 5 usat to earn').kind).toBe('none'); // no Aave named: that is research, which says USAT has no lending market
   });
 });
 
@@ -74,7 +90,7 @@ import { parseBridgeIntent } from '@/lib/bridge/chains';
 import { parseSwapIntent } from '@/lib/swap/intent';
 
 describe('does not collide with the other flows', () => {
-  const earnPhrases = ['deposit $10 USDT into Aave', 'put 25 usdc in aave', 'invest 5 USDT to earn yield', 'withdraw 5 USDT from Aave', 'Deposit USDT into Aave on Celo', 'lend my usdt on aave'];
+  const earnPhrases = ['deposit $10 USDT into Aave', 'put 25 usdc in aave', 'invest 5 USDT in aave', 'withdraw 5 USDT from Aave', 'Deposit USDT into Aave on Celo', 'lend my usdt on aave'];
   it('an earn phrase is never read as a bridge or a conversion', () => {
     for (const t of earnPhrases) {
       expect(parseBridgeIntent(t).kind, t).toBe('none');

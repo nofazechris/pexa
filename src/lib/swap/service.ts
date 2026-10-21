@@ -9,6 +9,7 @@ import { getWalletByUserId } from '@/lib/wallets/service';
 import { availableBalanceRaw } from '@/lib/vaults/service';
 import { relayerCeloBalance, sendGasTopUp } from '@/lib/relayer/service';
 import { appendTag } from '@/lib/relayer/tag';
+import { approvalCovers } from '@/lib/celo/approval';
 import {
   SLIPPAGE_BPS,
   SWAP_LIMITS,
@@ -251,14 +252,16 @@ export async function confirmApproval(userId: string, swapId: string, txHash: st
   if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) return { ok: false, code: 'tx_mismatch', message: 'That doesn’t look like a transaction.' };
   const client = celoClient();
   const wallet = getAddress(row.walletAddress);
+  let receipt;
   try {
-    const receipt = await client.waitForTransactionReceipt({ hash: txHash as Hex, timeout: 30_000 });
+    receipt = await client.waitForTransactionReceipt({ hash: txHash as Hex, timeout: 30_000 });
     if (receipt.status !== 'success') return { ok: false, code: 'tx_failed', message: 'The approval didn’t go through. Nothing was converted.' };
   } catch {
     return { ok: false, code: 'tx_failed', message: 'The approval is taking too long. Nothing was converted — try again.' };
   }
-  const allowance = (await client.readContract({ address: tokenAddress(row.fromToken as SwapToken), abi: erc20Abi, functionName: 'allowance', args: [wallet, UNISWAP.router] })) as bigint;
-  if (allowance < BigInt(row.amountIn)) return { ok: false, code: 'tx_mismatch', message: 'The approval doesn’t cover this conversion. Nothing was converted.' };
+  // The approval's own log proves what it covers; reading the allowance can hit a node a block behind, so it is only a retried fallback.
+  const covered = await approvalCovers(client, { token: tokenAddress(row.fromToken as SwapToken), owner: wallet, spender: UNISWAP.router, amount: BigInt(row.amountIn), logs: receipt.logs });
+  if (!covered) return { ok: false, code: 'tx_mismatch', message: 'The approval doesn’t cover this conversion. Nothing was converted.' };
   await getDb().update(schema.swaps).set({ approveTx: txHash }).where(eq(schema.swaps.id, row.id));
   return { ok: true };
 }

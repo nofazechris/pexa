@@ -24,6 +24,24 @@ function symbolOf(text: string): string | null {
   return caps.length === 1 ? caps[0] : null;
 }
 
+const PRONOUN = /\b(them|those|these|all of them|all (?:the )?(?:stocks|tickers)|the stocks|each one|every one)\b/i;
+
+/**
+ * "Watch them" / "track all the stocks you just suggested": the person means the stocks Pexa just showed. They are read from the
+ * note of the latest stock research in the chat (never invented), at most six. Null when the message names a stock itself, isn't a
+ * watch request, or there is no stock research to point at.
+ */
+export function resolveWatchPronoun(text: string, messages: readonly { role: 'user' | 'assistant'; content: string }[]): string[] | null {
+  if (!WATCH.test(text) || !PRONOUN.test(text) || POOLISH.test(text) || /\$[A-Za-z]/.test(text)) return null;
+  for (let i = messages.length - 2; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== 'assistant' || !/Showed stock research/.test(m.content)) continue;
+    const symbols = [...new Set([...m.content.matchAll(/\$([A-Z]{1,5}) \(/g)].map((x) => x[1]))].slice(0, 6);
+    return symbols.length ? symbols : null;
+  }
+  return null;
+}
+
 export function parseTickerIntent(text: string): TickerIntent {
   const t = text.trim();
   if (!t || t.length > 220 || POOLISH.test(t)) return null;

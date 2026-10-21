@@ -9,6 +9,7 @@ import { getWalletByUserId } from '@/lib/wallets/service';
 import { availableBalanceRaw } from '@/lib/vaults/service';
 import { relayerCeloBalance, sendGasTopUp } from '@/lib/relayer/service';
 import { appendTag } from '@/lib/relayer/tag';
+import { approvalCovers } from '@/lib/celo/approval';
 import { aaveCeloRewards } from '@/lib/yield/service';
 import {
   AAVE,
@@ -313,14 +314,16 @@ export async function confirmApproval(userId: string, id: string, txHash: string
   if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) return { ok: false, code: 'tx_mismatch', message: 'That doesn’t look like a transaction.' };
   const client = celoClient();
   const wallet = getAddress(row.walletAddress);
+  let receipt;
   try {
-    const receipt = await client.waitForTransactionReceipt({ hash: txHash as Hex, timeout: 30_000 });
+    receipt = await client.waitForTransactionReceipt({ hash: txHash as Hex, timeout: 30_000 });
     if (receipt.status !== 'success') return { ok: false, code: 'tx_failed', message: 'The approval didn’t go through. Nothing was deposited.' };
   } catch {
     return { ok: false, code: 'tx_failed', message: 'The approval is taking too long. Nothing was deposited — try again.' };
   }
-  const allowance = (await client.readContract({ address: earnTokenAddress(row.token as EarnToken), abi: erc20Abi, functionName: 'allowance', args: [wallet, AAVE.pool] })) as bigint;
-  if (allowance < BigInt(row.amount)) return { ok: false, code: 'tx_mismatch', message: 'The approval doesn’t cover this deposit. Nothing was deposited.' };
+  // The approval's own log proves what it covers; reading the allowance can hit a node a block behind, so it is only a retried fallback.
+  const covered = await approvalCovers(client, { token: earnTokenAddress(row.token as EarnToken), owner: wallet, spender: AAVE.pool, amount: BigInt(row.amount), logs: receipt.logs });
+  if (!covered) return { ok: false, code: 'tx_mismatch', message: 'The approval doesn’t cover this deposit. Nothing was deposited.' };
   await getDb().update(schema.earnActions).set({ approveTx: txHash }).where(eq(schema.earnActions.id, row.id));
   return { ok: true };
 }

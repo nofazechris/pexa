@@ -25,6 +25,8 @@ describe('investing conversation (live)', () => {
     const userId = prof.userId;
     const original = await getInvestorProfile(userId);
     const turn = async (messages: Msg[]) => (await runAgentTurn({ userId, messages })) as Turn;
+    // In the real app a question with buttons is two history entries: the question, then a note that buttons were shown.
+    const buttons = (t: Turn) => ({ role: 'assistant' as const, content: `[Showed buttons for the person to choose: ${(t.action?.render.options ?? []).map((o) => o.label).join(' / ')}]` });
 
     try {
       await resetInvestorProfile(userId);
@@ -37,21 +39,21 @@ describe('investing conversation (live)', () => {
       expect((t1.action?.render.options ?? []).map((o) => o.label)).toContain('Play it safe');
 
       // 2. Their answer is saved and the next question follows.
-      const h2: Msg[] = [{ role: 'user', content: ask }, { role: 'assistant', content: t1.reply }, { role: 'user', content: 'I’d rather play it safe' }];
+      const h2: Msg[] = [{ role: 'user', content: ask }, { role: 'assistant', content: t1.reply }, buttons(t1), { role: 'user', content: 'I’d rather play it safe' }];
       const t2 = await turn(h2);
       expect(t2.reply).toContain(QUESTION.horizon);
       expect((await getInvestorProfile(userId))?.risk).toBe('cautious');
 
       // 3. An answer it can't read is asked again, plainly, without losing the place.
-      const t3 = await turn([...h2, { role: 'assistant', content: t2.reply }, { role: 'user', content: 'purple' }]);
+      const t3 = await turn([...h2, { role: 'assistant', content: t2.reply }, buttons(t2), { role: 'user', content: 'purple' }]);
       expect(t3.reply).toMatch(/didn.t quite catch that/i);
       expect(t3.reply).toContain(QUESTION.horizon);
 
       // 4. The last answer finishes the profile and carries on with what they first asked: a stock research plan.
-      const h4: Msg[] = [...h2, { role: 'assistant', content: t2.reply }, { role: 'user', content: 'In one to three years' }];
+      const h4: Msg[] = [...h2, { role: 'assistant', content: t2.reply }, buttons(t2), { role: 'user', content: 'In one to three years' }];
       const t4 = await turn(h4);
       expect(t4.reply).toContain(QUESTION.amount);
-      const t5 = await turn([...h4, { role: 'assistant', content: t4.reply }, { role: 'user', content: '300' }]);
+      const t5 = await turn([...h4, { role: 'assistant', content: t4.reply }, buttons(t4), { role: 'user', content: '300' }]);
       expect(t5.reply).toMatch(/You told me: a play-it-safe approach/);
       expect(t5.action?.render.type).toBe('research_plan');
       expect(t5.action?.render.request).toMatchObject({ kind: 'stocks' });
@@ -68,10 +70,18 @@ describe('investing conversation (live)', () => {
       expect(t7.reply).toMatch(/can.t buy or sell stocks/i);
       expect(t7.reply).toMatch(/research/i);
 
+      // 6b. The phrases that went wrong in real use: researching where to earn must NOT jump to "deposit into Aave", and a question
+      // about Aave must not be treated as an instruction.
+      const r1 = await turn([{ role: 'user', content: 'i want to stake my usdc on celo, i need the best stake apy' }]);
+      expect(r1.reply).not.toMatch(/How much USDC do you want to deposit into Aave/i);
+      expect(r1.action?.render.type).toBe('yield_list');
+      const r2 = await turn([{ role: 'user', content: 'is it only with aave i can invest' }]);
+      expect(r2.reply).not.toMatch(/Which coin do you want to deposit|How much .* do you want to deposit/i);
+
       // 7. Skipping stops the questions and Pexa still helps.
       await resetInvestorProfile(userId);
       const s1 = await turn([{ role: 'user', content: 'where should I invest my money?' }]);
-      const s2 = await turn([{ role: 'user', content: 'where should I invest my money?' }, { role: 'assistant', content: s1.reply }, { role: 'user', content: 'Skip the questions' }]);
+      const s2 = await turn([{ role: 'user', content: 'where should I invest my money?' }, { role: 'assistant', content: s1.reply }, buttons(s1), { role: 'user', content: 'Skip the questions' }]);
       expect(s2.reply).toMatch(/skipped the questions/i);
       expect((await getInvestorProfile(userId))?.skipped).toBe(true);
     } finally {

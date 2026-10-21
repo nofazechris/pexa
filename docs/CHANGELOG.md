@@ -2,6 +2,16 @@
 
 What changed, newest first. Each entry says what it does, where it lives, and whether it has been proven with real money.
 
+## 2026-10-22 — Fixes from real use: the failed Aave deposit and the agent misreading the person
+
+Found by reading the saved chat, the deposit record and the chain:
+
+- **The first Aave deposit failed after the approval had already gone through.** Pexa re-read the allowance right after the approval was mined and a lagging node returned the old value, so it said "the approval doesn't cover this deposit" while the chain showed an approval of exactly the right amount. Pexa now trusts the approval's own receipt (its Approval log) and only falls back to reading the allowance, retried a few times. The same latent bug was fixed for conversions. A retry now skips the approval, which is already in place.
+- **Answers to button questions were being missed.** A question with buttons is two entries in what the agent sees (the question, then a note that buttons were shown), and every flow only looked at the entry just before your reply. So tapping USDT, or answering the risk question, wasn't recognised: the questions were asked again and a plain X search was bought instead of the stock research. All flows now read the whole run of assistant messages before your reply, and the original request is found across the questions, notes and answers (`src/lib/agent/history.ts`, `original-request.ts`).
+- **"I want to stake my USDC, I need the best APY" jumped straight to "how much do you want to deposit into Aave?"** A deposit or withdrawal now needs Aave to be named, and a question about Aave ("is it only with Aave I can invest?") is answered, not treated as an instruction. Asking where to earn goes to research.
+- **"Watch them" works:** "watch them", "track all the stocks you just suggested" resolves to the tickers in the stock research just shown.
+- **The live evals now use the real shape of the chat history** (question, buttons note, answer). The earlier ones used a hand-built shape that hid the bug, and include the exact phrases that went wrong.
+
 ## 2026-10-21 — Watching stocks
 
 - **Watch a stock** with the Watch button on a stock card, or say "watch $NVDA" (a cashtag, or a symbol next to the word "stock"). Pexa saves it with its real price and how much talk there is, and moves no money. A made-up symbol is refused; "stop watching $AMD" and "show my watchlist" work too, and the watchlist card now shows pools and stocks together.

@@ -6,6 +6,7 @@
  * Each platform the person chose is its own small pipeline — search, search again under the name sellers use if few turned up, then
  * look inside each promising account individually — and the answers are merged, rated and ranked together.
  */
+import { candidatesFrom as stockCandidates, postsFromSteps, stockQueries } from './stocks/build';
 import { cityOf, searchKeywords, themeFor } from './commerce';
 import { igCandidates, igProfile, liPeople, tiktokCandidates, tiktokProfile, xTweets, type IgCandidate } from './read';
 import { mergeSameBusiness } from './dedupe';
@@ -24,6 +25,7 @@ export const SERVICE = {
   xSearch: 'x.posts.search',
   xTimeline: 'monid.x.tikhub.api-v1-twitter-web-fetch-user-post-tweet',
   liSearch: 'monid.linkedin.apify.harvestapi-linkedin-profile-search-by-services',
+  redditSearch: 'reddit.posts.search',
 } as const;
 
 export const ALLOWED_SERVICES: ReadonlySet<string> = new Set(Object.values(SERVICE));
@@ -43,6 +45,7 @@ export function freshForMs(capabilityId: string): number {
     case SERVICE.igSearch:
     case SERVICE.tiktokSearch:
     case SERVICE.xSearch:
+    case SERVICE.redditSearch:
       return 6 * HOUR;
     case SERVICE.xTimeline:
       return 3 * HOUR;
@@ -82,6 +85,7 @@ export function estimateFor(platforms: readonly Platform[]): bigint {
 
 /** The most a research may spend: about twice the typical cost, never under $0.10 or over the hard cap. */
 export function capFor(req: ResearchRequest): bigint {
+  if (req.kind === 'stocks') return 100_000n; // four searches at about half a cent each, with room to spare
   if (req.platforms.length === 1 && req.platforms[0] === 'linkedin') return 150_000n;
   const doubled = estimateFor(req.platforms) * 2n;
   const rounded = ((doubled + 9_999n) / 10_000n) * 10_000n;
@@ -105,10 +109,25 @@ export interface PlanText {
 }
 
 const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const NAME: Record<Platform, string> = { instagram: 'Instagram', tiktok: 'TikTok', x: 'X', linkedin: 'LinkedIn' };
+const NAME: Record<Platform, string> = { instagram: 'Instagram', tiktok: 'TikTok', x: 'X', linkedin: 'LinkedIn', reddit: 'Reddit' };
 const list = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 export function describePlan(req: ResearchRequest): PlanText {
+  if (req.kind === 'stocks') {
+    return {
+      title: sentence(`research ${req.what} people are talking about`),
+      steps: [
+        'Search X for the most-liked and the newest posts about stocks (two searches)',
+        'Search Reddit for what’s hot and the best-argued write-ups (two searches)',
+        'Pick out the tickers that come up across different people, and leave out copy-pasted promotion',
+        'Look up each ticker’s real price history (free, public data) to see whether the talk matches the price',
+        'Show what the evidence says in plain words — nothing is bought or sold, and nothing here is advice',
+      ],
+      estimate: dollars(20_000n),
+      cap: dollars(100_000n),
+      capAtomic: 100_000n,
+    };
+  }
   const where = req.place ? ` in ${req.place}` : '';
   const capAtomic = capFor(req);
   const names = list(req.platforms.map((p) => NAME[p]));
@@ -131,7 +150,7 @@ export function describePlan(req: ResearchRequest): PlanText {
 
 // --- deciding the next purchase -----------------------------------------------------------------------------
 
-export type StepRole = 'search' | 'fallback' | 'vet' | 'tsearch' | 'tsearch2' | 'tvet' | 'xsearch' | 'xvet' | 'lsearch';
+export type StepRole = 'search' | 'fallback' | 'vet' | 'tsearch' | 'tsearch2' | 'tvet' | 'xsearch' | 'xvet' | 'lsearch' | 'sx1' | 'sx2' | 'sr1' | 'sr2';
 export type StepOutcome = 'OPEN' | 'PAID' | 'UNCERTAIN' | 'FAILED';
 
 /** One purchase made (or being made) for this research, with what it returned once paid. */
@@ -209,6 +228,7 @@ export function foundXSellers(steps: readonly StepState[], req: ResearchRequest)
 
 /** Every account this run has looked at, by platform — so what Pexa already knows about them can be loaded before they are scored. */
 export function accountKeys(req: ResearchRequest, steps: readonly StepState[]): { platform: string; handle: string }[] {
+  if (req.kind === 'stocks') return [];
   const out: { platform: string; handle: string }[] = [];
   if (req.platforms.includes('instagram')) for (const s of steps) if (s.role === 'vet' && s.ref) out.push({ platform: 'instagram', handle: s.ref });
   if (req.platforms.includes('tiktok')) for (const s of steps) if (s.role === 'tvet' && s.ref) out.push({ platform: 'tiktok', handle: s.ref });
@@ -227,7 +247,7 @@ const buy = (role: StepRole, capabilityId: string, input: Record<string, unknown
 
 /** A social platform that is searched for accounts, then each promising one looked inside. */
 function accountsNext(req: ResearchRequest, steps: readonly StepState[], c: { name: string; search: StepRole; again: StepRole; vet: StepRole; searchId: string; vetId: string; found: IgCandidate[]; vetInput: (u: string) => Record<string, unknown> }): Next | null {
-  const keywords = searchKeywords(req.what, req.place, themeFor(req.what), req.kind);
+  const keywords = searchKeywords(req.what, req.place, themeFor(req.what), req.kind === 'hire' ? 'hire' : 'vendors');
   const searches = steps.filter((s) => s.role === c.search || s.role === c.again);
   const where = req.place ? ` in ${req.place}` : '';
   if (searches.length === 0) return buy(c.search, c.searchId, { queryParams: { keyword: keywords[0] } }, `Searching ${c.name} for ${req.what}${where}`);
@@ -264,6 +284,16 @@ export function decideNext(req: ResearchRequest, steps: readonly StepState[]): N
   if (steps.length >= MAX_PURCHASES) return { action: 'finish', reason: 'limit' };
   if (steps.some((s) => s.outcome === 'UNCERTAIN')) return { action: 'finish', reason: 'uncertain' };
 
+  if (req.kind === 'stocks') {
+    for (const q of stockQueries(req.what)) {
+      if (!steps.some((s) => s.role === q.role)) return { action: 'buy', role: q.role, capabilityId: q.capabilityId, input: q.input, ref: null, label: q.label };
+    }
+    if (!steps.some((s) => s.outcome === 'PAID')) return { action: 'finish', reason: 'search_failed' };
+    // Answers with plenty in them that we still read no posts from are ones we can't read: say so rather than "nothing found".
+    if (postsFromSteps(steps).posts.length === 0 && steps.some((s) => s.outcome === 'PAID' && hasContent(s.output))) return { action: 'finish', reason: 'unreadable' };
+    return { action: 'finish', reason: 'done' };
+  }
+
   for (const p of req.platforms) {
     const n =
       p === 'instagram'
@@ -285,6 +315,27 @@ export function decideNext(req: ResearchRequest, steps: readonly StepState[]): N
 }
 
 // --- the answer ---------------------------------------------------------------------------------------------
+
+/** Stock research: the tickers with real attention. Prices are joined on the server afterwards (it needs the network). */
+function assembleStocks(req: ResearchRequest, steps: readonly StepState[], reason: FinishReason, now: Date): ResearchResult {
+  const { candidates, read } = stockCandidates(steps, now);
+  const notes: string[] = [];
+  if (reason === 'uncertain') notes.push('One payment didn’t confirm, so I stopped. It may have gone through — check Purchases & receipts before searching again.');
+  if (reason === 'limit') notes.push('I stopped at my purchase limit for one search.');
+  if (reason === 'unreadable') notes.push('The searches did answer, but in a shape I couldn’t read reliably, so I spent no more on them. The raw answers are saved under Purchases.');
+  if (reason === 'search_failed') notes.push('The searches didn’t come back, and nothing was charged for what failed.');
+  const spent = steps.filter((s) => s.outcome === 'PAID' || s.outcome === 'UNCERTAIN').reduce((a, s) => a + s.priceAtomic, 0n);
+  return {
+    request: req,
+    summary: candidates.length ? `I read ${read.x + read.reddit} posts and found ${candidates.length} tickers that different people are talking about.` : 'I couldn’t find a stock that several different people were talking about.',
+    items: [],
+    notes,
+    spent: dollars(spent),
+    market: null,
+    skipped: [],
+    stocks: { theme: req.what, asOf: now.toISOString(), read, items: [], unverified: [], profileNote: null, candidates },
+  };
+}
 
 const spentOn = (steps: readonly StepState[]) => steps.filter((s) => s.outcome === 'PAID' || s.outcome === 'UNCERTAIN').reduce((a, s) => a + s.priceAtomic, 0n);
 
@@ -322,6 +373,7 @@ export function skippedNote(skipped: readonly { name: string; reason: string }[]
 
 /** The shortlist from everything bought: only accounts that sell what was asked for, rated and ranked (distances are added by the server). */
 export function assemble(req: ResearchRequest, steps: readonly StepState[], reason: FinishReason, now: Date, memory: ReadonlyMap<string, VendorMemoryView> = new Map()): ResearchResult {
+  if (req.kind === 'stocks') return assembleStocks(req, steps, reason, now);
   const mem = (platform: string, handle: string) => memory.get(`${platform}:${handle.toLowerCase()}`) ?? null;
   const spent = dollars(spentOn(steps));
   const notes: string[] = [];

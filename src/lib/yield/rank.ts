@@ -62,6 +62,8 @@ export interface YieldQuery {
   symbol?: string;
   minTvlUsd?: number;
   limit?: number;
+  /** Hide pools riskier than this (set from what the person told us about themselves). */
+  maxRisk?: RiskLevel;
 }
 
 export const DEFAULT_MIN_TVL = 250_000;
@@ -197,6 +199,7 @@ export function rankPools(raw: readonly RawPool[], q: YieldQuery = {}): YieldPoo
     if (symbol && !p.symbol.toLowerCase().includes(symbol)) continue;
     if (p.tvlUsd < minTvl) continue;
     const a = assess(p);
+    if (a && q.maxRisk && RISK_ORDER[a.risk] > RISK_ORDER[q.maxRisk]) continue;
     if (a && a.steady > 0) out.push(a);
   }
   return out

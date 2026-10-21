@@ -35,6 +35,11 @@ export function priorityFrom(v: unknown): Priority {
 }
 
 export function normalizeRequest(input: { kind?: unknown; platforms?: unknown; source?: unknown; what?: unknown; place?: unknown; priority?: unknown; radiusKm?: unknown }): NormalizeResult {
+  // Stock research needs no place and no choice of platform: it reads X and Reddit.
+  if (input.kind === 'stocks') {
+    const what = typeof input.what === 'string' ? clean(input.what, 60) : '';
+    return { ok: true, request: { kind: 'stocks', platforms: ['x', 'reddit'], what: what.length >= 2 ? what : 'stocks', place: '' } };
+  }
   const kind: ResearchKind = input.kind === 'hire' ? 'hire' : 'vendors';
   const what = typeof input.what === 'string' ? clean(input.what, 80) : '';
   // "lagos" → "Lagos", "abuja nigeria" → "Abuja Nigeria".

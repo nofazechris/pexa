@@ -56,6 +56,8 @@ function reconcile(raw: readonly RawPool[], q: YieldQuery, items: readonly Yield
 export function buildYieldView(raw: readonly RawPool[], q: YieldQuery, asOf: Date, extras: { holdings?: Holdings | null } = {}): YieldView {
   const items = rankPools(raw, q);
   const chains = (q.chains ?? []).filter(Boolean);
+  // What was left out because of what the person told us (so nothing is hidden silently).
+  const hidden = q.maxRisk && q.maxRisk !== 'high' ? rankPools(raw, { ...q, maxRisk: undefined, limit: 50 }).filter((p) => !items.some((i) => i.id === p.id)).length : 0;
   const holdings = extras.holdings ?? null;
   const notes: string[] = [];
   const convert = reconcile(raw, q, items);
@@ -80,6 +82,7 @@ export function buildYieldView(raw: readonly RawPool[], q: YieldQuery, asOf: Dat
       notes.push(`You hold ${money(holdings[want])} ${want}${Number(holdings[other]) >= 0.1 ? ` and ${money(holdings[other])} ${other}, so I can convert some ${other} to ${want} first (or deposit the ${other} instead)` : ', so you would need to add funds first — the minimum to start is $0.10'}.`);
     }
   }
+  if (hidden > 0) notes.push(`Shaped by what you told me: I left out ${hidden} higher-risk or smaller pool${hidden === 1 ? '' : 's'}. Say “show me everything” to see them.`);
   notes.push(YIELD_DISCLAIMER);
   return { asOf: asOf.toISOString(), chains, assets: q.assets ?? 'stablecoins', symbol: q.symbol?.trim() || null, items, notes, holdings, convert };
 }

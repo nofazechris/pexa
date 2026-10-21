@@ -678,6 +678,7 @@ export const TOOLS: ToolDef[] = [
       symbol: z.string().max(20).optional().describe('A coin to focus on, e.g. "USDC", "USDT", "USAT", "ETH".'),
       minTvlUsd: z.number().min(0).optional().describe('Only when they ask to include small pools (lower it) or only big ones (raise it).'),
       limit: z.number().min(1).max(8).optional(),
+      showAll: z.boolean().optional().describe('true only when they ask to see everything, including riskier and smaller pools than their profile allows.'),
     }),
     handler: async (_ctx, args) => {
       const view = await researchYields(queryFrom(args));

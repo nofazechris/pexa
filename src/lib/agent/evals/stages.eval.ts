@@ -14,6 +14,8 @@ describe('stages follow real activity (live)', () => {
     const { runAgentTurn } = await import('@/lib/agent/runtime');
     const [prof] = await getDb().select().from(schema.profiles).where(eq(schema.profiles.username, process.env.EVAL_USER ?? 'chris')).limit(1);
 
+    const { withSettledProfile } = await import('./profile-fixture');
+    await withSettledProfile(prof.userId, async () => {
     const run = async (text: string) => {
       const events: { stage: string; label: string }[] = [];
       const turn = await runAgentTurn({ userId: prof.userId, messages: [{ role: 'user', content: text }] }, { onStage: (e) => events.push(e) });
@@ -39,5 +41,6 @@ describe('stages follow real activity (live)', () => {
     const hello = await run('hello, how are you?');
     expect(hello.events.every((e) => e.stage === 'thinking')).toBe(true);
     expect(hello.events.length).toBeGreaterThan(0);
+    });
   });
 });

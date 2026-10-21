@@ -1,6 +1,6 @@
 /** Shared shapes for "find a vendor / find someone to hire" research. Plain data: safe to send to the browser. */
 
-export type ResearchKind = 'vendors' | 'hire';
+export type ResearchKind = 'vendors' | 'hire' | 'stocks';
 export type Verdict = 'solid' | 'mixed' | 'careful' | 'unknown';
 
 export interface ResearchRequest {
@@ -24,7 +24,7 @@ export interface Signal {
   text: string;
 }
 
-export type Platform = 'instagram' | 'tiktok' | 'x' | 'linkedin';
+export type Platform = 'instagram' | 'tiktok' | 'x' | 'linkedin' | 'reddit';
 
 /** The social networks a seller search can look on (LinkedIn is for professionals). */
 export type SellerPlatform = 'instagram' | 'tiktok' | 'x';
@@ -127,6 +127,35 @@ export interface ResearchItem {
   skipReason: string | null;
 }
 
+/** One stock people are talking about, with what the posts and the prices say. Facts only; nothing recommended. */
+export interface StockItem {
+  symbol: string;
+  name: string | null;
+  /** A neutral label for the pattern the evidence shows. */
+  pattern: string;
+  heat: { posts: number; authors: number; engagement: number; platforms: ('x' | 'reddit')[]; newestDays: number | null; score: number };
+  /** Null when the price source couldn't be reached. */
+  price: { last: number; currency: string; ret1w: number | null; ret1m: number | null; ret3m: number | null; retYtd: number | null; ret1y: number | null; vol: number | null; drawdown3m: number | null; exchange: string | null } | null;
+  flags: { tone: 'good' | 'warn' | 'info'; text: string }[];
+  /** How it sits with what the person said about themselves, or null. */
+  fit: string | null;
+  examples: { platform: 'x' | 'reddit'; author: string; text: string }[];
+}
+
+export interface StockResearch {
+  theme: string;
+  asOf: string;
+  /** How many posts were read on each platform. */
+  read: { x: number; reddit: number };
+  items: StockItem[];
+  /** Tickers that came up but the price source doesn't know, so they were left out. */
+  unverified: string[];
+  /** What the person told us, reflected back, when they have a profile. */
+  profileNote: string | null;
+  /** The tickers found before prices were looked up (cleared once the card is built). */
+  candidates: import('./stocks/heat').Heat[];
+}
+
 export interface ResearchResult {
   request: ResearchRequest;
   summary: string;
@@ -141,6 +170,8 @@ export interface ResearchResult {
   skipped: { name: string; reason: string }[];
   /** Buttons for widening the search (a bigger radius, another platform). Absent when there is nothing sensible to offer. */
   expand?: { label: string; text: string }[];
+  /** Present for stock research. */
+  stocks?: StockResearch;
 }
 
 export type ResearchStatus = 'PLANNED' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED';

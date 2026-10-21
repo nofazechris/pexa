@@ -7,8 +7,9 @@ import type { ResearchItem, ResearchResult, Verdict } from '@/lib/research/types
 import { distanceText } from '@/lib/geo/place';
 import { stageForLabel } from '@/lib/agent/stage';
 import { AgentOrb } from '@/components/pexa/AgentOrb';
+import { StockResultCard } from '@/components/pexa/StockCards';
 
-const PLATFORM_NAME = { instagram: 'Instagram', tiktok: 'TikTok', x: 'X', linkedin: 'LinkedIn' } as const;
+const PLATFORM_NAME = { instagram: 'Instagram', tiktok: 'TikTok', x: 'X', linkedin: 'LinkedIn', reddit: 'Reddit' } as const;
 
 /**
  * Chat cards for "find me a vendor / someone to hire". The plan card is the one human checkpoint: it states the cost and the
@@ -41,7 +42,7 @@ export function ResearchPlanCard({ m, onConfirm, onCancel }: { m: ChatMessage; o
 
   return (
     <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '16px', maxWidth: '420px' }}>
-      <Label>{plan.request.kind === 'hire' ? 'FIND SOMEONE · BUY' : 'FIND A VENDOR · BUY'}</Label>
+      <Label>{plan.request.kind === 'hire' ? 'FIND SOMEONE · BUY' : plan.request.kind === 'stocks' ? 'STOCK RESEARCH · BUY' : 'FIND A VENDOR · BUY'}</Label>
       <div style={{ fontSize: '16px', fontWeight: 600, letterSpacing: '-.015em', marginTop: '10px' }}>{plan.title}</div>
       <ol style={{ margin: '10px 0 0', paddingLeft: '18px', listStyle: 'decimal', fontSize: '13.5px', lineHeight: 1.55, color: color.mutedStrong }}>
         {plan.steps.map((s) => (
@@ -265,6 +266,7 @@ function ItemRow({ item, r, onTry, getAccessToken }: { item: ResearchItem; r: Re
 export function ResearchResultCard({ m, onTry, getAccessToken }: { m: ChatMessage; onTry?: (text: string) => void; getAccessToken?: () => Promise<string | null> }) {
   const r = m.researchResult;
   if (!r) return null;
+  if (r.stocks) return <StockResultCard r={r} />;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', maxWidth: '460px' }}>
       <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '14px 16px' }}>

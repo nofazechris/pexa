@@ -10,6 +10,10 @@ import { ALLOWED_SERVICES, RESEARCH_HARD_CAP_ATOMIC, freshForMs, accountKeys, as
 import { loadVendorMemory, recordRun } from './memory';
 import { applyRadius, applyRatings, rankByRating } from './rate';
 import { priorityFrom } from './request';
+import { lookupPrices } from './stocks/prices-service';
+import { buildStockItems } from './stocks/build';
+import { getInvestorProfile } from '@/lib/profile/service';
+import { summary as profileSummary } from '@/lib/profile/investor';
 import { expandOptions } from './expand';
 import type { Platform, ResearchKind, ResearchPlanView, ResearchRequest, ResearchResult } from './types';
 
@@ -117,12 +121,34 @@ async function addDistances(result: ResearchResult): Promise<void> {
   }
 }
 
+/**
+ * Stock research, second half: look up real prices for the tickers people are talking about, drop any symbol the price source
+ * doesn't know, and build the evidence for each. Nothing is recommended; the person's own profile only adds how it sits with them.
+ */
+async function enrichStocks(result: ResearchResult, userId: string): Promise<void> {
+  const s = result.stocks;
+  if (!s) return;
+  const profile = await getInvestorProfile(userId);
+  const prices = await lookupPrices(s.candidates.slice(0, 10).map((c) => c.symbol));
+  const { items, unverified } = buildStockItems(s.candidates, prices, profile);
+  s.items = items;
+  s.unverified = unverified;
+  s.candidates = [];
+  s.profileNote = profile && !profile.skipped ? profileSummary(profile) : null;
+  const read = s.read.x + s.read.reddit;
+  result.summary = items.length ? `I read ${read} posts on X and Reddit and found ${items.length} stock${items.length === 1 ? '' : 's'} that different people are talking about. Here is what the posts and the prices say — it is evidence, not a recommendation.` : result.summary;
+  if (unverified.length) result.notes.push(`Left out ${unverified.join(', ')}: the price source doesn’t know ${unverified.length === 1 ? 'it' : 'them'}, so ${unverified.length === 1 ? 'it' : 'they'} may not be real stocks.`);
+  if (items.length && items.every((i) => i.price === null)) result.notes.push('I couldn’t reach the price source just now, so there are no prices here. Ask me again in a few minutes.');
+  result.notes.push('Pexa can’t buy or sell stocks. Talk on social media is not a reason to buy, and a stock that is popular can fall. Not financial advice.');
+}
+
 async function finish(row: ResearchSessionRow, states: StepState[], reason: FinishReason, extraNote?: string): Promise<Advance> {
   const req = requestOf(row);
   // What Pexa already knows about these accounts (earlier searches, what people said) goes into their scores…
   const memory = await loadVendorMemory(accountKeys(req, states));
   const result = assemble(req, states, reason, new Date(), memory);
   if (extraNote) result.notes.unshift(extraNote);
+  if (req.kind === 'stocks') await enrichStocks(result, row.userId).catch((e) => console.error('[stocks] enrich failed:', e instanceof Error ? e.message : e));
   const reusedCount = stepsOf(row).filter((s) => s.cached).length;
   if (reusedCount > 0) result.notes.unshift(`${reusedCount} lookup${reusedCount === 1 ? '' : 's'} came from searches you paid for recently, so they cost nothing this time (they can be a few hours old).`);
   if (result.items.length) {
@@ -263,6 +289,7 @@ export async function advanceResearch(userId: string, id: string, attempt = 0): 
 function labelFor(req: ResearchRequest, step: StepRef | undefined): string {
   const where = req.place ? ` in ${req.place}` : '';
   if (!step) return 'Working…';
+  if (req.kind === 'stocks') return { sx1: 'Searching X for the stocks people are talking about', sx2: 'Searching X for the newest stock talk', sr1: 'Searching Reddit for what’s hot in stocks', sr2: 'Searching Reddit for the best-argued write-ups' }[step.role as 'sx1' | 'sx2' | 'sr1' | 'sr2'] ?? 'Searching…';
   if (step.role === 'vet') return `Checking @${step.ref}`;
   if (step.role === 'tvet') return `Checking TikTok @${step.ref}`;
   if (step.role === 'xvet') return `Reading @${step.ref}’s recent posts on X`;

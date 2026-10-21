@@ -878,6 +878,21 @@ export const watchAlerts = pgTable(
 );
 
 export type YieldWatchRow = typeof yieldWatches.$inferSelect;
+
+/** What a person told Pexa about how they invest (risk comfort, time horizon, roughly how much). Theirs alone; shapes what Pexa shows them. */
+export const investorProfiles = pgTable("investor_profiles", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** cautious | balanced | bold */
+  risk: text("risk"),
+  /** short | medium | long */
+  horizon: text("horizon"),
+  amountUsd: integer("amount_usd"),
+  /** They chose not to answer. */
+  skipped: boolean("skipped").notNull().default(false),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 export type AgentConversationRow = typeof agentConversations.$inferSelect;
 export type BridgeAddressRow = typeof bridgeAddresses.$inferSelect;
 export type WalletDepositRow = typeof walletDeposits.$inferSelect;

@@ -272,6 +272,8 @@ describe('agent evaluation (live)', () => {
     const infraFailure = (r: string) => /AI side isn.t responding|couldn.t (?:read the chain|put the statement|get a deposit|prepare)|\(reason:|try again in a moment/i.test(r);
     let pass = 0;
     const failures: string[] = [];
+    const { withSettledProfile } = await import('./profile-fixture');
+    await withSettledProfile(prof.userId, async () => {
     for (const c of CASES) {
       const t0 = Date.now();
       let why: string | null;
@@ -291,6 +293,7 @@ describe('agent evaluation (live)', () => {
       else failures.push(`${c.name} — ${why}`);
       log(`${why === null ? 'PASS' : 'FAIL'}  ${c.name}  (${Date.now() - t0}ms)${why ? `\n        ${why}` : `\n        said: ${said.slice(0, 110)}`}`);
     }
+    });
     // The eval only ever makes plans (nothing is bought); tidy them away — and any watch it created (its alerts go with it).
     await retry(() => getDb().delete(schema.yieldWatches).where(and(eq(schema.yieldWatches.userId, prof.userId), gte(schema.yieldWatches.createdAt, runStart))));
     await retry(() => getDb().delete(schema.researchSessions).where(and(eq(schema.researchSessions.userId, prof.userId), eq(schema.researchSessions.status, 'PLANNED'))));

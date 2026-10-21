@@ -31,6 +31,8 @@ export function agoText(at: Date, now: Date): string {
 const LABELS: Record<ResearchKind, Record<Verdict, string>> = {
   vendors: { solid: 'Established', mixed: 'Unproven', careful: 'High risk', unknown: 'Not checked' },
   hire: { solid: 'Strong match', mixed: 'Possible match', careful: 'Weak match', unknown: 'Not checked' },
+  // Stocks are never given a verdict (nothing is recommended); the table only has to be complete.
+  stocks: { solid: 'Evidence', mixed: 'Evidence', careful: 'Evidence', unknown: 'Evidence' },
 };
 
 export const verdictLabel = (kind: ResearchKind, v: Verdict) => LABELS[kind][v];

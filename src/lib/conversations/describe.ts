@@ -26,6 +26,7 @@ export interface ChatLike {
   yields?: { convert?: { compare?: string } | null; chains?: string[]; symbol?: string | null; items?: { symbol?: string; project?: string; chain?: string; apy?: number; apyBase?: number; apyReward?: number; tvlUsd?: number; risk?: string }[] };
   research?: { title?: string; estimate?: string; cap?: string };
   researchResult?: {
+    stocks?: { items?: { symbol?: string; pattern?: string; heat?: { authors?: number }; price?: { ret1m?: number | null } | null }[] };
     request?: { kind?: string; what?: string; place?: string; platforms?: string[]; radiusKm?: number | null; priority?: string };
     market?: { text?: string; middle?: string } | null;
     items?: { handle?: string | null; name?: string; verdictLabel?: string; rating?: { overall?: number } | null; distanceKm?: number | null; prices?: { text?: string; vsMarket?: { kind?: string; percent?: number } | null } | null; negotiation?: { offer?: string | null } | null }[];
@@ -104,6 +105,10 @@ export function describeCard(m: ChatLike): string | null {
       return `[Showed a plan to search for “${m.research?.title ?? 'a vendor'}” — about ${m.research?.estimate ?? '?'}, never more than ${m.research?.cap ?? '?'}${m.status === 'awaiting' ? ' — waiting for the person to tap Approve' : m.status === 'cancelled' ? ' — it was cancelled' : ''}]`;
     case 'research_result': {
       const r = m.researchResult;
+      if (r?.stocks) {
+        const list = (r.stocks.items ?? []).slice(0, 6).map((s) => `$${untrustedLabel(s.symbol ?? '?', 8)} (${untrustedLabel(s.pattern ?? '', 50)}, ${s.heat?.authors ?? '?'} people talking${typeof s.price?.ret1m === 'number' ? `, ${s.price.ret1m > 0 ? '+' : ''}${s.price.ret1m}% this month` : ''})`).join('; ');
+        return `[Showed stock research${r.request?.what ? ` for ${untrustedLabel(r.request.what, 40)}` : ''}: ${list || 'nothing found'}. It is evidence from posts and prices, not a recommendation; Pexa can’t buy or sell stocks]`;
+      }
       const who = (r?.items ?? [])
         .slice(0, 5)
         .map((i) => {

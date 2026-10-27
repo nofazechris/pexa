@@ -53,21 +53,23 @@ async function open(url: URL, hop: number): Promise<{ html: string; finalUrl: st
   return { html: await readLimited(res), finalUrl: check.url.href };
 }
 
-export type FetchProduct = { ok: true; page: ProductPage } | { ok: false; message: string };
+/** `browsable`: a rented browser might do better (a shop that builds its page in the browser, or blocks plain visits) — never true for an address that was refused. */
+export type FetchProduct = { ok: true; page: ProductPage } | { ok: false; message: string; browsable: boolean };
 
 /** Read the product on a web page: its name and price (never a guess: a page with no price says so). */
 export async function fetchProduct(rawUrl: string): Promise<FetchProduct> {
   const first = checkUrl(rawUrl);
-  if (!first.ok) return { ok: false, message: first.reason };
+  if (!first.ok) return { ok: false, message: first.reason, browsable: false };
   try {
     const { html, finalUrl } = await open(first.url, 0);
     const page = readProductPage(html, finalUrl);
-    if (!page) return { ok: false, message: 'I couldn’t find a product on that page.' };
-    if (page.price === null) return { ok: false, message: `I opened the page${page.name ? ` (“${page.name.slice(0, 60)}”)` : ''} but it doesn’t show a price I can read. Many shops only show prices after you pick a size or colour. Open the exact product and paste that link.` };
+    if (!page) return { ok: false, message: 'I couldn’t find a product on that page.', browsable: true };
+    if (page.price === null) return { ok: false, message: `I opened the page${page.name ? ` (“${page.name.slice(0, 60)}”)` : ''} but it doesn’t show a price I can read. Many shops only show prices after you pick a size or colour. Open the exact product and paste that link.`, browsable: true };
     return { ok: true, page };
   } catch (e) {
     const msg = e instanceof Error ? e.message : '';
     // Our own plain-words messages pass through; anything technical becomes a plain one.
-    return { ok: false, message: /^(That|I )/.test(msg) ? msg : 'I couldn’t open that page just now. It may block automated visits, or be slow.' };
+    const refused = /isn.t on the public internet|isn.t a web page/.test(msg);
+    return { ok: false, message: /^(That|I )/.test(msg) ? msg : 'I couldn’t open that page just now. It may block automated visits, or be slow.', browsable: !refused };
   }
 }

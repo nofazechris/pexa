@@ -45,7 +45,9 @@ import { parseInvestIntent, themeLabel } from './invest-intent';
 import { assistantRun } from './history';
 import { originalRequest } from './original-request';
 import { addItem, addLink, closeItem, findItem, listItems, setPlace } from '@/lib/shopping/service';
-import { askLink, askPlace, parseShoppingIntent, type ShoppingIntent } from '@/lib/shopping/intent';
+import { askLink, askPlace, browseText, parseShoppingIntent, type ShoppingIntent } from '@/lib/shopping/intent';
+import { BROWSER_MINUTES } from '@/lib/shopping/browser';
+import { checkUrl } from '@/lib/shopping/ssrf';
 import type { ShoppingItemView } from '@/lib/shopping/types';
 import { coinNamed } from '@/lib/yield/coin';
 import { addWatch, listWatches, removeWatch, type WatchView } from '@/lib/yield/watchlist';
@@ -515,7 +517,7 @@ async function handleShopping(ctx: ToolContext, intent: Exclude<ShoppingIntent, 
     if (!r.ok) return { reply: r.message };
     return card(`${r.existed ? 'That’s already on your list' : 'Added'}: “${r.item.title}”${r.item.targetText ? ` (up to ${r.item.targetText})` : ''}. Tap “Find the best options” and I’ll search sellers near you (through Buy, a few cents, after you approve), rate how trustworthy each looks and estimate prices. Or paste a product link and I’ll read its price from the page.`);
   }
-  const found = await which(intent.kind === 'pay' || intent.kind === 'place' || intent.kind === 'link' || intent.kind === 'ask_link' || intent.kind === 'research' || intent.kind === 'remove' || intent.kind === 'bought' ? intent.title : '');
+  const found = await which(intent.kind === 'pay' || intent.kind === 'place' || intent.kind === 'link' || intent.kind === 'browse' || intent.kind === 'ask_link' || intent.kind === 'research' || intent.kind === 'remove' || intent.kind === 'bought' ? intent.title : '');
   if ('reply' in found) return found.reply;
   const item = found.item;
 
@@ -530,14 +532,29 @@ async function handleShopping(ctx: ToolContext, intent: Exclude<ShoppingIntent, 
   if (intent.kind === 'ask_link') return { reply: askLink(item.title) };
   if (intent.kind === 'link') {
     const r = await addLink(ctx.userId, item.id, intent.url);
-    if (!r.ok) return { reply: r.message };
+    if (!r.ok) {
+      if (!r.browsable || !buyAvailable()) return { reply: r.message };
+      // Some shops build their page in the browser or turn away plain visits; a rented browser (a fraction of a cent) can still read them.
+      return { reply: `${r.message} I can open it in a private browser instead: it costs about half a cent through Buy, and it only looks at the page.`, action: { tool: 'shopping', args: {}, render: { type: 'ask_choice', options: [{ label: 'Read it in a browser (about $0.004)', text: browseText(item.title, intent.url) }, { label: 'No thanks', text: 'No thanks' }] } } };
+    }
     const o = r.option;
     return card(`Read it: ${o.name}${o.price ? ` — ${o.price.text}` : ''} (${o.label}). ${o.note ?? ''} It’s saved with your “${item.title}”.`.replace(/\s+/g, ' ').trim());
+  }
+  if (intent.kind === 'browse') {
+    if (!buyAvailable()) return { reply: 'Reading a page in a browser uses Buy, which runs on Celo mainnet only.' };
+    const checked = checkUrl(intent.url);
+    if (!checked.ok) return { reply: checked.reason };
+    if (checked.url.href.length > 500) return { reply: 'That link is too long for me to open. Paste a shorter one.' };
+    emitStage('walking', 'Planning the page read…');
+    const made = await createResearch(ctx.userId, { kind: 'page', platforms: [], what: checked.url.href, place: '', itemId: item.id });
+    if (!made.ok) return { reply: made.message };
+    return { reply: `I’ll rent a private browser from Buy for ${BROWSER_MINUTES} minutes, open ${checked.url.hostname.replace(/^www./, '')} in it and read the price for your “${item.title}”. It costs about half a cent; approve below. The browser only looks — it won’t click, sign in or buy anything.`, action: { tool: 'plan_research', args: {}, render: { type: 'research_plan', ...made.plan } } };
   }
   if (intent.kind === 'remove' || intent.kind === 'bought') {
     await closeItem(ctx.userId, item.id, intent.kind === 'bought' ? 'bought' : 'dropped');
     return card(intent.kind === 'bought' ? `Nice — I’ve taken “${item.title}” off your list.` : `Removed “${item.title}” from your list.`);
   }
+  if (intent.kind !== 'pay') return card('Tell me what you’d like to do with it.');
   // The payment step. Pexa never pays by itself: it explains the risks, then the normal Confirm card does the rest.
   const opt = item.options.find((o) => (o.handle ?? o.name).toLowerCase() === intent.seller.toLowerCase());
   const facts = opt ? ` Pexa rated them ${opt.label.toLowerCase()}${opt.rating !== null ? ` (${(opt.rating / 20).toFixed(1)}/5)` : ''}${opt.price ? ` and they published ${opt.price.text}` : ''}.${opt.note ? ` Watch for: ${opt.note}` : ''}` : '';

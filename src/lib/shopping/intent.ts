@@ -15,7 +15,8 @@ export type ShoppingIntent =
   | { kind: 'ask_link'; title: string }
   | { kind: 'pay'; seller: string; title: string }
   | { kind: 'place'; title: string; place: string }
-  | { kind: 'link'; title: string; url: string };
+  | { kind: 'link'; title: string; url: string }
+  | { kind: 'browse'; title: string; url: string };
 
 const QUESTION = {
   place: (title: string) => `Which city should I look in for your ${title}? (Or tap “Use my location”.)`,
@@ -29,6 +30,7 @@ const ASK_LINK_RE = /Paste the product link for your (.+?) and I’ll read the p
 /** The button texts the cards send. */
 export const researchText = (title: string) => `Find the best options for my ${title}`;
 export const linkText = (title: string) => `Add a product link for my ${title}`;
+export const browseText = (title: string, url: string) => `Read the link for my ${title} in a browser: ${url}`;
 export const payText = (seller: string, title: string) => `I’m ready to pay ${seller} for my ${title}`;
 
 const NOT_GOODS = /\b(stocks?|shares?|etfs?|usdc|usdt|usat|cusd|celo|bitcoin|btc|eth|ethereum|crypto|coins?|nft|tokens?)\b/i;
@@ -39,6 +41,7 @@ const REMOVE = /\b(?:remove|delete|drop|take)\s+(.+?)\s+(?:from|off)\s+my\s+(?:s
 const BOUGHT = /\bi(?:'ve| have)?\s+(?:bought|got|purchased|ordered)\s+(?:the|my|a|an)?\s*(.+)$/i;
 const RESEARCH = /^(?:find|research|look for|search for|get me)\s+the best options for my\s+(.+)$/i;
 const LINK_BTN = /^add a product link for my\s+(.+)$/i;
+const BROWSE_BTN = /^read the link for my\s+(.+?)\s+in a browser:\s+(\S+)$/i;
 const PAY_BTN = /^i[’']m ready to pay\s+(.+?)\s+for my\s+(.+)$/i;
 
 /** "a MacBook Air M3 for under $1,200 in Lagos" → the item, what they'd pay, and where. */
@@ -64,6 +67,8 @@ const urlIn = (t: string) => t.match(/https?:\/\/[^\s<>"]+|(?:www\.)[a-z0-9-]+\.
 
 export function parseShoppingIntent(text: string, previousAssistant?: string): ShoppingIntent {
   const t = text.trim();
+  const browse = t.length <= 700 ? t.match(BROWSE_BTN) : null;
+  if (browse) return { kind: 'browse', title: browse[1].trim(), url: browse[2] };
   if (!t || t.length > 300) return { kind: 'none' };
 
   // Answers to the app's own questions.

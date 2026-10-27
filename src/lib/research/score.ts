@@ -33,6 +33,7 @@ const LABELS: Record<ResearchKind, Record<Verdict, string>> = {
   hire: { solid: 'Strong match', mixed: 'Possible match', careful: 'Weak match', unknown: 'Not checked' },
   // Stocks are never given a verdict (nothing is recommended); the table only has to be complete.
   stocks: { solid: 'Evidence', mixed: 'Evidence', careful: 'Evidence', unknown: 'Evidence' },
+  page: { solid: 'Read', mixed: 'Read', careful: 'Read', unknown: 'Read' },
 };
 
 export const verdictLabel = (kind: ResearchKind, v: Verdict) => LABELS[kind][v];

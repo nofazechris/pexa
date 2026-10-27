@@ -2,6 +2,15 @@
 
 What changed, newest first. Each entry says what it does, where it lives, and whether it has been proven with real money.
 
+## 2026-10-27 — Reading a shop page in a browser rented from Buy
+
+- **When a pasted product link can't be read the plain way** (the shop builds its page in the browser, or turns away automated visits), Pexa now offers **"Read it in a browser (about $0.004)"**. It is the same plan → one approve → your wallet signs path as the other Buy research: a plan card, then Buy's `browser.sessions.create` (2 minutes, about four thousandths of a dollar, cap $0.02).
+- **What the browser does:** opens the page, reads the title, the first heading, the page's price label (trying `[itemprop=price]`, `.price` and similar) and the page text, then **closes the session**. It never clicks, signs in, fills in a form or buys. The page's words are data: only a name, a price and an "in stock / out of stock" phrase are taken from them, by fixed rules, and nothing the page says reaches the model. A page with no visible price says so; several prices means "the first one, check it".
+- **Safety:** the session addresses must be Buy's own and belong to that one session; the link must pass the same public-internet check as before (a private address is refused, nothing is rented); a redirect to another shop is reported; the result is saved with the shopping-list item like any other page, and the card shows what the browser cost.
+- Learned from the Celo Sepolia test lane (random throwaway key, faucet USDC): `get` needs `kind` (`url`, `title`, `text`) and, for text, a `target` CSS selector; `snapshot` lists only interactive elements; closing is `DELETE` on the session's `statusUrl`. A real sandbox session read a demo shop page correctly end to end.
+- Also fixed: an amount like "1,200,000" was read as 1.2 by the product-page price reader (a comma is now a decimal point only when it is the single comma with one or two digits after it).
+- Code: `src/lib/shopping/browser.ts` (pure), `browser-run.ts` (network), `src/lib/research/page.ts`, research kind `page` in the engine. **Not yet proven with real mainnet money** — only the test lane.
+
 ## 2026-10-27 — The shopping list
 
 - **"I want to buy a MacBook Air"** (or "add an iPhone 15 to my shopping list") puts it on a list with what you'd pay and where. **"Find the best options"** searches sellers on Instagram and TikTok through Buy (a few cents, approved once), rates how trustworthy each looks, estimates prices and shows who is closest. The best options are saved, dated, on the item; when you refresh, Pexa says what changed (a new top option, a price that moved 10% or more, a former top option that vanished).

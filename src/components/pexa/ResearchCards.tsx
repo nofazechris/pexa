@@ -42,7 +42,7 @@ export function ResearchPlanCard({ m, onConfirm, onCancel }: { m: ChatMessage; o
 
   return (
     <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '16px', maxWidth: '420px' }}>
-      <Label>{plan.request.kind === 'hire' ? 'FIND SOMEONE · BUY' : plan.request.kind === 'stocks' ? 'STOCK RESEARCH · BUY' : 'FIND A VENDOR · BUY'}</Label>
+      <Label>{plan.request.kind === 'hire' ? 'FIND SOMEONE · BUY' : plan.request.kind === 'stocks' ? 'STOCK RESEARCH · BUY' : plan.request.kind === 'page' ? 'READ A PAGE · BUY' : 'FIND A VENDOR · BUY'}</Label>
       <div style={{ fontSize: '16px', fontWeight: 600, letterSpacing: '-.015em', marginTop: '10px' }}>{plan.title}</div>
       <ol style={{ margin: '10px 0 0', paddingLeft: '18px', listStyle: 'decimal', fontSize: '13.5px', lineHeight: 1.55, color: color.mutedStrong }}>
         {plan.steps.map((s) => (
@@ -263,10 +263,48 @@ function ItemRow({ item, r, onTry, getAccessToken }: { item: ResearchItem; r: Re
   );
 }
 
+function PageResultCard({ r }: { r: ResearchResult }) {
+  const p = r.page;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', maxWidth: '460px' }}>
+      <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '14px 16px' }}>
+        <Label>PAGE READ IN A BROWSER</Label>
+        {p?.ok ? (
+          <>
+            <div style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '-.01em', marginTop: '8px', color: color.ink }}>{p.name ?? p.seller}</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '24px', fontWeight: 600, letterSpacing: '-.03em', fontVariantNumeric: 'tabular-nums' }}>{p.priceText ?? 'No price'}</span>
+              {p.availability ? <span style={{ fontSize: '12.5px', color: color.mutedStrong }}>{p.availability}</span> : null}
+            </div>
+            <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '6px', lineHeight: 1.5 }}>
+              {p.seller} · {p.label}
+              {p.note ? ` · ${p.note}` : ''}
+            </div>
+            {p.itemTitle ? <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '4px' }}>Saved with your “{p.itemTitle}”.</div> : null}
+          </>
+        ) : (
+          <div style={{ fontSize: '14.5px', lineHeight: 1.5, marginTop: '8px', color: color.ink }}>{r.summary}</div>
+        )}
+        <div style={{ fontFamily: MONO, fontSize: '11.5px', color: color.faint, marginTop: '8px' }}>Cost of the browser: {r.spent} · receipt saved under Purchases</div>
+      </div>
+      {r.notes.length ? (
+        <div style={{ fontSize: '12px', color: color.mutedStrong, lineHeight: 1.55, padding: '0 4px' }}>
+          {r.notes.map((n) => (
+            <div key={n} style={{ marginTop: '4px' }}>
+              {n}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ResearchResultCard({ m, onTry, getAccessToken }: { m: ChatMessage; onTry?: (text: string) => void; getAccessToken?: () => Promise<string | null> }) {
   const r = m.researchResult;
   if (!r) return null;
   if (r.stocks) return <StockResultCard r={r} getAccessToken={getAccessToken} />;
+  if (r.page) return <PageResultCard r={r} />;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', maxWidth: '460px' }}>
       <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '14px 16px' }}>

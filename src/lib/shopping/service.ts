@@ -4,7 +4,7 @@ import { getDb, schema } from '@/lib/db';
 import type { ResearchResult } from '@/lib/research/types';
 import { fetchProduct } from './fetch';
 import { MAX_OPTIONS, diffOptions, optionsFromResult, withWebOption, type OptionSnap } from './options';
-import { SELLER_LABEL, SELLER_NOTE, sellerKind } from './page';
+import { optionFromPage, type ProductPage } from './page';
 import type { ShoppingItemView } from './types';
 
 /**
@@ -111,28 +111,30 @@ export async function recordResearch(userId: string, itemId: string, result: Res
 }
 
 /** Read the price on a product page the person pasted, and keep it with the item. */
-export async function addLink(userId: string, itemId: string, url: string): Promise<{ ok: true; option: OptionSnap; item: ShoppingItemView } | { ok: false; message: string }> {
+export async function addLink(userId: string, itemId: string, url: string): Promise<{ ok: true; option: OptionSnap; item: ShoppingItemView } | { ok: false; message: string; browsable: boolean }> {
   const row = await loadOwned(userId, itemId);
-  if (!row || row.status !== 'active') return { ok: false, message: 'I can’t find that item on your list any more.' };
+  if (!row || row.status !== 'active') return { ok: false, message: 'I can’t find that item on your list any more.', browsable: false };
   const got = await fetchProduct(url);
   if (!got.ok) return got;
-  const kind = sellerKind(got.page.seller);
-  const option: OptionSnap = {
-    source: 'web',
-    name: got.page.name ?? got.page.seller,
-    handle: null,
-    url: got.page.url,
-    rating: null,
-    label: SELLER_LABEL[kind],
-    distanceKm: null,
-    price: got.page.price === null ? null : { text: `${got.page.currency ?? ''} ${got.page.price.toLocaleString('en-US', { maximumFractionDigits: 2 })}`.trim(), median: got.page.price, currency: got.page.currency ?? '' },
-    phone: null,
-    whatsapp: null,
-    note: `${got.page.seller}: ${SELLER_NOTE[kind]}${got.page.availability ? ` (${got.page.availability})` : ''}`,
-    checkedAt: new Date().toISOString(),
-  };
+  const option = optionFromPage(got.page, new Date());
   const prev = parse<OptionSnap[]>(row.optionsJson, []);
   const next = withWebOption(prev, option);
   const [updated] = await getDb().update(schema.shoppingItems).set({ optionsJson: JSON.stringify(next), updatedAt: new Date() }).where(eq(schema.shoppingItems.id, row.id)).returning();
   return { ok: true, option, item: view(updated) };
+}
+
+/** A page read in a rented browser: keep it with the item like any other page. Returns the item's title, or null if it is gone. */
+export async function savePageRead(userId: string, itemId: string, page: ProductPage, how: string): Promise<{ title: string; option: OptionSnap } | null> {
+  const row = await loadOwned(userId, itemId);
+  if (!row || row.status !== 'active') return null;
+  const option = optionFromPage(page, new Date(), how);
+  const next = withWebOption(parse<OptionSnap[]>(row.optionsJson, []), option);
+  await getDb().update(schema.shoppingItems).set({ optionsJson: JSON.stringify(next), updatedAt: new Date() }).where(eq(schema.shoppingItems.id, row.id));
+  return { title: row.title, option };
+}
+
+/** The title of an active item, for wording a result. */
+export async function itemTitle(userId: string, itemId: string): Promise<string | null> {
+  const row = await loadOwned(userId, itemId);
+  return row ? row.title : null;
 }

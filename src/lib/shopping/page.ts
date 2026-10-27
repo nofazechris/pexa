@@ -5,6 +5,8 @@
  * the domain: it says nothing about whether the page is honest, so it never says "safe". Pure.
  */
 
+import type { OptionSnap } from './options';
+
 export interface ProductPage {
   name: string | null;
   price: number | null;
@@ -18,16 +20,20 @@ export interface ProductPage {
 type Json = unknown;
 const isObj = (v: Json): v is Record<string, Json> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-function priceNumber(v: Json): number | null {
+export function priceNumber(v: Json): number | null {
   if (typeof v === 'number') return Number.isFinite(v) && v >= 0 ? v : null;
   if (typeof v !== 'string') return null;
-  // "1,299.00", "1.299,00", "₦1,200,000": keep digits and the last separator as the decimal point.
+  // "1,299.00", "1.299,00", "₦1,200,000", "12,50". A comma is a decimal point only when it is the single comma and 1–2 digits follow
+  // it; otherwise commas (and repeated dots) are thousands separators.
   const s = v.replace(/[^\d.,]/g, '');
   if (!s) return null;
   const lastDot = s.lastIndexOf('.');
   const lastComma = s.lastIndexOf(',');
-  let normal = s;
-  if (lastComma > lastDot) normal = s.replace(/\./g, '').replace(',', '.');
+  const commas = (s.match(/,/g) ?? []).length;
+  const dots = (s.match(/\./g) ?? []).length;
+  let normal: string;
+  if (lastComma > lastDot && commas === 1 && s.length - lastComma - 1 <= 2) normal = s.replace(/\./g, '').replace(',', '.');
+  else if (dots > 1 && commas === 0) normal = s.replace(/\./g, '');
   else normal = s.replace(/,/g, '');
   const n = Number(normal);
   return Number.isFinite(n) && n >= 0 ? n : null;
@@ -143,3 +149,22 @@ export const SELLER_NOTE: Record<SellerKind, string> = {
   retailer: 'A large marketplace can still list third-party sellers: check who is actually selling it.',
   unknown: 'I can only read the price. Check reviews, the return policy and how they take payment before you pay.',
 };
+
+/** The shopping-list option for a product page that was read (by plain fetch or in a rented browser). */
+export function optionFromPage(page: ProductPage, at: Date, how: string | null = null): OptionSnap {
+  const kind = sellerKind(page.seller);
+  return {
+    source: 'web',
+    name: page.name ?? page.seller,
+    handle: null,
+    url: page.url,
+    rating: null,
+    label: SELLER_LABEL[kind],
+    distanceKm: null,
+    price: page.price === null ? null : { text: `${page.currency ?? ''} ${page.price.toLocaleString('en-US', { maximumFractionDigits: 2 })}`.trim(), median: page.price, currency: page.currency ?? '' },
+    phone: null,
+    whatsapp: null,
+    note: `${page.seller}: ${SELLER_NOTE[kind]}${page.availability ? ` (${page.availability})` : ''}${how ? ` ${how}` : ''}`,
+    checkedAt: at.toISOString(),
+  };
+}

@@ -1,13 +1,13 @@
 /** Shared shapes for "find a vendor / find someone to hire" research. Plain data: safe to send to the browser. */
 
-export type ResearchKind = 'vendors' | 'hire' | 'stocks';
+export type ResearchKind = 'vendors' | 'hire' | 'stocks' | 'page';
 export type Verdict = 'solid' | 'mixed' | 'careful' | 'unknown';
 
 export interface ResearchRequest {
   kind: ResearchKind;
   /** Where to look: Instagram, TikTok and/or X for sellers (the person chooses); LinkedIn for professionals. */
   platforms: Platform[];
-  /** What they are looking for, e.g. "sneakers", "graphic designer". */
+  /** What they are looking for, e.g. "sneakers", "graphic designer". For a page read, the page's web address. */
   what: string;
   /** Where, e.g. "Lagos". Empty when it doesn't matter. */
   place: string;
@@ -160,6 +160,22 @@ export interface StockResearch {
   candidates: import('./stocks/heat').Heat[];
 }
 
+/** A product page read in a rented browser. Plain facts from the page; nothing the page wrote is kept except these. */
+export interface PageOutcome {
+  ok: boolean;
+  url: string;
+  /** The shopping-list item it was read for. */
+  itemTitle: string | null;
+  name: string | null;
+  priceText: string | null;
+  seller: string;
+  /** "Official brand store", "Major retailer", "Unverified web store". */
+  label: string;
+  availability: string | null;
+  /** How the price was found, or why none was. */
+  note: string | null;
+}
+
 export interface ResearchResult {
   request: ResearchRequest;
   summary: string;
@@ -176,6 +192,8 @@ export interface ResearchResult {
   expand?: { label: string; text: string }[];
   /** Present for stock research. */
   stocks?: StockResearch;
+  /** Present when a product page was read in a rented browser. */
+  page?: PageOutcome;
 }
 
 export type ResearchStatus = 'PLANNED' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED';

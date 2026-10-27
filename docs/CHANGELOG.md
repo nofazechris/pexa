@@ -2,6 +2,14 @@
 
 What changed, newest first. Each entry says what it does, where it lives, and whether it has been proven with real money.
 
+## 2026-10-27 — The shopping list
+
+- **"I want to buy a MacBook Air"** (or "add an iPhone 15 to my shopping list") puts it on a list with what you'd pay and where. **"Find the best options"** searches sellers on Instagram and TikTok through Buy (a few cents, approved once), rates how trustworthy each looks, estimates prices and shows who is closest. The best options are saved, dated, on the item; when you refresh, Pexa says what changed (a new top option, a price that moved 10% or more, a former top option that vanished).
+- **The web:** paste a product link and Pexa reads the name and price from the page (the standard product data shops publish) and labels the seller by its domain: official brand store, major retailer, or unverified web store. It never says a page is safe, and a page with no readable price says so instead of guessing. Pages are opened only if they are on the public internet: private and local addresses, odd ports, embedded passwords and tricky number forms are refused, every redirect is re-checked, and pages are size- and time-limited.
+- **Payment is a separate step you confirm.** "Pay (you confirm)" on an option explains the risks (a crypto payment can't be reversed, start with a small test payment, get the price and delivery in writing, pay only to the address they gave you), then the normal Confirm card does the rest. Pexa never pays a seller by itself and says escrow isn't available yet.
+- New table `shopping_items` and a link from research sessions to items (migration `0029`). Live evals cover adding, listing, researching, asking for a link, refusing a private address, reading a real shop page, the payment step and removing.
+- **Not built:** escrow (it would be a real smart contract holding people's money, which needs a deliberate decision, an audit and a cap), automatic price re-checks (they cost Buy purchases, so they are the person's tap), and reading prices from sites that hide them behind scripts.
+
 ## 2026-10-22 — Fixes from real use: the failed Aave deposit and the agent misreading the person
 
 Found by reading the saved chat, the deposit record and the chain:

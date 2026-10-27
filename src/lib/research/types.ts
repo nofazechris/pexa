@@ -15,6 +15,8 @@ export interface ResearchRequest {
   priority?: Priority;
   /** Only show sellers verified to be within this many km (straight-line). Absent means no limit. */
   radiusKm?: number | null;
+  /** The shopping-list item this research is for, so its result is saved there. */
+  itemId?: string;
 }
 
 export type Priority = 'balanced' | 'closest' | 'cheapest' | 'trusted';

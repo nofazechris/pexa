@@ -585,6 +585,8 @@ export const researchSessions = pgTable(
     radiusKm: real('radius_km'),
     /** The most this research may spend, in atomic units (6 decimals). */
     capAtomic: text('cap_atomic').notNull(),
+    /** The shopping-list item this research is for, when it is (so its result is saved there). */
+    shoppingItemId: uuid('shopping_item_id'),
     status: text('status').notNull().default('PLANNED'),
     /** The purchases made for it, in order: [{ purchaseId, role, ref }] (JSON). */
     stepsJson: text('steps_json').notNull().default('[]'),
@@ -928,6 +930,38 @@ export const tickerAlerts = pgTable(
 );
 
 export type TickerWatchRow = typeof tickerWatches.$inferSelect;
+
+/**
+ * Something a person is trying to buy (a MacBook, a phone, sneakers…): what, roughly what they'd pay, where, and the best options
+ * Pexa has found so far (a small snapshot of the latest research, never a promise). Theirs alone.
+ */
+export const shoppingItems = pgTable(
+  "shopping_items",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    /** What they'd like to pay at most, as they said it ("₦900,000", "$1,200"), and in dollars when that is clear. */
+    targetText: text("target_text"),
+    place: text("place").notNull().default(""),
+    /** Where to look for sellers: instagram, tiktok, x (comma-joined). */
+    platforms: text("platforms").notNull().default("instagram,tiktok"),
+    /** active | bought | dropped */
+    status: text("status").notNull().default("active"),
+    /** The latest ranked options (JSON, size-capped). */
+    optionsJson: text("options_json").notNull().default("[]"),
+    /** What changed at the last refresh, in plain words (JSON array of strings). */
+    changesJson: text("changes_json").notNull().default("[]"),
+    researchedAt: timestamp("researched_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("shopping_items_user_idx").on(t.userId, t.status, t.updatedAt)],
+);
+
+export type ShoppingItemRow = typeof shoppingItems.$inferSelect;
 
 /** What a person told Pexa about how they invest (risk comfort, time horizon, roughly how much). Theirs alone; shapes what Pexa shows them. */
 export const investorProfiles = pgTable("investor_profiles", {

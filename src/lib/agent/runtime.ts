@@ -44,6 +44,9 @@ import { CHOICES, EMPTY_PROFILE, QUESTION, applyAnswer, maxPoolRisk, minPoolSize
 import { parseInvestIntent, themeLabel } from './invest-intent';
 import { assistantRun } from './history';
 import { originalRequest } from './original-request';
+import { addItem, addLink, closeItem, findItem, listItems, setPlace } from '@/lib/shopping/service';
+import { askLink, askPlace, parseShoppingIntent, type ShoppingIntent } from '@/lib/shopping/intent';
+import type { ShoppingItemView } from '@/lib/shopping/types';
 import { coinNamed } from '@/lib/yield/coin';
 import { addWatch, listWatches, removeWatch, type WatchView } from '@/lib/yield/watchlist';
 import { addTickerWatch, listTickerWatches, removeTickerWatch, type TickerWatchView } from '@/lib/research/stocks/watchlist';
@@ -205,6 +208,7 @@ Buying services on Celo's Buy marketplace (you can spend the user's dollar stabl
 - YIELD RESEARCH — "where can I earn on my USDC", "best APY / yield", "staking pools", "what pays the most on Celo / Base", "can I earn on USAT": call research_yields. The app turns it into a card; keep your own words to ONE short sentence and state NO rates, sizes or rankings yourself — only what the card (or the bracketed note in the history) shows. Say it is research, not financial advice, if they ask whether to invest; never tell anyone what to buy or that something is safe or guaranteed. If they ask why the headline number differs from "pays steadily", explain that part is temporary rewards. Pexa can only move money on Celo: pools on other chains are research only. The card moves nothing.
 - INVESTING (you are a financial research agent, not a broker): the app itself asks a new person three quick questions (how they feel about risk, when they need the money, roughly how much) before researching, then runs stock research through Buy (X and Reddit) joined with real prices, or yield research. Pexa CANNOT buy or sell stocks — say so plainly, never pretend. Always separate what the data shows from what you think; never promise returns, never call anything safe, never tell someone how much to invest. If what they say doesn't match what you're doing (a different coin, a different goal), say so and find common ground in plain words instead of silently doing something else.
 - PROTOCOL CHECK (Buy): "Search X and Reddit for recent posts about <protocol> on <chain>: hacks, exploits, depegs or withdrawal problems" (the "Check what people say" button on a pool) is a normal Buy request: search X posts (latest) and Reddit with the protocol's name plus words like exploit, hack, depeg, "can't withdraw", paid by the person's own wallet after they approve each quote. When the results come back, report ONLY what the posts say — roughly how many are relevant, how recent, and a plain paraphrase of the newest few — and say that social posts are not proof either way. Never say a protocol is safe or unsafe, and never tell them to deposit or not to.
+- SHOPPING LIST: "I want to buy a MacBook", "add X to my shopping list", "find the best options for my X", "I bought X" are read by the app itself. Pexa researches sellers through Buy (closest, most trusted, what they published, price estimates) and reads prices from product pages the person pastes; it saves the best options, dated, on their list. Pexa NEVER pays a seller by itself: payment is a separate step where Pexa explains the risks (irreversible, start with a small test, check the seller) and then the normal Confirm card does the rest. Escrow is not available yet — never claim a payment is protected.
 - STOCK WATCH: "watch $NVDA" / "stop watching $AMD" / "refresh the talk about $NVDA" are read by the app itself. Watching a stock moves no money and tells the person (in their notifications) when its price moves 10% or more; the price is checked free when they open the app and once a day, but the talk on X and Reddit costs a few cents through Buy, so it is only refreshed when they ask. Never claim to be watching the talk continuously.
 - WATCHLIST: after showing yield research, end with ONE short question offering to watch a pool or (for Aave on Celo) deposit — the cards have Watch and Deposit buttons. "Watch / keep an eye on / tell me if it changes / tell me when it reaches 3%" → call watch_pool (chain + coin, targetApy only if they gave a rate). "My watchlist / what am I watching" → get_watchlist (a card). "Stop watching X" → unwatch_pool. Watching moves no money and only tells them, in their notifications, when a pool's steady rate moves a lot, rewards end or start, money leaves it, or it reaches their rate. After watch_pool or unwatch_pool just confirm in one short sentence — do not also call get_watchlist. Never promise they will be told instantly: checks run when they open the app and once a day.
 - EARNING ON AAVE: depositing into and withdrawing from Aave on Celo is handled by the app itself (a Confirm card shows up — you never do it and never say it is done). Only USDT and USDC can go in (USAT is not an Aave market: it must be converted to USDT first); beta cap $25 per deposit; the person can take it out whenever Aave has cash. For "how much do I have in Aave / what have I earned" call get_earn_position and report exactly what it returns. If they want to put money in but name no coin, the app asks. Never promise a return, never say it is safe, never tell them how much to deposit. Pexa cannot buy stocks: if asked, say so and offer yield research instead. Pools on other chains are research only; if their money is on another chain they can bring it to Celo first (getting paid from another network).
@@ -274,6 +278,8 @@ export interface PendingAction {
     | ({ type: 'earn_preview' } & EarnPreview)
     /** The pools the person is watching, with how each has changed since. Nothing to confirm. */
     | { type: 'watchlist'; items: WatchView[]; tickers: TickerWatchView[] }
+    /** The things the person is trying to buy, with the best options found. Nothing here moves money. */
+    | { type: 'shopping'; items: ShoppingItemView[] }
     /** Yield research: ranked pools with steady rate vs rewards and the risks. Nothing to confirm; moves no money. */
     | ({ type: 'yield_list' } & YieldView)
     /** Buttons for picking one of a few options (which platform to search); each sends its `text` as the person's next message. */
@@ -476,6 +482,66 @@ async function handleWatch(ctx: ToolContext, intent: Exclude<WatchIntent, { kind
   const told = intent.targetApy ? `when it pays ${intent.targetApy}% steadily, or ` : '';
   const reply = `${r.alreadyWatching ? 'You’re already watching' : 'Now watching'} ${label}${intent.chainAssumed ? ' (I assumed Celo)' : ''}${r.others > 0 ? ` — ${r.others} other pool${r.others === 1 ? '' : 's'} matched and I picked the biggest` : ''}. I’ll tell you in your notifications ${told}when its steady rate moves a lot, its rewards end or money leaves it. I check when you open the app and once a day. Nothing was deposited.`;
   return card(reply);
+}
+
+/** Plan the seller search for a shopping-list item (nothing is bought until the person approves the small budget). */
+async function planItemResearch(ctx: ToolContext, item: ShoppingItemView): Promise<AgentTurn> {
+  emitStage('walking', 'Planning the search…');
+  if (!buyAvailable()) return { reply: 'Research uses Buy, which runs on Celo mainnet only.' };
+  const req = normalizeRequest({ kind: 'vendors', what: item.title, place: item.place, platforms: item.platforms });
+  if (!req.ok) return { reply: req.message };
+  const made = await createResearch(ctx.userId, { ...req.request, itemId: item.id });
+  if (!made.ok) return { reply: made.message };
+  const where = item.platforms.map((p) => ({ instagram: 'Instagram', tiktok: 'TikTok', x: 'X' })[p] ?? p).join(' and ');
+  return { reply: `I’ll look for “${item.title}” sellers in ${item.place} on ${where}, rate how trustworthy each looks and estimate prices. It costs a few cents through Buy; approve below and I’ll run it. The best ones are saved on your list.`, action: { tool: 'plan_research', args: {}, render: { type: 'research_plan', ...made.plan } } };
+}
+
+/** The shopping list: add, show, research, add a link, remove, and the payment step. Nothing here moves money. */
+async function handleShopping(ctx: ToolContext, intent: Exclude<ShoppingIntent, { kind: 'none' }>): Promise<AgentTurn> {
+  emitStage(intent.kind === 'research' || intent.kind === 'place' ? 'walking' : 'searching', intent.kind === 'link' ? 'Reading that page…' : 'Reading your shopping list…');
+  const card = async (reply: string): Promise<AgentTurn> => ({ reply, action: { tool: 'shopping', args: {}, render: { type: 'shopping', items: await listItems(ctx.userId) } } });
+  const which = async (title: string): Promise<{ item: ShoppingItemView } | { reply: AgentTurn }> => {
+    const r = await findItem(ctx.userId, title);
+    if (r.item) return { item: r.item };
+    return { reply: r.many.length ? await card(`Which one do you mean? You’re trying to buy: ${r.many.join(', ')}.`) : { reply: 'That isn’t on your shopping list. Tell me what you want to buy, like “I want to buy a MacBook Air”.' } };
+  };
+
+  if (intent.kind === 'show') {
+    const items = await listItems(ctx.userId);
+    return card(items.length ? 'Here’s what you’re trying to buy.' : 'Your shopping list is empty. Tell me what you want to buy, like “I want to buy a MacBook Air”.');
+  }
+  if (intent.kind === 'add') {
+    const r = await addItem(ctx.userId, { title: intent.title, targetText: intent.targetText, place: intent.place });
+    if (!r.ok) return { reply: r.message };
+    return card(`${r.existed ? 'That’s already on your list' : 'Added'}: “${r.item.title}”${r.item.targetText ? ` (up to ${r.item.targetText})` : ''}. Tap “Find the best options” and I’ll search sellers near you (through Buy, a few cents, after you approve), rate how trustworthy each looks and estimate prices. Or paste a product link and I’ll read its price from the page.`);
+  }
+  const found = await which(intent.kind === 'pay' || intent.kind === 'place' || intent.kind === 'link' || intent.kind === 'ask_link' || intent.kind === 'research' || intent.kind === 'remove' || intent.kind === 'bought' ? intent.title : '');
+  if ('reply' in found) return found.reply;
+  const item = found.item;
+
+  if (intent.kind === 'research') {
+    if (!item.place) return { reply: askPlace(item.title), action: { tool: 'shopping', args: {}, render: { type: 'ask_location' } } };
+    return planItemResearch(ctx, item);
+  }
+  if (intent.kind === 'place') {
+    await setPlace(ctx.userId, item.id, intent.place);
+    return planItemResearch(ctx, { ...item, place: intent.place });
+  }
+  if (intent.kind === 'ask_link') return { reply: askLink(item.title) };
+  if (intent.kind === 'link') {
+    const r = await addLink(ctx.userId, item.id, intent.url);
+    if (!r.ok) return { reply: r.message };
+    const o = r.option;
+    return card(`Read it: ${o.name}${o.price ? ` — ${o.price.text}` : ''} (${o.label}). ${o.note ?? ''} It’s saved with your “${item.title}”.`.replace(/\s+/g, ' ').trim());
+  }
+  if (intent.kind === 'remove' || intent.kind === 'bought') {
+    await closeItem(ctx.userId, item.id, intent.kind === 'bought' ? 'bought' : 'dropped');
+    return card(intent.kind === 'bought' ? `Nice — I’ve taken “${item.title}” off your list.` : `Removed “${item.title}” from your list.`);
+  }
+  // The payment step. Pexa never pays by itself: it explains the risks, then the normal Confirm card does the rest.
+  const opt = item.options.find((o) => (o.handle ?? o.name).toLowerCase() === intent.seller.toLowerCase());
+  const facts = opt ? ` Pexa rated them ${opt.label.toLowerCase()}${opt.rating !== null ? ` (${(opt.rating / 20).toFixed(1)}/5)` : ''}${opt.price ? ` and they published ${opt.price.text}` : ''}.${opt.note ? ` Watch for: ${opt.note}` : ''}` : '';
+  return { reply: `Before you pay ${intent.seller} for your “${item.title}”:${facts}\n\n• A crypto payment can’t be reversed, so start with a small test payment (say $1) and ask them to confirm it arrived.\n• Ask for the exact price, what’s included, and how they’ll deliver — in writing.\n• Pay only to the wallet address or @username they gave you, and read it carefully on the card.\n\nWhen you’re ready, tell me the amount and where to send it, for example “send 20 USDC to 0x…”. I’ll show a Confirm card and nothing moves until you tap it. (Holding the money in escrow until delivery isn’t available yet.)` };
 }
 
 /** What Pexa says when asked to buy or sell a stock: it can't, and here is what it can do instead. */
@@ -877,6 +943,19 @@ async function runAgentTurnInner(input: { userId: string; messages: AgentMessage
         return await withDeadline(handleWatch({ userId: input.userId }, watch), 25_000);
       } catch (e) {
         console.error('[agent] watch handler failed:', e);
+        return { reply: 'I couldn’t do that just now. Nothing was changed — try again in a moment.' };
+      }
+    }
+  }
+
+  // The shopping list ("I want to buy a MacBook Air", "show my shopping list", the list's own buttons) — read by the app itself.
+  if (last?.role === 'user') {
+    const shop = parseShoppingIntent(last.content, assistantRun(input.messages));
+    if (shop.kind !== 'none') {
+      try {
+        return await withDeadline(handleShopping({ userId: input.userId }, shop), 40_000);
+      } catch (e) {
+        console.error('[agent] shopping handler failed:', e);
         return { reply: 'I couldn’t do that just now. Nothing was changed — try again in a moment.' };
       }
     }

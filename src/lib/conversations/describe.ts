@@ -20,6 +20,7 @@ export interface ChatLike {
   swapResult?: { ok?: boolean; amountOut?: string | null; error?: string };
   statement?: { label?: string; count?: number };
   choices?: { label?: string }[];
+  shopping?: { items?: { title?: string; targetText?: string | null; place?: string; options?: { name?: string; handle?: string | null; source?: string; label?: string; rating?: number | null; price?: { text?: string } | null }[] }[] };
   watchlist?: { items?: { symbol?: string; project?: string; chain?: string; since?: string; targetApy?: number | null }[]; tickers?: { symbol?: string; priceSince?: string; talk?: string }[] };
   earn?: { action?: string; token?: string; amount?: string; baseApy?: string; rewardApy?: string | null };
   earnResult?: { ok?: boolean; status?: string; amount?: string | null; position?: string | null; error?: string };
@@ -86,6 +87,10 @@ export function describeCard(m: ChatLike): string | null {
       const r = m.earnResult;
       const verb = e?.action === 'withdraw' ? 'withdrawal' : 'deposit';
       return r?.ok ? `[Showed a receipt: the ${verb} of ${r.amount ?? e?.amount ?? '?'} ${e?.token ?? ''} ${r.status === 'PENDING' ? 'was sent and is still confirming' : 'is confirmed on Celo'}${r.position ? `; they now have ${r.position} ${e?.token ?? ''} in Aave` : ''}]` : `[Showed that the ${verb} did not complete: ${clip(r?.error ?? 'unknown reason', 100)}]`;
+    }
+    case 'shopping': {
+      const list = (m.shopping?.items ?? []).slice(0, 8).map((i) => `“${untrustedLabel(i.title ?? '?', 60)}”${i.targetText ? ` (up to ${untrustedLabel(i.targetText, 20)})` : ''}: ${(i.options ?? []).slice(0, 4).map((o) => `${untrustedLabel(o.handle ?? o.name ?? '?', 30)} (${untrustedLabel(o.source ?? '', 10)}, ${untrustedLabel(o.label ?? '', 24)}${typeof o.rating === 'number' ? `, ${(o.rating / 20).toFixed(1)}/5` : ''}${o.price?.text ? `, ${untrustedLabel(o.price.text, 24)}` : ''})`).join('; ') || 'no options yet'}`).join(' | ');
+      return `[Showed the person’s shopping list: ${list || 'empty'}. Pexa never pays a seller by itself; paying is a separate Confirm step]`;
     }
     case 'watchlist': {
       const items = m.watchlist?.items ?? [];

@@ -14,6 +14,7 @@ import { lookupPrices } from './stocks/prices-service';
 import { buildStockItems, focusOf } from './stocks/build';
 import { recordTraction } from './stocks/watchlist';
 import { talkSince } from './stocks/watch';
+import { recordResearch } from '@/lib/shopping/service';
 import { getInvestorProfile } from '@/lib/profile/service';
 import { summary as profileSummary } from '@/lib/profile/investor';
 import { expandOptions } from './expand';
@@ -56,7 +57,7 @@ export type Advance =
 
 export { normalizeRequest } from './request';
 
-const requestOf = (r: ResearchSessionRow): ResearchRequest => ({ kind: r.kind as ResearchKind, platforms: r.source.split(',').filter(Boolean) as Platform[], what: r.what, place: r.place, priority: priorityFrom(r.priority), radiusKm: r.radiusKm ?? null });
+const requestOf = (r: ResearchSessionRow): ResearchRequest => ({ kind: r.kind as ResearchKind, platforms: r.source.split(',').filter(Boolean) as Platform[], what: r.what, place: r.place, priority: priorityFrom(r.priority), radiusKm: r.radiusKm ?? null, ...(r.shoppingItemId ? { itemId: r.shoppingItemId } : {}) });
 
 function stepsOf(r: ResearchSessionRow): StepRef[] {
   try {
@@ -84,7 +85,7 @@ export async function createResearch(userId: string, request: ResearchRequest): 
   const cap = text.capAtomic > RESEARCH_HARD_CAP_ATOMIC ? RESEARCH_HARD_CAP_ATOMIC : capFor(request);
   const [row] = await getDb()
     .insert(schema.researchSessions)
-    .values({ userId, kind: request.kind, source: request.platforms.join(','), what: request.what, place: request.place, priority: request.priority ?? 'balanced', radiusKm: request.radiusKm ?? null, capAtomic: cap.toString() })
+    .values({ userId, kind: request.kind, source: request.platforms.join(','), what: request.what, place: request.place, priority: request.priority ?? 'balanced', radiusKm: request.radiusKm ?? null, shoppingItemId: request.itemId ?? null, capAtomic: cap.toString() })
     .returning();
   return { ok: true, plan: { sessionId: row.id, request, title: text.title, steps: text.steps, estimate: text.estimate, cap: dollars(cap), capAtomic: cap.toString() } };
 }
@@ -180,6 +181,8 @@ async function finish(row: ResearchSessionRow, states: StepState[], reason: Fini
     if (expand.length) result.expand = expand;
     result.summary = buildSummary(result.request, result.items, reason, rated.market, result.skipped.length);
   }
+  // A search made for a shopping-list item keeps its best options there (fails soft: the result itself is never lost).
+  if (req.itemId) await recordResearch(row.userId, req.itemId, result).catch((e) => console.error('[shopping] save failed:', e instanceof Error ? e.message : e));
   const failed = reason === 'search_failed' && result.items.length === 0;
   await getDb()
     .update(schema.researchSessions)

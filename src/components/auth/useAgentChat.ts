@@ -8,6 +8,7 @@ import type { YieldView } from '@/lib/yield/view';
 import { THINKING, type Stage } from '@/lib/agent/stage';
 import type { WatchView } from '@/lib/yield/watchlist';
 import type { TickerWatchView } from '@/lib/research/stocks/watchlist';
+import type { ShoppingItemView } from '@/lib/shopping/types';
 import type { ResearchPlanView, ResearchResult } from '@/lib/research/types';
 import type { ResearchOutcome, ResearchProgress } from './useResearch';
 
@@ -59,6 +60,7 @@ export interface PendingActionView {
     | { type: 'ask_location' }
     | ({ type: 'yield_list' } & YieldView)
     | { type: 'watchlist'; items: WatchView[]; tickers: TickerWatchView[] }
+    | { type: 'shopping'; items: ShoppingItemView[] }
     | { type: 'ask_choice'; options: { label: string; text: string; hint?: string; recommended?: boolean }[] }
     | { type: 'buy_quote'; purchaseId: string; service: string; price: string; priceAtomic: string; token: string; detail: string; expiresAt: string; from: string; typedData: BuyTypedData; note: string };
 }
@@ -166,7 +168,7 @@ export interface RecurringCardData {
 export interface ChatMessage {
   id: number;
   role: 'user' | 'agent';
-  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge' | 'swap_preview' | 'swap_receipt' | 'statement' | 'research_plan' | 'research_result' | 'ask_location' | 'ask_choice' | 'yield_list' | 'earn_preview' | 'earn_receipt' | 'watchlist';
+  type?: 'text' | 'preview' | 'fiat_quote' | 'receipt' | 'fiat_receipt' | 'error' | 'receive' | 'buy_quote' | 'buy_result' | 'recurring_preview' | 'recurring_receipt' | 'intro' | 'bridge' | 'swap_preview' | 'swap_receipt' | 'statement' | 'research_plan' | 'research_result' | 'ask_location' | 'ask_choice' | 'yield_list' | 'earn_preview' | 'earn_receipt' | 'watchlist' | 'shopping';
   text?: string;
   /** A "find me a vendor / someone to hire" plan waiting for the budget to be approved, how far it has got, and its shortlist. */
   research?: ResearchPlanView;
@@ -184,6 +186,8 @@ export interface ChatMessage {
   yields?: YieldView;
   /** The pools the person is watching, shown as a card. */
   watchlist?: { items: WatchView[]; tickers: TickerWatchView[] };
+  /** The shopping list shown as a card. */
+  shopping?: { items: ShoppingItemView[] };
   /** A conversion to confirm, and (on the receipt) what happened to it. */
   swap?: SwapCardData;
   earn?: EarnCardData;
@@ -372,6 +376,8 @@ export function useAgentChat(deps: AgentChatDeps) {
           const { type: _s, ...card } = action.render;
           void _s;
           push({ role: 'agent', type: 'swap_preview', swap: card, status: 'awaiting' });
+        } else if (action.render.type === 'shopping') {
+          push({ role: 'agent', type: 'shopping', shopping: { items: action.render.items } });
         } else if (action.render.type === 'watchlist') {
           push({ role: 'agent', type: 'watchlist', watchlist: { items: action.render.items, tickers: action.render.tickers ?? [] } });
         } else if (action.render.type === 'yield_list') {

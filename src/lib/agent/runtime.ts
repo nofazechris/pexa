@@ -44,8 +44,10 @@ import { CHOICES, EMPTY_PROFILE, QUESTION, applyAnswer, maxPoolRisk, minPoolSize
 import { parseInvestIntent, themeLabel } from './invest-intent';
 import { assistantRun } from './history';
 import { originalRequest } from './original-request';
-import { addItem, addLink, closeItem, findItem, listItems, setPlace } from '@/lib/shopping/service';
-import { askLink, askPlace, browseText, parseShoppingIntent, type ShoppingIntent } from '@/lib/shopping/intent';
+import { addItem, addLink, closeItem, findItem, listItems, savePageRead, setPlace } from '@/lib/shopping/service';
+import { askLink, askPlace, askStorePlace, browseText, parseShoppingIntent, type ShoppingIntent } from '@/lib/shopping/intent';
+import { fetchProduct } from '@/lib/shopping/fetch';
+import { SELLER_LABEL, productTitle, sellerKind, titleFromUrl } from '@/lib/shopping/page';
 import { BROWSER_MINUTES } from '@/lib/shopping/browser';
 import { checkUrl } from '@/lib/shopping/ssrf';
 import type { ShoppingItemView } from '@/lib/shopping/types';
@@ -210,7 +212,7 @@ Buying services on Celo's Buy marketplace (you can spend the user's dollar stabl
 - YIELD RESEARCH — "where can I earn on my USDC", "best APY / yield", "staking pools", "what pays the most on Celo / Base", "can I earn on USAT": call research_yields. The app turns it into a card; keep your own words to ONE short sentence and state NO rates, sizes or rankings yourself — only what the card (or the bracketed note in the history) shows. Say it is research, not financial advice, if they ask whether to invest; never tell anyone what to buy or that something is safe or guaranteed. If they ask why the headline number differs from "pays steadily", explain that part is temporary rewards. Pexa can only move money on Celo: pools on other chains are research only. The card moves nothing.
 - INVESTING (you are a financial research agent, not a broker): the app itself asks a new person three quick questions (how they feel about risk, when they need the money, roughly how much) before researching, then runs stock research through Buy (X and Reddit) joined with real prices, or yield research. Pexa CANNOT buy or sell stocks — say so plainly, never pretend. Always separate what the data shows from what you think; never promise returns, never call anything safe, never tell someone how much to invest. If what they say doesn't match what you're doing (a different coin, a different goal), say so and find common ground in plain words instead of silently doing something else.
 - PROTOCOL CHECK (Buy): "Search X and Reddit for recent posts about <protocol> on <chain>: hacks, exploits, depegs or withdrawal problems" (the "Check what people say" button on a pool) is a normal Buy request: search X posts (latest) and Reddit with the protocol's name plus words like exploit, hack, depeg, "can't withdraw", paid by the person's own wallet after they approve each quote. When the results come back, report ONLY what the posts say — roughly how many are relevant, how recent, and a plain paraphrase of the newest few — and say that social posts are not proof either way. Never say a protocol is safe or unsafe, and never tell them to deposit or not to.
-- SHOPPING LIST: "I want to buy a MacBook", "add X to my shopping list", "find the best options for my X", "I bought X" are read by the app itself. Pexa researches sellers through Buy (closest, most trusted, what they published, price estimates) and reads prices from product pages the person pastes; it saves the best options, dated, on their list. Pexa NEVER pays a seller by itself: payment is a separate step where Pexa explains the risks (irreversible, start with a small test, check the seller) and then the normal Confirm card does the rest. Escrow is not available yet — never claim a payment is protected.
+- SHOPPING LIST: "I want to buy a MacBook", "add X to my shopping list", "find the best options for my X", "I bought X" are read by the app itself. Pexa researches sellers through Buy (closest, most trusted, what they published, price estimates) and reads prices from product pages the person pastes; it saves the best options, dated, on their list. It also finds REAL STORES nearby with Google Maps through Buy (about 4 cents; address, rating and review count, phone, open now, distance — "where can I buy a PS5 in Lagos", "find stores near me for my X"), and turns a pasted product link into a list item with its price. It works for ANY product, not just gadgets. Pexa NEVER pays a seller by itself: payment is a separate step where Pexa explains the risks (irreversible, start with a small test, check the seller) and then the normal Confirm card does the rest. Escrow is not available yet — never claim a payment is protected.
 - STOCK WATCH: "watch $NVDA" / "stop watching $AMD" / "refresh the talk about $NVDA" are read by the app itself. Watching a stock moves no money and tells the person (in their notifications) when its price moves 10% or more; the price is checked free when they open the app and once a day, but the talk on X and Reddit costs a few cents through Buy, so it is only refreshed when they ask. Never claim to be watching the talk continuously.
 - WATCHLIST: after showing yield research, end with ONE short question offering to watch a pool or (for Aave on Celo) deposit — the cards have Watch and Deposit buttons. "Watch / keep an eye on / tell me if it changes / tell me when it reaches 3%" → call watch_pool (chain + coin, targetApy only if they gave a rate). "My watchlist / what am I watching" → get_watchlist (a card). "Stop watching X" → unwatch_pool. Watching moves no money and only tells them, in their notifications, when a pool's steady rate moves a lot, rewards end or start, money leaves it, or it reaches their rate. After watch_pool or unwatch_pool just confirm in one short sentence — do not also call get_watchlist. Never promise they will be told instantly: checks run when they open the app and once a day.
 - EARNING ON AAVE: depositing into and withdrawing from Aave on Celo is handled by the app itself (a Confirm card shows up — you never do it and never say it is done). Only USDT and USDC can go in (USAT is not an Aave market: it must be converted to USDT first); beta cap $25 per deposit; the person can take it out whenever Aave has cash. For "how much do I have in Aave / what have I earned" call get_earn_position and report exactly what it returns. If they want to put money in but name no coin, the app asks. Never promise a return, never say it is safe, never tell them how much to deposit. Pexa cannot buy stocks: if asked, say so and offer yield research instead. Pools on other chains are research only; if their money is on another chain they can bring it to Celo first (getting paid from another network).
@@ -498,6 +500,16 @@ async function planItemResearch(ctx: ToolContext, item: ShoppingItemView): Promi
   return { reply: `I’ll look for “${item.title}” sellers in ${item.place} on ${where}, rate how trustworthy each looks and estimate prices. It costs a few cents through Buy; approve below and I’ll run it. The best ones are saved on your list.`, action: { tool: 'plan_research', args: {}, render: { type: 'research_plan', ...made.plan } } };
 }
 
+/** Plan the nearby-store search for a shopping-list item (Google Maps through Buy; nothing is bought until the person approves the small budget). */
+async function planStores(ctx: ToolContext, item: ShoppingItemView): Promise<AgentTurn> {
+  if (!item.place) return { reply: askStorePlace(item.title), action: { tool: 'shopping', args: {}, render: { type: 'ask_location' } } };
+  emitStage('walking', 'Planning the store search…');
+  if (!buyAvailable()) return { reply: 'Finding stores uses Buy, which runs on Celo mainnet only.' };
+  const made = await createResearch(ctx.userId, { kind: 'stores', platforms: [], what: item.title, place: item.place, itemId: item.id });
+  if (!made.ok) return { reply: made.message };
+  return { reply: `I’ll search Google Maps (through Buy) for stores near ${item.place} that sell “${item.title}”, then show each one’s address, rating, phone and how far it is. It costs about 4 cents; approve below and I’ll run it. The best ones are saved on your list.`, action: { tool: 'plan_research', args: {}, render: { type: 'research_plan', ...made.plan } } };
+}
+
 /** The shopping list: add, show, research, add a link, remove, and the payment step. Nothing here moves money. */
 async function handleShopping(ctx: ToolContext, intent: Exclude<ShoppingIntent, { kind: 'none' }>): Promise<AgentTurn> {
   emitStage(intent.kind === 'research' || intent.kind === 'place' ? 'walking' : 'searching', intent.kind === 'link' ? 'Reading that page…' : 'Reading your shopping list…');
@@ -517,10 +529,37 @@ async function handleShopping(ctx: ToolContext, intent: Exclude<ShoppingIntent, 
     if (!r.ok) return { reply: r.message };
     return card(`${r.existed ? 'That’s already on your list' : 'Added'}: “${r.item.title}”${r.item.targetText ? ` (up to ${r.item.targetText})` : ''}. Tap “Find the best options” and I’ll search sellers near you (through Buy, a few cents, after you approve), rate how trustworthy each looks and estimate prices. Or paste a product link and I’ll read its price from the page.`);
   }
-  const found = await which(intent.kind === 'pay' || intent.kind === 'place' || intent.kind === 'link' || intent.kind === 'browse' || intent.kind === 'ask_link' || intent.kind === 'research' || intent.kind === 'remove' || intent.kind === 'bought' ? intent.title : '');
+  if (intent.kind === 'stores_ask' || intent.kind === 'stores_place') {
+    const r = await addItem(ctx.userId, { title: intent.title, targetText: null, place: intent.place });
+    if (!r.ok) return { reply: r.message };
+    if (intent.kind === 'stores_place' && r.item.place !== intent.place) {
+      await setPlace(ctx.userId, r.item.id, intent.place);
+      return planStores(ctx, { ...r.item, place: intent.place });
+    }
+    return planStores(ctx, r.item);
+  }
+  if (intent.kind === 'product_link') {
+    const url = /^https?:/i.test(intent.url) ? intent.url : `https://${intent.url}`;
+    emitStage('searching', 'Reading that page…');
+    const got = await fetchProduct(url);
+    if (got.ok) {
+      const added = await addItem(ctx.userId, { title: productTitle(got.page.name ?? titleFromUrl(url)), targetText: null, place: null });
+      if (!added.ok) return { reply: added.message };
+      await savePageRead(ctx.userId, added.item.id, got.page, '').catch(() => null);
+      const p = got.page;
+      const price = p.price === null ? 'no price shown' : `${p.currency ?? ''} ${p.price.toLocaleString('en-US', { maximumFractionDigits: 2 })}`.trim();
+      return card(`${added.existed ? 'That’s already on your list' : 'Added'}: “${added.item.title}” — ${price} on ${p.seller} (${SELLER_LABEL[sellerKind(p.seller)].toLowerCase()}). Tap “Find stores near me” and I’ll look for real shops near you with their reviews, or “Find sellers online” for social sellers.`);
+    }
+    if (!got.browsable || !buyAvailable()) return { reply: got.message };
+    const added = await addItem(ctx.userId, { title: titleFromUrl(url), targetText: null, place: null });
+    if (!added.ok) return { reply: added.message };
+    return { reply: `I put “${added.item.title}” on your list. ${got.message} I can open the page in a private browser instead: it costs about half a cent through Buy, and it only looks at the page.`, action: { tool: 'shopping', args: {}, render: { type: 'ask_choice', options: [{ label: 'Read it in a browser (about $0.004)', text: browseText(added.item.title, url) }, { label: 'No thanks', text: 'No thanks' }] } } };
+  }
+  const found = await which(intent.kind === 'stores' || intent.kind === 'pay' || intent.kind === 'place' || intent.kind === 'link' || intent.kind === 'browse' || intent.kind === 'ask_link' || intent.kind === 'research' || intent.kind === 'remove' || intent.kind === 'bought' ? intent.title : '');
   if ('reply' in found) return found.reply;
   const item = found.item;
 
+  if (intent.kind === 'stores') return planStores(ctx, item);
   if (intent.kind === 'research') {
     if (!item.place) return { reply: askPlace(item.title), action: { tool: 'shopping', args: {}, render: { type: 'ask_location' } } };
     return planItemResearch(ctx, item);

@@ -42,7 +42,7 @@ export function ResearchPlanCard({ m, onConfirm, onCancel }: { m: ChatMessage; o
 
   return (
     <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '16px', maxWidth: '420px' }}>
-      <Label>{plan.request.kind === 'hire' ? 'FIND SOMEONE · BUY' : plan.request.kind === 'stocks' ? 'STOCK RESEARCH · BUY' : plan.request.kind === 'page' ? 'READ A PAGE · BUY' : 'FIND A VENDOR · BUY'}</Label>
+      <Label>{plan.request.kind === 'hire' ? 'FIND SOMEONE · BUY' : plan.request.kind === 'stocks' ? 'STOCK RESEARCH · BUY' : plan.request.kind === 'page' ? 'READ A PAGE · BUY' : plan.request.kind === 'stores' ? 'NEARBY STORES · BUY' : 'FIND A VENDOR · BUY'}</Label>
       <div style={{ fontSize: '16px', fontWeight: 600, letterSpacing: '-.015em', marginTop: '10px' }}>{plan.title}</div>
       <ol style={{ margin: '10px 0 0', paddingLeft: '18px', listStyle: 'decimal', fontSize: '13.5px', lineHeight: 1.55, color: color.mutedStrong }}>
         {plan.steps.map((s) => (
@@ -263,6 +263,65 @@ function ItemRow({ item, r, onTry, getAccessToken }: { item: ResearchItem; r: Re
   );
 }
 
+function StoresResultCard({ r }: { r: ResearchResult }) {
+  const s = r.stores;
+  const small = { border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '12.5px', fontWeight: 500, padding: '6px 11px', borderRadius: '9px', cursor: 'pointer', textDecoration: 'none', display: 'inline-block' } as const;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', maxWidth: '460px' }}>
+      <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '14px 16px' }}>
+        <Label>NEARBY STORES · GOOGLE MAPS</Label>
+        <div style={{ fontSize: '14.5px', lineHeight: 1.5, marginTop: '8px', color: color.ink }}>{r.summary}</div>
+        {s?.highlights.length ? (
+          <ul style={{ margin: '8px 0 0', paddingLeft: '17px', fontSize: '13px', lineHeight: 1.5, color: color.ink }}>
+            {s.highlights.map((h) => (
+              <li key={h}>{h}</li>
+            ))}
+          </ul>
+        ) : null}
+        <div style={{ fontFamily: MONO, fontSize: '11.5px', color: color.faint, marginTop: '8px' }}>Cost of this search: {r.spent} · receipt saved under Purchases</div>
+      </div>
+      {(s?.stores ?? []).map((st) => (
+        <div key={st.id} style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '14px', padding: '12px 15px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: '14.5px', fontWeight: 600, letterSpacing: '-.01em' }}>{st.name}</div>
+            <span style={{ fontSize: '12px', color: color.mutedStrong }}>{st.label}</span>
+          </div>
+          <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '4px', lineHeight: 1.5 }}>
+            {st.distanceKm !== null ? <strong style={{ color: color.ink }}>{st.distanceKm < 1 ? 'under 1 km away' : `${st.distanceKm < 10 ? st.distanceKm.toFixed(1) : Math.round(st.distanceKm)} km away`} · </strong> : null}
+            {st.note}
+          </div>
+          <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap', marginTop: '8px' }}>
+            {st.phone ? (
+              <a href={`tel:${st.phone.replace(/[^d+]/g, '')}`} style={small}>
+                Call
+              </a>
+            ) : null}
+            {st.mapsUrl ? (
+              <a href={st.mapsUrl} target="_blank" rel="noopener noreferrer" style={small}>
+                Directions
+              </a>
+            ) : null}
+            {st.website ? (
+              <a href={st.website} target="_blank" rel="noopener noreferrer" style={small}>
+                Website
+              </a>
+            ) : null}
+          </div>
+        </div>
+      ))}
+      {r.notes.length ? (
+        <div style={{ fontSize: '12px', color: color.mutedStrong, lineHeight: 1.55, padding: '0 4px' }}>
+          {r.notes.map((n) => (
+            <div key={n} style={{ marginTop: '4px' }}>
+              {n}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function PageResultCard({ r }: { r: ResearchResult }) {
   const p = r.page;
   return (
@@ -305,6 +364,7 @@ export function ResearchResultCard({ m, onTry, getAccessToken }: { m: ChatMessag
   if (!r) return null;
   if (r.stocks) return <StockResultCard r={r} getAccessToken={getAccessToken} />;
   if (r.page) return <PageResultCard r={r} />;
+  if (r.stores) return <StoresResultCard r={r} />;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', maxWidth: '460px' }}>
       <div style={{ border: `1px solid ${color.border}`, background: color.surface, borderRadius: '16px', padding: '14px 16px' }}>

@@ -27,7 +27,7 @@ export interface BuyCapability {
   url: string;
   inputSchema: Record<string, unknown>;
   pricing: { model: string; options: BuyPriceOption[] };
-  source: 'gateway' | 'compute';
+  source: 'gateway' | 'compute' | 'provider';
 }
 
 function rec(v: unknown): Record<string, unknown> {
@@ -289,4 +289,69 @@ export function toAgentDetail(cap: BuyCapability) {
     pricing: cap.pricing.options.map((o) => ({ for: o.label, price: usdLabel(o.atomic), params: o.params })),
     note: 'The price is confirmed by a live quote before anything is paid.',
   };
+}
+
+// --- Google Places, sold by Buy as a provider route ----------------------------------------------
+
+export const PLACES_ID = 'google.places.search';
+export const PLACES_URL = 'https://usebuy.ai/google/places/v1/places:searchText';
+
+/** What we ask Google for. Places (New) answers 400 without a field mask — and a request it rejects is still paid for. */
+export const PLACES_FIELD_MASK = [
+  'places.id',
+  'places.displayName',
+  'places.formattedAddress',
+  'places.location',
+  'places.rating',
+  'places.userRatingCount',
+  'places.nationalPhoneNumber',
+  'places.internationalPhoneNumber',
+  'places.websiteUri',
+  'places.googleMapsUri',
+  'places.businessStatus',
+  'places.regularOpeningHours.openNow',
+  'places.types',
+].join(',');
+
+/**
+ * Places text search ("phone shops in Yaba, Lagos"): real stores with their address, rating, phone and opening state. It isn't in the
+ * gateway catalog (it is a provider route in Buy's registry), so it is described here — the address and the price are still checked
+ * against a live 402 quote, and the payee against the catalog's.
+ */
+export function buildPlacesCapability(): BuyCapability {
+  return {
+    id: PLACES_ID,
+    title: 'Find nearby stores (Google Places)',
+    description: 'Searches Google Maps for stores and businesses by text, such as "phone shops in Yaba, Lagos". Returns name, address, rating, review count, phone, website and whether it is open now.',
+    platform: 'maps',
+    method: 'POST',
+    url: PLACES_URL,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['textQuery'],
+      properties: {
+        textQuery: { type: 'string', minLength: 2, maxLength: 200, description: 'What to find and where, e.g. "MacBook store in Lagos".' },
+        maxResultCount: { type: 'integer', minimum: 1, maximum: 10 },
+      },
+    },
+    pricing: { model: 'fixed', options: [{ label: 'standard', atomic: '40000', params: {} }] },
+    source: 'provider',
+  };
+}
+
+/** Headers a capability always needs, on the quote and on the paid call. Fixed here, never taken from a person or a model. */
+export function fixedHeaders(capabilityId: string): Record<string, string> {
+  return capabilityId === PLACES_ID ? { 'X-Goog-FieldMask': PLACES_FIELD_MASK } : {};
+}
+
+/** A paid request that the service rejects as malformed is still charged, so a body that can't work is stopped before the quote. */
+export function badInput(capabilityId: string, body: Record<string, unknown>): string | null {
+  if (capabilityId !== PLACES_ID) return null;
+  const q = body.textQuery;
+  if (typeof q !== 'string' || q.trim().length < 2 || q.length > 200) return 'The search text must be between 2 and 200 characters.';
+  const n = body.maxResultCount;
+  if (n !== undefined && (!Number.isInteger(n) || (n as number) < 1 || (n as number) > 10)) return 'The number of results must be a whole number from 1 to 10.';
+  for (const k of Object.keys(body)) if (!['textQuery', 'maxResultCount', 'locationBias', 'languageCode', 'regionCode'].includes(k)) return `Places search doesn’t take “${k}”.`;
+  return null;
 }

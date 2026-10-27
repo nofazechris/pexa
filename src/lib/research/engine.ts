@@ -12,6 +12,7 @@ import { igCandidates, igProfile, liPeople, tiktokCandidates, tiktokProfile, xTw
 import { mergeSameBusiness } from './dedupe';
 import { applyRatings, rankByRating, stars } from './rate';
 import { BROWSER_MINUTES } from '@/lib/shopping/browser';
+import { placesBody } from '@/lib/shopping/stores';
 import { scoreLinkedIn } from './score';
 import { groupSellers, type XSeller } from './sellers';
 import { scoreInstagram, scoreTikTok, scoreXSeller } from './vendor';
@@ -28,6 +29,7 @@ export const SERVICE = {
   liSearch: 'monid.linkedin.apify.harvestapi-linkedin-profile-search-by-services',
   redditSearch: 'reddit.posts.search',
   browser: 'browser.sessions.create',
+  places: 'google.places.search',
 } as const;
 
 export const ALLOWED_SERVICES: ReadonlySet<string> = new Set(Object.values(SERVICE));
@@ -51,6 +53,8 @@ export function freshForMs(capabilityId: string): number {
       return 6 * HOUR;
     case SERVICE.xTimeline:
       return 3 * HOUR;
+    case SERVICE.places:
+      return 12 * HOUR; // shops and their reviews change slowly; the same question asked again today costs nothing
     default:
       return 0;
   }
@@ -87,6 +91,7 @@ export function estimateFor(platforms: readonly Platform[]): bigint {
 
 /** The most a research may spend: about twice the typical cost, never under $0.10 or over the hard cap. */
 export function capFor(req: ResearchRequest): bigint {
+  if (req.kind === 'stores') return 50_000n; // one search at four cents, with a little room
   if (req.kind === 'page') return 20_000n; // one short browser session, about four thousandths of a dollar
   if (req.kind === 'stocks') return 100_000n; // four searches at about half a cent each, with room to spare
   if (req.platforms.length === 1 && req.platforms[0] === 'linkedin') return 150_000n;
@@ -148,6 +153,19 @@ export function describePlan(req: ResearchRequest): PlanText {
       capAtomic: 100_000n,
     };
   }
+  if (req.kind === 'stores') {
+    return {
+      title: sentence(`find stores selling ${req.what}${req.place ? ` near ${req.place}` : ''}`),
+      steps: [
+        `Search Google Maps (through Buy) for “${placesBody(req.what, req.place).textQuery}”`,
+        'Read each store’s address, rating and number of reviews, phone, website and whether it is open now',
+        'Measure how far each is from you and put the nearest first — nothing is bought, and nothing is paid to a store',
+      ],
+      estimate: dollars(40_000n),
+      cap: dollars(50_000n),
+      capAtomic: 50_000n,
+    };
+  }
   if (req.kind === 'page') {
     const host = hostOf(req.what);
     return {
@@ -184,7 +202,7 @@ export function describePlan(req: ResearchRequest): PlanText {
 
 // --- deciding the next purchase -----------------------------------------------------------------------------
 
-export type StepRole = 'browse' | 'search' | 'fallback' | 'vet' | 'tsearch' | 'tsearch2' | 'tvet' | 'xsearch' | 'xvet' | 'lsearch' | 'sx1' | 'sx2' | 'sr1' | 'sr2';
+export type StepRole = 'places' | 'browse' | 'search' | 'fallback' | 'vet' | 'tsearch' | 'tsearch2' | 'tvet' | 'xsearch' | 'xvet' | 'lsearch' | 'sx1' | 'sx2' | 'sr1' | 'sr2';
 export type StepOutcome = 'OPEN' | 'PAID' | 'UNCERTAIN' | 'FAILED';
 
 /** One purchase made (or being made) for this research, with what it returned once paid. */
@@ -262,7 +280,7 @@ export function foundXSellers(steps: readonly StepState[], req: ResearchRequest)
 
 /** Every account this run has looked at, by platform — so what Pexa already knows about them can be loaded before they are scored. */
 export function accountKeys(req: ResearchRequest, steps: readonly StepState[]): { platform: string; handle: string }[] {
-  if (req.kind === 'stocks' || req.kind === 'page') return [];
+  if (req.kind === 'stocks' || req.kind === 'page' || req.kind === 'stores') return [];
   const out: { platform: string; handle: string }[] = [];
   if (req.platforms.includes('instagram')) for (const s of steps) if (s.role === 'vet' && s.ref) out.push({ platform: 'instagram', handle: s.ref });
   if (req.platforms.includes('tiktok')) for (const s of steps) if (s.role === 'tvet' && s.ref) out.push({ platform: 'tiktok', handle: s.ref });
@@ -318,6 +336,11 @@ export function decideNext(req: ResearchRequest, steps: readonly StepState[]): N
   if (steps.length >= MAX_PURCHASES) return { action: 'finish', reason: 'limit' };
   if (steps.some((s) => s.outcome === 'UNCERTAIN')) return { action: 'finish', reason: 'uncertain' };
 
+  if (req.kind === 'stores') {
+    if (!steps.some((s) => s.role === 'places')) return buy('places', SERVICE.places, placesBody(req.what, req.place), `Searching Google Maps for ${req.what}`);
+    return steps.some((s) => s.outcome === 'PAID') ? { action: 'finish', reason: 'done' } : { action: 'finish', reason: 'search_failed' };
+  }
+
   if (req.kind === 'page') {
     if (!steps.some((s) => s.role === 'browse')) return buy('browse', SERVICE.browser, { durationMinutes: BROWSER_MINUTES }, 'Renting a private browser');
     return steps.some((s) => s.outcome === 'PAID') ? { action: 'finish', reason: 'done' } : { action: 'finish', reason: 'search_failed' };
@@ -354,6 +377,14 @@ export function decideNext(req: ResearchRequest, steps: readonly StepState[]): N
 }
 
 // --- the answer ---------------------------------------------------------------------------------------------
+
+/** A store search: what Google returned is read and ranked on the server afterwards (distances need the network). */
+function assembleStores(req: ResearchRequest, steps: readonly StepState[], reason: FinishReason): ResearchResult {
+  const notes: string[] = [];
+  if (reason === 'uncertain') notes.push('The payment for the search didn’t confirm, so I stopped. It may have gone through — check Purchases & receipts before searching again.');
+  if (reason === 'search_failed') notes.push('The search didn’t come back, and nothing was charged for what failed.');
+  return { request: req, summary: reason === 'done' ? 'I searched Google Maps.' : 'I couldn’t search for stores just now.', items: [], notes, spent: dollars(spentOn(steps)), market: null, skipped: [] };
+}
 
 /** A page read: the browser is rented here; what it saw is filled in on the server (it needs the network). */
 function assemblePage(req: ResearchRequest, steps: readonly StepState[], reason: FinishReason): ResearchResult {
@@ -423,6 +454,7 @@ export function skippedNote(skipped: readonly { name: string; reason: string }[]
 export function assemble(req: ResearchRequest, steps: readonly StepState[], reason: FinishReason, now: Date, memory: ReadonlyMap<string, VendorMemoryView> = new Map()): ResearchResult {
   if (req.kind === 'stocks') return assembleStocks(req, steps, reason, now);
   if (req.kind === 'page') return assemblePage(req, steps, reason);
+  if (req.kind === 'stores') return assembleStores(req, steps, reason);
   const mem = (platform: string, handle: string) => memory.get(`${platform}:${handle.toLowerCase()}`) ?? null;
   const spent = dollars(spentOn(steps));
   const notes: string[] = [];

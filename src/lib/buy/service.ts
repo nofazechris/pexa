@@ -28,7 +28,10 @@ import {
 } from './x402';
 import { PAY_TOKENS, PAY_TOKEN_SYMBOLS, chooseToken, isPayTokenSymbol, type PayToken, type PayTokenSymbol } from './tokens';
 import {
+  badInput,
   buildComputeCapability,
+  buildPlacesCapability,
+  fixedHeaders,
   missingRequiredFields,
   normalizeGatewayCatalog,
   searchCapabilities,
@@ -110,7 +113,7 @@ export async function getCatalog(): Promise<CatalogData> {
     // Without a published payee we can't verify what we'd be paying — fail closed.
     if (!payTo) throw new BuyError('catalog_invalid', 'Buy’s catalog didn’t publish a payment address.');
     const computeCap = compute.status === 'fulfilled' ? buildComputeCapability(compute.value) : null;
-    const data: CatalogData = { payTo, capabilities: computeCap ? [...capabilities, computeCap] : capabilities };
+    const data: CatalogData = { payTo, capabilities: [...capabilities, ...(computeCap ? [computeCap] : []), buildPlacesCapability()] };
     catalogCache = { at: Date.now(), data };
     return data;
   } catch (e) {
@@ -243,7 +246,7 @@ async function requestQuote(cap: BuyCapability, bodyJson: string): Promise<Quote
   try {
     res = await gatewayFetch(cap.url, {
       method: cap.method,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...fixedHeaders(cap.id) },
       body: cap.method === 'POST' ? bodyJson : undefined,
       timeoutMs: QUOTE_TIMEOUT_MS,
     });
@@ -342,6 +345,8 @@ export async function preparePurchase(userId: string, input: { capabilityId: str
   const body = input.input && typeof input.input === 'object' && !Array.isArray(input.input) ? input.input : {};
   const missing = missingRequiredFields(cap.inputSchema, body);
   if (missing.length) return { ok: false, code: 'missing_input', message: `This service needs: ${missing.join(', ')}.` };
+  const bad = badInput(cap.id, body);
+  if (bad) return { ok: false, code: 'bad_input', message: bad };
   const bodyJson = JSON.stringify(body);
   if (bodyJson.length > MAX_REQUEST_BODY_CHARS) return { ok: false, code: 'input_too_large', message: 'That request is too large to send.' };
 
@@ -501,7 +506,7 @@ async function runPaid(row: BuyPurchaseRow, signature: string): Promise<void> {
   try {
     res = await gatewayFetch(row.url, {
       method: row.method,
-      headers: { 'content-type': 'application/json', [header.name]: header.value },
+      headers: { 'content-type': 'application/json', ...fixedHeaders(row.capabilityId), [header.name]: header.value },
       body: row.method === 'POST' ? row.requestBody : undefined,
       timeoutMs: PAID_TIMEOUT_MS,
     });

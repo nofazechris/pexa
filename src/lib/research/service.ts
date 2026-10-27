@@ -19,6 +19,7 @@ import { getInvestorProfile } from '@/lib/profile/service';
 import { summary as profileSummary } from '@/lib/profile/investor';
 import { expandOptions } from './expand';
 import { fillPage } from './page';
+import { fillStores } from './stores';
 import type { Platform, ResearchKind, ResearchPlanView, ResearchRequest, ResearchResult } from './types';
 
 /**
@@ -166,6 +167,7 @@ async function finish(row: ResearchSessionRow, states: StepState[], reason: Fini
   const result = assemble(req, states, reason, new Date(), memory);
   if (extraNote) result.notes.unshift(extraNote);
   if (req.kind === 'stocks') await enrichStocks(result, row.userId).catch((e) => console.error('[stocks] enrich failed:', e instanceof Error ? e.message : e));
+  if (req.kind === 'stores') await fillStores(row.userId, result, states).catch((e) => console.error('[stores] read failed:', e instanceof Error ? e.message : e));
   if (req.kind === 'page') await fillPage(row.userId, result, states).catch((e) => console.error('[page] read failed:', e instanceof Error ? e.message : e));
   const reusedCount = stepsOf(row).filter((s) => s.cached).length;
   if (reusedCount > 0) result.notes.unshift(`${reusedCount} lookup${reusedCount === 1 ? '' : 's'} came from searches you paid for recently, so they cost nothing this time (they can be a few hours old).`);
@@ -184,7 +186,7 @@ async function finish(row: ResearchSessionRow, states: StepState[], reason: Fini
     result.summary = buildSummary(result.request, result.items, reason, rated.market, result.skipped.length);
   }
   // A search made for a shopping-list item keeps its best options there (fails soft: the result itself is never lost).
-  if (req.itemId && req.kind !== 'page') await recordResearch(row.userId, req.itemId, result).catch((e) => console.error('[shopping] save failed:', e instanceof Error ? e.message : e));
+  if (req.itemId && req.kind !== 'page' && req.kind !== 'stores') await recordResearch(row.userId, req.itemId, result).catch((e) => console.error('[shopping] save failed:', e instanceof Error ? e.message : e));
   const failed = reason === 'search_failed' && result.items.length === 0;
   await getDb()
     .update(schema.researchSessions)
@@ -310,6 +312,7 @@ function labelFor(req: ResearchRequest, step: StepRef | undefined): string {
   const where = req.place ? ` in ${req.place}` : '';
   if (!step) return 'Working…';
   if (req.kind === 'stocks') return { sx1: 'Searching X for the stocks people are talking about', sx2: 'Searching X for the newest stock talk', sr1: 'Searching Reddit for what’s hot in stocks', sr2: 'Searching Reddit for the best-argued write-ups' }[step.role as 'sx1' | 'sx2' | 'sr1' | 'sr2'] ?? 'Searching…';
+  if (step.role === 'places') return 'Searching Google Maps for stores near ' + (req.place || 'you');
   if (step.role === 'browse') return 'Renting a private browser for a couple of minutes, then reading the page';
   if (step.role === 'vet') return `Checking @${step.ref}`;
   if (step.role === 'tvet') return `Checking TikTok @${step.ref}`;

@@ -16,20 +16,27 @@ export type ShoppingIntent =
   | { kind: 'pay'; seller: string; title: string }
   | { kind: 'place'; title: string; place: string }
   | { kind: 'link'; title: string; url: string }
-  | { kind: 'browse'; title: string; url: string };
+  | { kind: 'browse'; title: string; url: string }
+  | { kind: 'stores'; title: string }
+  | { kind: 'stores_place'; title: string; place: string }
+  | { kind: 'stores_ask'; title: string; place: string | null }
+  | { kind: 'product_link'; url: string };
 
 const QUESTION = {
   place: (title: string) => `Which city should I look in for your ${title}? (Or tap “Use my location”.)`,
   link: (title: string) => `Paste the product link for your ${title} and I’ll read the price from the page.`,
 };
+export const askStorePlace = (title: string) => `Which city should I find stores in for your ${title}? (Or tap “Use my location”.)`;
 export const askPlace = QUESTION.place;
 export const askLink = QUESTION.link;
 const ASK_PLACE_RE = /Which city should I look in for your (.+?)\? \(Or tap/;
+const ASK_STORE_PLACE_RE = /Which city should I find stores in for your (.+?)\? \(Or tap/;
 const ASK_LINK_RE = /Paste the product link for your (.+?) and I’ll read the price/;
 
 /** The button texts the cards send. */
 export const researchText = (title: string) => `Find the best options for my ${title}`;
 export const linkText = (title: string) => `Add a product link for my ${title}`;
+export const storesText = (title: string) => `Find stores near me for my ${title}`;
 export const browseText = (title: string, url: string) => `Read the link for my ${title} in a browser: ${url}`;
 export const payText = (seller: string, title: string) => `I’m ready to pay ${seller} for my ${title}`;
 
@@ -41,6 +48,11 @@ const REMOVE = /\b(?:remove|delete|drop|take)\s+(.+?)\s+(?:from|off)\s+my\s+(?:s
 const BOUGHT = /\bi(?:'ve| have)?\s+(?:bought|got|purchased|ordered)\s+(?:the|my|a|an)?\s*(.+)$/i;
 const RESEARCH = /^(?:find|research|look for|search for|get me)\s+the best options for my\s+(.+)$/i;
 const LINK_BTN = /^add a product link for my\s+(.+)$/i;
+const STORES_BTN = /^find stores near me for my\s+(.+)$/i;
+const WHERE_BUY = /\bwhere\s+(?:can|could|do|should)\s+i\s+(?:buy|get|find|purchase)\s+(.+)$/i;
+const NEAREST = /^(?:(?:find|show|list|search for)\s+(?:me\s+)?)?(?:the\s+)?(?:nearest|closest|nearby)\s+(.+?)\s+(?:stores?|shops?|dealers?|sellers?|markets?|outlets?)\b\s*(.*)$/i;
+const NON_PRODUCT_HOST = /(^|\.)(x\.com|twitter\.com|instagram\.com|tiktok\.com|youtube\.com|youtu\.be|facebook\.com|linkedin\.com|reddit\.com|github\.com|t\.me|wa\.me|etherscan\.io|celoscan\.io|blockscout\.com|pexaapp\.xyz|localhost)$/i;
+const PRODUCT_LINK = /^(?:(?:please\s+)?(?:buy|track|add|watch|check|research|compare|price(?:\s+check)?)\s+(?:this|that|the)?\s*(?:product|item|link)?\s*:?\s*)?(https?:\/\/\S+|www\.\S+)\s*$/i;
 const BROWSE_BTN = /^read the link for my\s+(.+?)\s+in a browser:\s+(\S+)$/i;
 const PAY_BTN = /^i[’']m ready to pay\s+(.+?)\s+for my\s+(.+)$/i;
 
@@ -83,7 +95,15 @@ export function parseShoppingIntent(text: string, previousAssistant?: string): S
     if (place.length >= 2 && !/^(?:no|yes|ok|skip|cancel|never ?mind)$/i.test(place)) return { kind: 'place', title: askedPlace[1], place };
   }
 
+  const askedStorePlace = previousAssistant?.match(ASK_STORE_PLACE_RE);
+  if (askedStorePlace && t.length <= 70 && !/\?$/.test(t)) {
+    const place = t.replace(/^my area is\s+/i, '').replace(/^(?:in|i['’]m in|i am in|at)\s+/i, '').trim();
+    if (place.length >= 2 && !/^(?:no|yes|ok|skip|cancel|never ?mind)$/i.test(place)) return { kind: 'stores_place', title: askedStorePlace[1], place };
+  }
+
   // The cards' buttons.
+  const sb = t.match(STORES_BTN);
+  if (sb) return { kind: 'stores', title: sb[1].trim() };
   const pay = t.match(PAY_BTN);
   if (pay) return { kind: 'pay', seller: pay[1], title: pay[2] };
   const lb = t.match(LINK_BTN);
@@ -91,7 +111,31 @@ export function parseShoppingIntent(text: string, previousAssistant?: string): S
   const rs = t.match(RESEARCH);
   if (rs) return { kind: 'research', title: rs[1].trim() };
 
+  // A product link on its own: "https://shop.example/macbook-air" or "track this https://…".
+  const pl = t.match(PRODUCT_LINK);
+  if (pl) {
+    try {
+      const host = new URL(/^https?:/i.test(pl[1]) ? pl[1] : `https://${pl[1]}`).hostname;
+      if (!NON_PRODUCT_HOST.test(host)) return { kind: 'product_link', url: pl[1] };
+    } catch {
+      /* not a link */
+    }
+    return { kind: 'none' };
+  }
+
   if (NOT_GOODS.test(t)) return { kind: 'none' };
+
+  // "Where can I buy a PS5 in Lagos?", "the nearest phone shop".
+  const where = t.match(WHERE_BUY);
+  if (where) {
+    const item = splitItem(where[1].replace(/\s+(?:near me|nearby|around here|close to me|around me)\s*$/i, '').replace(/\?+$/, ''));
+    if (item.title.length >= 2 && !/^(?:it|this|that|them|one)$/i.test(item.title)) return { kind: 'stores_ask', title: item.title, place: item.place };
+  }
+  const near = t.match(NEAREST);
+  if (near) {
+    const item = splitItem(`${near[1]}${near[2] && /^(?:in|near|around)\s/i.test(near[2]) ? ` ${near[2]}` : ''}`);
+    if (item.title.length >= 2) return { kind: 'stores_ask', title: item.title, place: item.place };
+  }
 
   const rm = t.match(REMOVE);
   if (rm) return { kind: 'remove', title: rm[1].trim() };

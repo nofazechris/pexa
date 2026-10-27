@@ -1,6 +1,6 @@
 /** Shared shapes for "find a vendor / find someone to hire" research. Plain data: safe to send to the browser. */
 
-export type ResearchKind = 'vendors' | 'hire' | 'stocks' | 'page';
+export type ResearchKind = 'vendors' | 'hire' | 'stocks' | 'page' | 'stores';
 export type Verdict = 'solid' | 'mixed' | 'careful' | 'unknown';
 
 export interface ResearchRequest {
@@ -194,6 +194,8 @@ export interface ResearchResult {
   stocks?: StockResearch;
   /** Present when a product page was read in a rented browser. */
   page?: PageOutcome;
+  /** Present for a nearby-store search (Google Places through Buy). */
+  stores?: import('@/lib/shopping/stores').StoreResult;
 }
 
 export type ResearchStatus = 'PLANNED' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED';

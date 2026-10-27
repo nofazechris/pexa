@@ -3,7 +3,7 @@ import { and, desc, eq, ne } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db';
 import type { ResearchResult } from '@/lib/research/types';
 import { fetchProduct } from './fetch';
-import { MAX_OPTIONS, diffOptions, optionsFromResult, withWebOption, type OptionSnap } from './options';
+import { arrange, diffOptions, optionsFromResult, withStores, withWebOption, type OptionSnap } from './options';
 import { optionFromPage, type ProductPage } from './page';
 import type { ShoppingItemView } from './types';
 
@@ -101,12 +101,12 @@ export async function recordResearch(userId: string, itemId: string, result: Res
   if (!row || row.status !== 'active') return;
   const prev = parse<OptionSnap[]>(row.optionsJson, []);
   const found = optionsFromResult(result, new Date());
-  const web = prev.filter((o) => o.source === 'web');
-  const rated = found.length ? found : prev.filter((o) => o.source !== 'web');
-  const changes = found.length ? diffOptions(prev.filter((o) => o.source !== 'web'), found) : ['This search found no checked sellers, so your earlier options are unchanged.'];
+  const sellers = prev.filter((o) => o.source !== 'web' && o.source !== 'store');
+  const kept = prev.filter((o) => o.source === 'web' || o.source === 'store');
+  const changes = found.length ? diffOptions(sellers, found) : ['This search found no checked sellers, so your earlier options are unchanged.'];
   await getDb()
     .update(schema.shoppingItems)
-    .set({ optionsJson: JSON.stringify([...rated.slice(0, MAX_OPTIONS), ...web].slice(0, MAX_OPTIONS + 3)), changesJson: JSON.stringify(changes), researchedAt: new Date(), updatedAt: new Date() })
+    .set({ optionsJson: JSON.stringify(arrange([...(found.length ? found : sellers), ...kept])), changesJson: JSON.stringify(changes), researchedAt: new Date(), updatedAt: new Date() })
     .where(eq(schema.shoppingItems.id, row.id));
 }
 
@@ -137,4 +137,17 @@ export async function savePageRead(userId: string, itemId: string, page: Product
 export async function itemTitle(userId: string, itemId: string): Promise<string | null> {
   const row = await loadOwned(userId, itemId);
   return row ? row.title : null;
+}
+
+/** A nearby-store search finished: its stores replace the earlier ones, and what changed is said in plain words. */
+export async function recordStores(userId: string, itemId: string, stores: OptionSnap[]): Promise<{ title: string } | null> {
+  const row = await loadOwned(userId, itemId);
+  if (!row || row.status !== 'active') return null;
+  const prev = parse<OptionSnap[]>(row.optionsJson, []);
+  const changes = stores.length ? diffOptions(prev.filter((o) => o.source === 'store'), stores) : ['This search found no stores, so your earlier options are unchanged.'];
+  await getDb()
+    .update(schema.shoppingItems)
+    .set({ optionsJson: JSON.stringify(stores.length ? withStores(prev, stores) : prev), changesJson: JSON.stringify(changes), researchedAt: new Date(), updatedAt: new Date() })
+    .where(eq(schema.shoppingItems.id, row.id));
+  return { title: row.title };
 }

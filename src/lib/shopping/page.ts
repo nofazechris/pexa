@@ -168,3 +168,30 @@ export function optionFromPage(page: ProductPage, at: Date, how: string | null =
     checkedAt: at.toISOString(),
   };
 }
+
+/** "Apple MacBook Air 13-inch Laptop - Space Grey | Amazon.com" → "Apple MacBook Air 13-inch Laptop - Space Grey": the product, as a short list title. */
+export function productTitle(name: string): string {
+  let t = name.replace(/\s+/g, ' ').trim();
+  t = t.replace(/\s+[|–—]\s+[^|–—]{2,40}$/, '').replace(/^buy\s+/i, '');
+  if (t.length <= 80) return t;
+  const cut = t.slice(0, 80);
+  const space = cut.lastIndexOf(' ');
+  return (space > 40 ? cut.slice(0, space) : cut).replace(/[\s,:;–—-]+$/, '');
+}
+
+/** A readable name from a product address, for when the page itself can't be read: ".../products/a-light-in-the-attic_1000/index.html" → "A light in the attic". */
+export function titleFromUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    const segs = decodeURIComponent(u.pathname).split('/').filter((s) => s && !/^(index|default|home|dp|gp|product|products|p|item|items|ip|shop|catalogue?)(\.\w+)?$/i.test(s));
+    const best = [...segs].reverse().find((s) => /[a-z]{3}/i.test(s));
+    if (best) {
+      const words = best.replace(/\.\w{2,5}$/, '').split(/[-_+]+/).filter((w) => w && !/^\d+$/.test(w) && !/^[a-z]?\d{5,}[a-z\d]*$/i.test(w));
+      const text = words.join(' ').trim();
+      if (text.length >= 3) return text.charAt(0).toUpperCase() + text.slice(1, 80);
+    }
+    return u.hostname.replace(/^www\./, '');
+  } catch {
+    return 'Product';
+  }
+}

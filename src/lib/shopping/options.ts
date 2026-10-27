@@ -6,13 +6,15 @@ import type { ResearchItem, ResearchResult } from '@/lib/research/types';
  * for the person, never a promise. Pure.
  */
 
-export type OptionSource = 'instagram' | 'tiktok' | 'x' | 'web';
+export type OptionSource = 'instagram' | 'tiktok' | 'x' | 'web' | 'store';
 
 export interface OptionSnap {
   source: OptionSource;
   name: string;
   handle: string | null;
   url: string | null;
+  /** A store's place on the map (opens directions). */
+  mapsUrl?: string | null;
   /** Pexa's rating, 0–100 (null for a web page, which isn't rated). */
   rating: number | null;
   /** "Established", "Unproven", "High risk", "Official brand store", "Major retailer"… */
@@ -77,10 +79,27 @@ export function diffOptions(prev: readonly OptionSnap[], next: readonly OptionSn
   return out;
 }
 
-/** Add or replace a web page's option (one per page address), keeping the list short, best-rated first, pages after rated sellers. */
+/** How many of each kind the list keeps: rated sellers, nearby stores, web pages. */
+const KEEP = { sellers: MAX_OPTIONS, stores: 4, pages: 4 } as const;
+
+/** The list in its fixed order — rated sellers, then nearby stores, then web pages — each kind kept short. */
+export function arrange(options: readonly OptionSnap[]): OptionSnap[] {
+  return [
+    ...options.filter((o) => o.source !== 'web' && o.source !== 'store').slice(0, KEEP.sellers),
+    ...options.filter((o) => o.source === 'store').slice(0, KEEP.stores),
+    ...options.filter((o) => o.source === 'web').slice(0, KEEP.pages),
+  ];
+}
+
+/** Add or replace a web page's option (one per page address); the newest page is kept when there are too many. */
 export function withWebOption(options: readonly OptionSnap[], web: OptionSnap): OptionSnap[] {
   const rest = options.filter((o) => !(o.source === 'web' && o.url === web.url));
-  const rated = rest.filter((o) => o.source !== 'web');
-  const pages = [...rest.filter((o) => o.source === 'web'), web];
-  return [...rated, ...pages].slice(0, MAX_OPTIONS + 3);
+  const others = rest.filter((o) => o.source !== 'web');
+  const pages = [web, ...rest.filter((o) => o.source === 'web')];
+  return arrange([...others, ...pages]);
+}
+
+/** A new search of one kind replaces that kind's options and leaves the others alone. */
+export function withStores(options: readonly OptionSnap[], stores: readonly OptionSnap[]): OptionSnap[] {
+  return arrange([...options.filter((o) => o.source !== 'store'), ...stores]);
 }

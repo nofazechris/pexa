@@ -34,6 +34,7 @@ const LABELS: Record<ResearchKind, Record<Verdict, string>> = {
   // Stocks are never given a verdict (nothing is recommended); the table only has to be complete.
   stocks: { solid: 'Evidence', mixed: 'Evidence', careful: 'Evidence', unknown: 'Evidence' },
   page: { solid: 'Read', mixed: 'Read', careful: 'Read', unknown: 'Read' },
+  stores: { solid: 'Store', mixed: 'Store', careful: 'Store', unknown: 'Store' },
 };
 
 export const verdictLabel = (kind: ResearchKind, v: Verdict) => LABELS[kind][v];

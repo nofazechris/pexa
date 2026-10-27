@@ -1,7 +1,7 @@
 'use client';
 
 import { color } from '@/lib/design/tokens';
-import { linkText, payText, researchText } from '@/lib/shopping/intent';
+import { linkText, payText, researchText, storesText } from '@/lib/shopping/intent';
 import type { OptionSnap } from '@/lib/shopping/options';
 import type { ShoppingItemView } from '@/lib/shopping/types';
 
@@ -12,7 +12,7 @@ import type { ShoppingItemView } from '@/lib/shopping/types';
  */
 
 const MONO = 'var(--font-geist-mono),monospace';
-const SOURCE: Record<OptionSnap['source'], string> = { instagram: 'Instagram', tiktok: 'TikTok', x: 'X', web: 'Web page' };
+const SOURCE: Record<OptionSnap['source'], string> = { instagram: 'Instagram', tiktok: 'TikTok', x: 'X', web: 'Web page', store: 'Nearby store' };
 
 const small = { border: `1px solid ${color.borderStrong}`, background: color.surface, color: color.ink, fontSize: '12.5px', fontWeight: 500, padding: '6px 11px', borderRadius: '9px', cursor: 'pointer', textDecoration: 'none', display: 'inline-block' } as const;
 
@@ -37,8 +37,8 @@ function Option({ o, title, onTry }: { o: OptionSnap; title: string; onTry?: (te
         </span>
       </div>
       <div style={{ fontSize: '13px', color: color.ink, marginTop: '3px' }}>
-        {o.price ? <strong>{o.price.text}</strong> : <span style={{ color: color.mutedStrong }}>no price published</span>}
-        {o.distanceKm !== null ? <span style={{ color: color.mutedStrong }}> · about {Math.round(o.distanceKm)} km away</span> : null}
+        {o.price ? <strong>{o.price.text}</strong> : o.source === 'store' ? null : <span style={{ color: color.mutedStrong }}>no price published</span>}
+        {o.distanceKm !== null ? <span style={{ color: color.mutedStrong }}>{o.price ? ' · ' : ''}{o.distanceKm < 1 ? 'under 1 km away' : o.distanceKm < 10 ? `${o.distanceKm.toFixed(1)} km away` : `about ${Math.round(o.distanceKm)} km away`}</span> : null}
       </div>
       {o.note ? <div style={{ fontSize: '12px', lineHeight: 1.45, color: color.mutedStrong, marginTop: '4px' }}>{o.note}</div> : null}
       <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap', marginTop: '8px' }}>
@@ -47,12 +47,22 @@ function Option({ o, title, onTry }: { o: OptionSnap; title: string; onTry?: (te
             WhatsApp
           </a>
         ) : null}
-        {o.url ? (
-          <a href={o.url} target="_blank" rel="noopener noreferrer" style={small}>
-            {o.source === 'web' ? 'Open the page' : 'Open profile'}
+        {o.source === 'store' && o.phone ? (
+          <a href={`tel:${o.phone.replace(/[^d+]/g, '')}`} style={small}>
+            Call
           </a>
         ) : null}
-        {o.source !== 'web' && onTry ? (
+        {o.source === 'store' && o.mapsUrl ? (
+          <a href={o.mapsUrl} target="_blank" rel="noopener noreferrer" style={small}>
+            Directions
+          </a>
+        ) : null}
+        {o.url ? (
+          <a href={o.url} target="_blank" rel="noopener noreferrer" style={small}>
+            {o.source === 'web' ? 'Open the page' : o.source === 'store' ? 'Website' : 'Open profile'}
+          </a>
+        ) : null}
+        {o.source !== 'web' && o.source !== 'store' && onTry ? (
           <button onClick={() => onTry(payText(seller, title))} style={small} title="Starts the payment step: Pexa shows a Confirm card and nothing moves until you tap it.">
             Pay (you confirm)
           </button>
@@ -89,13 +99,16 @@ function Item({ it, onTry }: { it: ShoppingItemView; onTry?: (text: string) => v
           ))}
         </div>
       ) : (
-        <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '9px' }}>No options yet. Tap “Find the best options” and I’ll search sellers, or paste a product link and I’ll read its price.</div>
+        <div style={{ fontSize: '12.5px', color: color.mutedStrong, marginTop: '9px' }}>No options yet. Tap “Find stores near me” for real shops with their reviews, “Find sellers online” for social sellers, or paste a product link and I’ll read its price.</div>
       )}
 
       {onTry ? (
         <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap', marginTop: '10px', paddingTop: '10px', borderTop: `1px solid ${color.borderFaint}` }}>
-          <button onClick={() => onTry(researchText(it.title))} style={{ ...small, background: color.primary, color: '#fff', border: 'none' }} title="Searches sellers through Buy: a few cents from your wallet, after you approve.">
-            {it.researchedAt ? 'Refresh the options' : 'Find the best options'}
+          <button onClick={() => onTry(storesText(it.title))} style={{ ...small, background: color.primary, color: '#fff', border: 'none' }} title="Searches Google Maps through Buy: about 4 cents from your wallet, after you approve.">
+            {it.options.some((o) => o.source === 'store') ? 'Refresh the stores' : 'Find stores near me'}
+          </button>
+          <button onClick={() => onTry(researchText(it.title))} style={small} title="Searches social sellers through Buy: a few cents from your wallet, after you approve.">
+            {it.options.some((o) => o.source !== 'web' && o.source !== 'store') ? 'Refresh the sellers' : 'Find sellers online'}
           </button>
           <button onClick={() => onTry(linkText(it.title))} style={small}>
             Add a product link

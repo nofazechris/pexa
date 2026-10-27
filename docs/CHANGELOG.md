@@ -2,6 +2,15 @@
 
 What changed, newest first. Each entry says what it does, where it lives, and whether it has been proven with real money.
 
+## 2026-10-27 — Nearby stores (Google Maps through Buy) and any product, not just gadgets
+
+- **Real stores near you.** "Where can I buy a PS5 in Lagos?", "find the nearest phone shop", or the list's **Find stores near me** button plan a Google Maps search bought through Buy (`google.places.search`, **about $0.04**, cap $0.05, paid from your wallet in USDC, USDT or **USAT** — the live quote offers all three). You approve once and your wallet signs, like every Buy purchase.
+- **What comes back:** each store's address, **Google rating and review count**, phone, website, a map link and whether it is open now, ranked nearest first with straight-line distance from your city or area. Poorly reviewed or temporarily closed stores go last, stores closed for good are dropped, and the card says the facts first ("Closest: …", "Best reviewed: …") without picking for you. Buttons: Call, Directions, Website. There is no Pay button on a store — Pexa doesn't pay stores; it says to call and check stock first.
+- **Any product.** Nothing in the list is gadget-specific. **Paste a bare product link** and Pexa reads it (or offers the Buy browser read if the shop blocks plain visits), puts the product on your list under its real name with the price and seller, and offers stores and online sellers for it. Social links, chain explorers and code links are never treated as products.
+- **One list, three kinds of option:** rated online sellers, nearby stores, and pages you pasted. A new search of one kind replaces only that kind.
+- **How it is wired:** Places isn't in the gateway catalog (it is a provider route in Buy's registry), so `buildPlacesCapability` describes it; the `X-Goog-FieldMask` header Google requires is fixed in code and never taken from a person or a model; a malformed body (which Google rejects *and still charges for*) is stopped before the quote. The same-day repeat of a search is reused free (12 hours). Checked against the live unpaid quote: payee, resource and token parameters pass `checkRequirement` for all three tokens.
+- Code: `src/lib/shopping/stores.ts` (pure), `src/lib/research/stores.ts`, research kind `stores`, `src/lib/buy/catalog.ts`. **Not yet proven with a real paid search** — the quote, the parsing against Google's documented response shape, the plan and the saving were all checked, but no mainnet money has been spent on it.
+
 ## 2026-10-27 — Reading a shop page in a browser rented from Buy
 
 - **When a pasted product link can't be read the plain way** (the shop builds its page in the browser, or turns away automated visits), Pexa now offers **"Read it in a browser (about $0.004)"**. It is the same plan → one approve → your wallet signs path as the other Buy research: a plan card, then Buy's `browser.sessions.create` (2 minutes, about four thousandths of a dollar, cap $0.02).
